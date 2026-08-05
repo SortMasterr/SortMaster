@@ -1,0 +1,33 @@
+# 환경변수 (절대 커밋 금지, Slack으로 공유)
+.env
+.env.*
+!.env.example
+
+# CCTV 영상/이미지 데이터 (절대 커밋 금지)
+*.mp4
+*.avi
+*.mov
+*.mkv
+/data/cctv/
+/videos/
+/data/raw/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# IDE / OS
+.vscode/settings.json
+.DS_Store
+Thumbs.db
+
+# 모델 가중치 (Git LFS/별도 스토리지 방식 TBD)
+*.pt
+*.pth
