@@ -16,7 +16,7 @@ MONGO_HOST=sortmasterdb.0y5ba83.mongodb.net
 
 ## 3. 접속 테스트 (⚠️ 반드시 프로젝트 루트에서 실행)
 ```bash
-python debug/test_db_connection.py
+python debug/db/test_db_connection.py
 ```
 `debug/` 폴더 안에서 실행하면 `.env`를 못 찾습니다 — 루트 디렉터리에서 실행하세요.
 
