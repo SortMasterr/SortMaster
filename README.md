@@ -22,7 +22,7 @@
 
 ```bash
 cd ~/Dev  # 예시일뿐 원하는 폴더로 이동
-git clone https://github.com/yeon47/CreationStack.git
+git clone https://github.com/SortMasterr/SortMaster.git
 ```
 
 ⸻
