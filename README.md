@@ -9,10 +9,6 @@
 ### 브랜치 전략
 - main : 배포용 브랜치 ( 절대 수정 금지 )
 - dev : 개발 통합 브랜치
-- feat/* : 기능 구현 브랜치
-- 필요 시 bugfix/*, hotfix/*, refactor/* 등 사용 가능
-
-
 
 ### 📌 1. GitHub 저장소 클론하기 (최초 1회만)
 
@@ -39,25 +35,14 @@ git push origin main   # 🚨 금지
 
 ⸻
 
-## 📌 3. 새로운 브랜치에서 작업하기
-
-### 브랜치 생성
-```bash
-git checkout -b feat/기능명
-```
+## 📌 3. 브랜치에서 작업하기
 
 ### 브랜치 관련 명령어
 ```bash
 git branch                  # 현재 로컬 브랜치 목록 확인
 git checkout 브랜치명        # 기존 브랜치로 이동
 git checkout -              # 이전 브랜치로 되돌아가기
-```
-
-### 브랜치 이름 예시
-```bash
-feat/add-login
-feat/improve-ui
-bugfix/fix-login-error
+git switch 브랜치명           # 브랜치명으로 이동
 ```
 
 ⸻
@@ -104,7 +89,7 @@ git commit -m "[Feature] 로그인 기능 추가"
 ## 📌 5. 원격 저장소로 푸시하기
 
 ```bash
-git push origin feat/작업이름
+git push origin dev
 ```
 
 
@@ -114,7 +99,7 @@ git push origin feat/작업이름
 
 1. GitHub 저장소 → Pull Requests 클릭
 2. "New Pull Request" 클릭
-3. base: dev / compare: feat/작업이름 설정
+3. base: dev / compare: dev
 4. **작업 설명 작성**
 5. Merge 실행
 
@@ -141,9 +126,6 @@ git push origin feat/작업이름
 ```bash
 git checkout dev          # 또는 git switch develop
 git pull origin dev       # main이 아닌 develop 기준으로 최신화!
-git checkout feat/my-task  # 또는 git switch -c feat/new-task
-
-git pull origin dev      # 최신 develop 내용 병합 (필수!)
 ```
 
 
