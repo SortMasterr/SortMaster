@@ -6,8 +6,8 @@
 |---|---|---|
 | OS | Windows (로컬 개발) | 팀 공통 |
 | Python | **3.11** | CTO 권장 버전, 반드시 3.11로 통일 |
-| 패키지 관리 | `venv` + `pip` | `infra/check_env.py`가 목록 관리(별도 requirements.txt 없음) |
-| 웹 프레임워크 | FastAPI (최신 안정 버전) + `uvicorn[standard]` | 버전도 `infra/check_env.py`에서 관리 |
+| 패키지 관리 | `venv` + `pip` | `infra/checkEnv.py`가 목록 관리(별도 requirements.txt 없음) |
+| 웹 프레임워크 | FastAPI (최신 안정 버전) + `uvicorn[standard]` | 버전도 `infra/checkEnv.py`에서 관리 |
 | DB 드라이버 | `motor` (비동기) | MongoDB 연동용 |
 | DB 실행 | Docker | 호스트 포트 `27020`, 컨테이너 내부는 `27017` 유지 (팀 간 포트 충돌 방지) |
 | MongoDB 버전 | **TBD** | Docker 이미지 태그로 고정 예정 (예: `mongo:7.0`) — 확정 전 임의 지정 금지 |
@@ -27,8 +27,8 @@ docker --version   # Docker 설치 확인 (버전 TBD 확정 전까지는 최신
 git --version
 ```
 
-패키지는 별도 requirements.txt 없이 `infra/check_env.py`가 직접
-설치+체크까지 담당함(또는 `infra/check_env.bat` 더블클릭). Python 버전·필요 패키지
+패키지는 별도 requirements.txt 없이 `infra/checkEnv.py`가 직접
+설치+체크까지 담당함(또는 `infra/checkEnv.bat` 더블클릭). Python 버전·필요 패키지
 자동 설치·Docker 설치 여부·MongoDB(포트 27020) 접속을 한 번에 확인.
 
 ## 실행 방법 (Windows 로컬 개발)
@@ -38,16 +38,16 @@ cd WebApps/backend
 python -m venv venv
 venv\Scripts\activate
 
-python ..\..\infra\check_env.py
+python ..\..\infra\checkEnv.py
 :: 패키지 자동 설치 + Python/Docker/MongoDB 체크. 전부 OK가 아니면 여기서 먼저 해결
 
 copy ..\..\.env.example .env
 :: 필요 시 .env 값 수정 (CAMERA_SOURCE, USE_MOCK_DB 등)
 
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 8047
 ```
 
-브라우저에서 http://localhost:8000 접속.
+브라우저에서 http://localhost:8047 접속.
 API 상세 스펙은 `API_SPEC.md` 참고.
 
 ## 현재 상태 (Mock 단계)
