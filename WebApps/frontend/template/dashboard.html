@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스마트 수거 / 관리 시스템 - 대시보드</title>
+    <!-- 아이콘 CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="css/dashboard.css">
+</head>
+
+<body>
+
+    <div class="app-container">
+        <!-- [좌측 사이드바가 들어가 위치] -->
+        <div id="sidebar-container"></div>
+
+        <!-- [우측 메인 콘텐츠] -->
+        <main class="main-content">
+            <div class="content-header">
+                <h1 id="contentTitle">현재 상태: 수거 모드</h1>
+                <span id="modeBadge" class="badge badge-collect">수거 가동 중</span>
+            </div>
+
+            <!-- 대시보드 메인 본문 구역 -->
+            <div class="content-body" id="contentBody">
+                <div class="dashboard-component" style="background-color: #F8FAFC; color: #334155; padding: 12px; font-family: sans-serif; display: flex; flex-direction: column; gap: 20px; border-radius: 12px; border: 1px solid #E2E8F0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+
+                    <!-- 1. [상단 파트: 데이터 요약 메트릭 피드] -->
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px;">
+                        <div style="background-color: #ffffff; border: 1px solid #E2E8F0; border-radius: 14px; padding: 16px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                            <div>
+                                <p style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px;">총 배출 횟수</p>
+                                <h3 style="font-size: 24px; font-weight: 800; color: #0284C7; margin-top: 4px;">412 <span style="font-size: 12px; color: #94A3B8; font-weight: 500;">회</span></h3>
+                            </div>
+                            <div style="font-size: 24px; background-color: #F0F9FF; width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">📊</div>
+                        </div>
+                        <div style="background-color: #ffffff; border: 1px solid #E2E8F0; border-radius: 14px; padding: 16px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                            <div>
+                                <p style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px;">총 오배출 횟수</p>
+                                <h3 style="font-size: 24px; font-weight: 800; color: #DC2626; margin-top: 4px;">68 <span style="font-size: 12px; color: #94A3B8; font-weight: 500;">회</span></h3>
+                            </div>
+                            <div style="font-size: 24px; background-color: #FEF2F2; width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">🚨</div>
+                        </div>
+                    </div>
+
+                    <!-- 2. [중단 파트: 학원 지정 쓰레기 종류별 통계 그래프] -->
+                    <div style="background-color: #ffffff; border: 1px solid #E2E8F0; border-radius: 14px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                        <h4 style="font-size: 13px; font-weight: 800; color: #1E293B; margin-bottom: 16px; display: flex; align-items: center; gap: 6px;">
+                            <span style="display: inline-block; width: 3px; height: 13px; background-color: #0284C7; border-radius: 2px;"></span>
+                            쓰레기 종류별 누적 배출 통계
+                        </h4>
+                        
+                        <div style="display: flex; flex-direction: column; gap: 14px;">
+                            <!-- 일반 쓰레기 -->
+                            <div>
+                                <div style="display: flex; justify-content: space-between; font-size: 11px; font-weight: 700; color: #64748B; margin-bottom: 4px;">
+                                    <span>일반 쓰레기</span><span style="color: #475569; background-color: #F1F5F9; padding: 2px 6px; border-radius: 4px;">98 회</span>
+                                </div>
+                                <div style="width: 100%; background-color: #E2E8F0; height: 10px; border-radius: 5px; overflow: hidden;">
+                                    <div style="height: 100%; background: linear-gradient(90deg, #94A3B8, #64748B); width: 48%; border-radius: 5px;"></div>
+                                </div>
+                            </div>
+                            <!-- 플라스틱, 병, 캔 -->
+                            <div>
+                                <div style="display: flex; justify-content: space-between; font-size: 11px; font-weight: 700; color: #64748B; margin-bottom: 4px;">
+                                    <span>플라스틱, 병, 캔</span><span style="color: #0284C7; background-color: #E0F2FE; padding: 2px 6px; border-radius: 4px; font-weight: 800;">164 회</span>
+                                </div>
+                                <div style="width: 100%; background-color: #E2E8F0; height: 10px; border-radius: 5px; overflow: hidden;">
+                                    <div style="height: 100%; background: linear-gradient(90deg, #38BDF8, #0284C7); width: 82%; border-radius: 5px;"></div>
+                                </div>
+                            </div>
+                            <!-- 종이 쓰레기 -->
+                            <div>
+                                <div style="display: flex; justify-content: space-between; font-size: 11px; font-weight: 700; color: #64748B; margin-bottom: 4px;">
+                                    <span>종이 쓰레기</span><span style="color: #16A34A; background-color: #DCFCE7; padding: 2px 6px; border-radius: 4px;">71 회</span>
+                                </div>
+                                <div style="width: 100%; background-color: #E2E8F0; height: 10px; border-radius: 5px; overflow: hidden;">
+                                    <div style="height: 100%; background: linear-gradient(90deg, #4ADE80, #16A34A); width: 35%; border-radius: 5px;"></div>
+                                </div>
+                            </div>
+                            <!-- 플라스틱 커피 컵 (집중 케어) -->
+                            <div style="background-color: #FFF5F5; border: 1px dashed #FCA5A5; padding: 10px; border-radius: 10px;">
+                                <div style="display: flex; justify-content: space-between; font-size: 11px; font-weight: 700; color: #DC2626; margin-bottom: 4px;">
+                                    <span>플라스틱 커피 컵 (핵심 관리)</span><span style="color: #DC2626; background-color: #FFEEEE; padding: 2px 6px; border-radius: 4px; font-weight: 800;">191 회</span>
+                                </div>
+                                <div style="width: 100%; background-color: #E2E8F0; height: 10px; border-radius: 5px; overflow: hidden;">
+                                    <div style="height: 100%; background: linear-gradient(90deg, #EF4444, #DC2626); width: 95%; border-radius: 5px;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. [하단 파트: 최근 버려진 쓰레기 기록 인덱싱 목록 모듈] -->
+                    <div style="background-color: #ffffff; border: 1px solid #E2E8F0; border-radius: 14px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); flex: 1;">
+                        <h4 style="font-size: 13px; font-weight: 800; color: #1E293B; margin-bottom: 14px; display: flex; align-items: center; gap: 6px;">
+                            <span style="display: inline-block; width: 3px; height: 13px; background-color: #7C3AED; border-radius: 2px;"></span>
+                            최근 버려진 쓰레기 인덱스 기록 (DB)
+                        </h4>
+                        
+                        <div style="overflow-x: auto;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 11px; text-align: left;">
+                                <thead>
+                                    <tr style="border-bottom: 2px solid #F1F5F9; color: #64748B;">
+                                        <th style="padding: 8px 4px; font-weight: 700;">일시</th>
+                                        <th style="padding: 8px 4px; font-weight: 700;">위치</th>
+                                        <th style="padding: 8px 4px; font-weight: 700;">분류타입</th>
+                                        <th style="padding: 8px 4px; font-weight: 700;">배출위치</th>
+                                        <th style="padding: 8px 4px; font-weight: 700; text-align: right;">결과</th>
+                                    </tr>
+                                </thead>
+                                <tbody style="color: #475569;">
+                                    <tr style="border-bottom: 1px solid #F1F5F9;">
+                                        <td style="padding: 10px 4px; color: #94A3B8;">17:12:44</td>
+                                        <td style="padding: 10px 4px; font-weight: 500;">4층</td>
+                                        <td style="padding: 10px 4px; color: #DC2626; font-weight: 700;">커피 컵</td>
+                                        <td style="padding: 10px 4px; color: #DC2626; font-weight: 700;">종이배출함</td>
+                                        <td style="padding: 10px 4px; text-align: right; color: #DC2626; font-weight: bold;">오배출 🚨</td>
+                                    </tr>
+                                    <tr style="border-bottom: 1px solid #F1F5F9;">
+                                        <td style="padding: 10px 4px; color: #94A3B8;">17:05:12</td>
+                                        <td style="padding: 10px 4px; font-weight: 500;">12층</td>
+                                        <td style="padding: 10px 4px;">플라스틱</td>
+                                        <td style="padding: 10px 4px;">캔/병/플라스틱 통</td>
+                                        <td style="padding: 10px 4px; text-align: right; color: #16A34A; font-weight: bold;">정상 분류</td>
+                                    </tr>
+                                    <tr style="border-bottom: 1px solid #F1F5F9;">
+                                        <td style="padding: 10px 4px; color: #94A3B8;">16:51:30</td>
+                                        <td style="padding: 10px 4px; font-weight: 500;">12층</td>
+                                        <td style="padding: 10px 4px;">일반 쓰레기</td>
+                                        <td style="padding: 10px 4px;">일반쓰레기통</td>
+                                        <td style="padding: 10px 4px; text-align: right; color: #16A34A; font-weight: bold;">정상 분류</td>
+                                    </tr>
+                                    <tr style="border-bottom: 1px solid #F1F5F9;">
+                                        <td style="padding: 10px 4px; color: #94A3B8;">16:42:08</td>
+                                        <td style="padding: 10px 4px; font-weight: 500;">4층</td>
+                                        <td style="padding: 10px 4px; color: #DC2626; font-weight: 700;">커피 컵</td>
+                                        <td style="padding: 10px 4px; color: #DC2626; font-weight: 700;">종이배출함</td>
+                                        <td style="padding: 10px 4px; text-align: right; color: #DC2626; font-weight: bold;">오배출 🚨</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 분리한 JavaScript 파일 연결 (sidebar.js를 먼저 불러옵니다) -->
+    <script src="js/sidebar.js"></script>
+    <script src="js/dashboard.js"></script>
+</body>
+
+</html>
