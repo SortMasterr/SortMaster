@@ -16,11 +16,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ---------------- 2. 이전기록 데이터 & 테이블 로직 ---------------- */
     const TYPES = [
+        { name: '병/캔/플라스틱', cls: 'tag-plastic', bin: '캔/병/플라스틱 통' },
         { name: '일반쓰레기', cls: 'general_waste', bin: '일반쓰레기통' },
         { name: '종이', cls: 'tag-paper', bin: '종이 배출함' },
-        { name: '캔', cls: 'tag-can', bin: '캔/병/플라스틱 통' },
-        { name: '병', cls: 'tag-glass', bin: '캔/병/플라스틱 통' },
-        { name: '플라스틱', cls: 'tag-plastic', bin: '캔/병/플라스틱 통' },
     ];
     const AREAS = ['4층', '12층'];
     const WRONG_BIN = '일반쓰레기함';
@@ -41,7 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isMisclassified) {
                 loc = WRONG_BIN;
                 result = '오분류';
-                alarm = Math.random() > 0.08;
+                alarm = true;
             } else {
                 loc = t.bin;
                 result = '정상';
