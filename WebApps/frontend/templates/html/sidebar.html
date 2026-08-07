@@ -5,11 +5,44 @@
 
     <div class="sidebar-body">
         <span class="menu-label">내용들</span>
+
         <ul class="nav-menu">
-            <li><a href="main.html"><i class="fa-solid fa-chart-line"></i> 모니터링 현황</a></li>
-            <li><a href="history.html"><i class="fa-solid fa-list-check"></i> 이전기록</a></li>
-            <li><a href="dashboard.html"><i class="fa-solid fa-gear"></i> 대시보드</a></li>
+            <li>
+                <a href="main.html">
+                    <i class="fa-solid fa-chart-line"></i>
+                    모니터링 현황
+                </a>
+            </li>
+
+            <li>
+                <a href="history.html">
+                    <i class="fa-solid fa-list-check"></i>
+                    이전기록
+                </a>
+            </li>
+
+            <li>
+                <a href="dashboard.html">
+                    <i class="fa-solid fa-gear"></i>
+                    대시보드
+                </a>
+            </li>
         </ul>
+    </div>
+
+    <!-- 쓰레기통 가득 참 알림: 평상시에는 hidden -->
+    <div class="sidebar-alert-area">
+        <div
+            id="binFullAlert"
+            class="bin-full-alert"
+            role="alert"
+            aria-live="assertive"
+            aria-hidden="true"
+            hidden
+        >
+            <i class="fa-solid fa-trash-can"></i>
+            <span>쓰레기통 가득참</span>
+        </div>
     </div>
 
     <div class="sidebar-footer">
