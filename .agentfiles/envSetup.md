@@ -1,6 +1,6 @@
 # envSetup.md
 
-전체 가이드(트러블슈팅 포함): `Docs/skills/envSetup/README.md` (원본)
+전체 가이드(트러블슈팅 포함): `Docs/skills/envSetup/README.md` (원본, 아직 저장소에 없음 — 작성 전까지 이 문서가 유일한 기준)
 
 ## 핵심
 

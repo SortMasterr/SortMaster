@@ -1,6 +1,6 @@
 # naming.md
 
-전체 표/예시: `Docs/skills/naming/namingRules.xlsx` (원본)
+전체 표/예시: `Docs/skills/naming/namingRules.xlsx` (원본, 아직 저장소에 없음 — 작성 전까지 이 문서가 유일한 기준)
 
 ## 규칙
 

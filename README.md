@@ -41,7 +41,7 @@ venv\Scripts\activate
 python ..\..\infra\checkEnv.py
 :: 패키지 자동 설치 + Python/Docker/MongoDB 체크. 전부 OK가 아니면 여기서 먼저 해결
 
-copy ..\..\.env.example .env
+:: .env는 Notion에 공유된 팀 값을 그대로 받아 프로젝트 루트(WebApps/backend 상위)에 저장
 :: 필요 시 .env 값 수정 (CAMERA_SOURCE, USE_MOCK_DB 등)
 
 uvicorn main:app --reload --port 8047
@@ -56,7 +56,10 @@ API 상세 스펙은 `.agentfiles/apiSpec.md` 참고.
   (`ELEV-01`, `ELEV-02`, `REST-4F-01`)에 복제해서 스트리밍. 동일 웹캠을 여러 번
   열 수 없는 OS 제약 때문에 단일 캡처 + 프레임 공유 방식 사용.
 - **탐지**: `services/detectionService.py` — 랜덤 클래스 + 임의 confidence Mock.
-  (모델 미확정 상태라 여전히 Mock)
+  탐지 모델은 YOLOv8-Nano(상시감시)+YOLOv8-Medium(정밀분석) 2단계로 확정됐지만
+  아직 코드에 통합 전이라 여전히 Mock. 이벤트도 `misclassification`(투기)/
+  `overflow`(넘침) 두 카테고리로 나뉠 예정(상세는 `.agentfiles/architecture.md`,
+  `.agentfiles/apiSpec.md` 참고)
 - **저장소**: `repositories/eventRepository.py` — `.env`의 `USE_MOCK_DB` 값으로
   In-memory Mock ↔ 실제 MongoDB(motor) 전환 가능. **DB 실연동 완료**, 로컬 Docker
   MongoDB(포트 27020)로 저장 테스트 확인됨.
@@ -90,7 +93,7 @@ API 상세 스펙은 `.agentfiles/apiSpec.md` 참고.
 ## 메인보드 입고 후 교체할 부분
 
 1. `streaming/cameraManager.py` — 웹캠 단일 소스 → CameraId별 독립 RTSP 소스로 교체
-2. `services/detectionService.py` — Mock 추론 → 확정된 탐지 모델로 교체
+2. `services/detectionService.py` — Mock 추론 → YOLOv8-Nano(상시감시)+YOLOv8-Medium(정밀분석) 2단계 파이프라인으로 교체
 3. ~~`repositories/eventRepository.py` — In-memory → motor 기반 MongoDB 구현으로 교체~~
    **완료** (`USE_MOCK_DB=false`로 전환하면 실제 MongoDB 사용)
 4. `services/rpaService.py` — 콘솔 로그 → 실제 GPIO/HW 연동 (`RPAs/` 참고,
@@ -98,7 +101,6 @@ API 상세 스펙은 `.agentfiles/apiSpec.md` 참고.
 
 ## TBD (팀 논의 필요)
 
-- 객체 탐지 모델/프레임워크
 - 복합재질(`mixed`)/애매 쓰레기(`uncertain`) 클래스 세부 정의
 - 오탐 confidence threshold (현재 `.env`에 임시값 0.7)
 - MongoDB 버전, Docker/Compose 버전 (개발 환경 표 참고)
