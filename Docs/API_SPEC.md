@@ -1,7 +1,18 @@
 # API 명세서 — CCTV 기반 분리수거 오분류 탐지·자동 경고 시스템
 
 > 버전: MVP(Mock 단계) 기준. 엔드포인트 경로/이벤트 구조는 고정 — 임의 변경 금지.
-> Base URL: `http://localhost:8000` (개발), 배포 시 H100 서버 주소로 대체
+> Base URL: `http://localhost:8047` (개발), 배포 시 GPU 서버(L40S) 주소로 대체
+> AI 에이전트용 요약본: `.agentfiles/apiSpec.md` — 이 문서 수정 시 반드시 함께 업데이트할 것(둘 다 EP-ID 기준으로 대응)
+
+---
+
+## 탐지 파이프라인 개요 (2단계 모델)
+
+- **상시 감시(경량)**: YOLOv8-Nano 상주, ROI(쓰레기통 위치 고정) 내 객체 분석
+  - 손 O + 쓰레기 O → **투기 이벤트**(`misclassification`) → 정밀 분석 단계로
+  - 손 X + 쓰레기 O → **넘침 이벤트**(`overflow`, 쓰레기통 포화) → 정밀 분석 없이 영상 녹화만
+- **정밀 분석(투기 이벤트만)**: 트리거 즉시 10초 고화질 영상 녹화 + YOLOv8-Medium 로드해 캔/페트/종이/기타 정밀 분류
+- 2단계 전부 중앙 GPU 서버에서 처리(젯슨 나노는 캡처+RTSP 송신+GPIO 알림 수신만 담당). 자세한 내용은 `.agentfiles/architecture.md` 참고
 
 ---
 
@@ -17,10 +28,12 @@
 | Enum | 값 |
 |---|---|
 | `CameraId` | `ELEV-01` \| `ELEV-02` \| `REST-4F-01` |
-| `DetectedClass` | `general` \| `paper` \| `plastic` \| `coffeeCup` \| `mixed` \| `uncertain` |
+| `EventCategory` | `misclassification`(투기, 손+쓰레기 감지→정밀분류) \| `overflow`(넘침, 쓰레기만 감지→녹화만, 분류 없음) |
+| `DetectedClass` | `general` \| `paper` \| `plastic` \| `coffeeCup` \| `mixed` \| `uncertain` — `misclassification` 이벤트에서만 사용 |
 | `ActionTaken` | `lightAndSound` \| `soundOnly` \| `lightOnly` \| `notificationOnly` \| `none` |
 | `Mode` | `MANAGE`(기본값) \| `COLLECT` |
 | `CameraStatus` | `ONLINE` \| `OFFLINE` |
+| `WSEventType` | `MISCLASSIFICATION_DETECTED` \| `BIN_OVERFLOW_DETECTED` \| `MODE_CHANGED` \| `CAMERA_DISCONNECTED` \| `SYSTEM_ERROR` |
 
 ---
 
@@ -40,42 +53,54 @@
 
 ### 1-2. `POST /api/events`
 
-오분류 이벤트 생성. 매 프레임이 아니라 **오분류로 판정된 시점에만** 호출됨(내부 로직 기준. 외부에서 호출 시에도 동일 규칙 적용).
+이벤트 생성. 매 프레임이 아니라 **투기(오분류) 또는 넘침으로 판정된 시점에만** 호출됨(내부 로직 기준. 외부에서 호출 시에도 동일 규칙 적용).
 
 **Request Body** (`EventCreate`)
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|---|---|
 | `cameraId` | CameraId | ✅ | |
-| `detectedClass` | DetectedClass | ✅ | |
-| `isMisclassified` | boolean | ✅ | |
-| `confidenceScore` | float | ✅ | 0.0 ~ 1.0 |
+| `eventCategory` | EventCategory | ✅ | |
+| `detectedClass` | DetectedClass \| null | `eventCategory=misclassification`일 때만 | `overflow`는 생략/null |
+| `isMisclassified` | boolean \| null | `eventCategory=misclassification`일 때만 | `overflow`는 생략/null |
+| `confidenceScore` | float \| null | `eventCategory=misclassification`일 때만 | 0.0 ~ 1.0, `overflow`는 생략/null |
 
-**Response** (`Event`, 200) — `isMisclassified=false`이거나 5초 Cooldown 중이면 `null` 반환(이벤트 미생성)
+**Response** (`Event`, 200)
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | `eventId` | string (uuid) | |
 | `timestamp` | string (ISO8601) | |
 | `cameraId` | CameraId | |
-| `detectedClass` | DetectedClass | |
-| `isMisclassified` | boolean | |
-| `confidenceScore` | float | |
+| `eventCategory` | EventCategory | |
+| `detectedClass` | DetectedClass \| null | `overflow`면 null |
+| `isMisclassified` | boolean \| null | `overflow`면 null |
+| `confidenceScore` | float \| null | `overflow`면 null |
 | `actionTaken` | ActionTaken | |
-| `imageFileId` | string \| null | GridFS 파일 ID (Mock 단계는 null) |
+| `imageFileId` | string \| null | GridFS 파일 ID(이미지/영상 공용). Mock 단계는 null |
 | `notes` | string \| null | |
 
-**예시**
+- **misclassification**: `isMisclassified=false`이거나 5초 Cooldown 중이면 `null` 반환(이벤트 미생성)
+- **overflow**: 감지 즉시 이벤트 생성(분류 단계 없음), 영상 녹화만 수행
+
+**예시 (투기)**
 ```bash
-curl -X POST http://localhost:8000/api/events \
+curl -X POST http://localhost:8047/api/events \
   -H "Content-Type: application/json" \
-  -d '{"cameraId":"ELEV-01","detectedClass":"mixed","isMisclassified":true,"confidenceScore":0.85}'
+  -d '{"cameraId":"ELEV-01","eventCategory":"misclassification","detectedClass":"mixed","isMisclassified":true,"confidenceScore":0.85}'
+```
+
+**예시 (넘침)**
+```bash
+curl -X POST http://localhost:8047/api/events \
+  -H "Content-Type: application/json" \
+  -d '{"cameraId":"ELEV-01","eventCategory":"overflow"}'
 ```
 
 **부수 효과**
-- `SystemState.mode == MANAGE`: RPA 트리거(전구+경고음) + WebSocket `MISCLASSIFICATION_DETECTED` 브로드캐스트
+- `SystemState.mode == MANAGE`: RPA 트리거(전구+경고음) + WebSocket 브로드캐스트(카테고리별 `eventType`: `misclassification`→`MISCLASSIFICATION_DETECTED`, `overflow`→`BIN_OVERFLOW_DETECTED`)
 - `SystemState.mode == COLLECT`: 통계만 갱신, 알림/브로드캐스트 스킵
-- 동일 `cameraId`+`detectedClass` 조합 5초 이내 재호출 시 무시(Cooldown)
+- Cooldown(5초): `misclassification`은 동일 `cameraId`+`detectedClass` 조합, `overflow`는 동일 `cameraId` 기준으로 재호출 무시 (overflow Cooldown 기준은 TBD, 현재는 misclassification과 동일 5초로 가정)
 
 ---
 
@@ -88,7 +113,7 @@ curl -X POST http://localhost:8000/api/events \
 | `from` | ISO8601 datetime | ❌ | 시작 시각 |
 | `to` | ISO8601 datetime | ❌ | 종료 시각 |
 
-**Response**: `Event[]` — `timestamp` 내림차순(최신순, Mongo 연동 시)
+**Response**: `Event[]` — `timestamp` 내림차순(최신순, Mongo 연동 시). `misclassification`/`overflow` 혼합 반환
 
 ---
 
@@ -119,6 +144,7 @@ curl -X POST http://localhost:8000/api/events \
 ```
 
 > 프론트 Chart.js는 WebSocket 이벤트 수신 시 로컬 카운터만 낙관적으로 증가시키고, 새로고침 시 이 엔드포인트로 재동기화함.
+> `overflow` 건수를 이 집계에 포함할지, `misclassification`과 분리 집계할지는 TBD.
 
 ---
 
@@ -152,18 +178,28 @@ curl -X POST http://localhost:8000/api/events \
 
 | `eventType` | payload 필드 | 설명 |
 |---|---|---|
-| `MISCLASSIFICATION_DETECTED` | `cameraId`, `timestamp`, `isMisclassified` | 오분류 발생 시. `detectedClass` 필드 추가 여부 TBD |
+| `MISCLASSIFICATION_DETECTED` | `cameraId`, `timestamp`, `isMisclassified` | 투기(오분류) 발생 시. `detectedClass` 필드 추가 여부 TBD |
+| `BIN_OVERFLOW_DETECTED` | `cameraId`, `timestamp` | 쓰레기통 포화(넘침) 감지 시 |
 | `MODE_CHANGED` | `mode`, `timestamp` | 모드 전환 시(연결 시 1회 + `POST /api/mode` 성공 시 전체 브로드캐스트) |
 | `CAMERA_DISCONNECTED` | `cameraId`, `timestamp` | 카메라 연결 끊김(30초 재시도 초과) |
 | `SYSTEM_ERROR` | `message`, `timestamp` | 서버 내부 에러 |
 
-**예시 (오분류 발생)**
+**예시 (투기 발생)**
 ```json
 {
   "eventType": "MISCLASSIFICATION_DETECTED",
   "cameraId": "ELEV-01",
   "timestamp": "2026-08-06T10:15:30.123Z",
   "isMisclassified": true
+}
+```
+
+**예시 (넘침 발생)**
+```json
+{
+  "eventType": "BIN_OVERFLOW_DETECTED",
+  "cameraId": "ELEV-01",
+  "timestamp": "2026-08-06T10:15:30.123Z"
 }
 ```
 
@@ -177,11 +213,12 @@ JSON을 반환하지 않고 `TemplateResponse`만 반환. JSON API와 컨트롤�
 
 | Method | Path | 템플릿 | 설명 |
 |---|---|---|---|
-| GET | `/` | `index.html` | 메인 — 카메라 3대 스트리밍 + 사이드바(모드 토글, 최근 이벤트) + 통계 |
-| GET | `/events` | `events_list.html` | 이벤트 목록 |
-| GET | `/events/{id}` | `event_detail.html` | 이벤트 상세 |
-| GET | `/statistics` | `statistics.html` | 통계 대시보드 |
+| GET | `/` | `main.html` | 메인 — 카메라 3대 스트리밍 + 모니터링 현황 |
+| GET | `/events` | `history.html` | 이전기록(이벤트 목록) |
+| GET | `/events/{id}` | (미정) | 이벤트 상세 — 템플릿 아직 없음, 구현 전 |
+| GET | `/statistics` | `dashboard.html` | 통계 대시보드 |
 
+> `sidebar.html`은 라우트가 아니라 각 페이지에 공통으로 포함되는 사이드바 partial(모드 토글, 페이지 네비게이션).
 > `GET /`는 `SystemState`의 현재 모드를 템플릿 컨텍스트로 함께 전달 — 새로고침 시 프론트 상태 초기화 방지.
 
 ---
@@ -202,3 +239,6 @@ JSON을 반환하지 않고 `TemplateResponse`만 반환. JSON API와 컨트롤�
 - `MISCLASSIFICATION_DETECTED` 페이로드에 `detectedClass` 필드 추가 여부
 - 이벤트 목록/통계 조회 시 페이지네이션(limit/offset) 추가 여부 (현재 미구현)
 - 인증/권한 (P3 우선순위, 현재 없음)
+- `overflow` 이벤트의 Cooldown 기준(현재는 `misclassification`과 동일 5초로 가정, 재검토 필요)
+- 통계(`GET /api/statistics`)에 `overflow` 건수도 포함할지, `misclassification`과 분리 집계할지
+- `GET /events/{id}` 템플릿(이벤트 상세 페이지) 미구현

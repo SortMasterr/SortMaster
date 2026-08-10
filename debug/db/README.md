@@ -6,7 +6,7 @@ pip install pymongo python-dotenv
 ```
 
 ## 2. `.env` 파일 생성 (⚠️ 프로젝트 루트에 생성, `debug/` 안 아님)
-`.env.example`과 같은 위치(프로젝트 루트)에 `.env`를 만들고 아래 내용 작성:
+Notion에 공유된 `.env` 값을 그대로 프로젝트 루트에 저장(아래 키 포함돼 있는지 확인):
 ```
 MONGO_HOST=
 MONGO_PORT=27020
@@ -32,5 +32,5 @@ python debug/testCrud.py
 ```
 
 ## 참고
-- 로컬 Docker MongoDB 사용 (Atlas 아님 — H100 서버에도 동일하게 Docker로 배포 예정)
-- 실제 백엔드(Repository 계층) DB 연동은 별도(`infra/check_env.py`가 접속 여부만 체크), 이 스크립트들은 순수 CRUD 동작 확인용
+- 로컬 Docker MongoDB 사용 (Atlas 아님 — GPU 서버(L40S)에도 동일하게 Docker로 배포 예정)
+- 실제 백엔드(Repository 계층) DB 연동은 별도(`infra/checkEnv.py`가 접속 여부만 체크), 이 스크립트들은 순수 CRUD 동작 확인용
