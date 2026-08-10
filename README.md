@@ -48,19 +48,19 @@ uvicorn main:app --reload --port 8047
 ```
 
 브라우저에서 http://localhost:8047 접속.
-API 상세 스펙은 `API_SPEC.md` 참고.
+API 상세 스펙은 `.agentfiles/apiSpec.md` 참고.
 
 ## 현재 상태 (Mock 단계)
 
 - **영상 소스**: 웹캠(`CAMERA_SOURCE=0`) 1개를 열어, 프레임을 3개 카메라ID
   (`ELEV-01`, `ELEV-02`, `REST-4F-01`)에 복제해서 스트리밍. 동일 웹캠을 여러 번
   열 수 없는 OS 제약 때문에 단일 캡처 + 프레임 공유 방식 사용.
-- **탐지**: `services/detection_service.py` — 랜덤 클래스 + 임의 confidence Mock.
+- **탐지**: `services/detectionService.py` — 랜덤 클래스 + 임의 confidence Mock.
   (모델 미확정 상태라 여전히 Mock)
-- **저장소**: `repositories/event_repository.py` — `.env`의 `USE_MOCK_DB` 값으로
+- **저장소**: `repositories/eventRepository.py` — `.env`의 `USE_MOCK_DB` 값으로
   In-memory Mock ↔ 실제 MongoDB(motor) 전환 가능. **DB 실연동 완료**, 로컬 Docker
   MongoDB(포트 27020)로 저장 테스트 확인됨.
-- **RPA(전구/경고음)**: `services/rpa_service.py` — 콘솔 로그로 대체(젯슨 나노 GPIO
+- **RPA(전구/경고음)**: `services/rpaService.py` — 콘솔 로그로 대체(젯슨 나노 GPIO
   연동 전까지 유지).
 - **DB**: MongoDB Docker, 호스트 포트 `27020`(다른 팀과 충돌 방지, 컨테이너 내부는
   `27017` 유지).
@@ -68,16 +68,18 @@ API 상세 스펙은 `API_SPEC.md` 참고.
 ### 배포 전략
 
 - 개발: Windows 노트북에서 Docker로 진행(로컬 웹캠 테스트)
-- 배포: 동일 Docker 이미지를 그대로 학원 **H100 서버**(Linux)로 이전
-- MVP 단계는 백엔드(FastAPI)+탐지 추론을 **H100 서버 하나에 통합 배포**(별도 상시
-  서버 불필요, H100이 24시간 내부망 서버 요건 충족). GPU 패스스루는
+- 배포: 동일 Docker 이미지를 그대로 학원 GPU 서버(Linux, **NVIDIA L40S 4장 중
+  할당받은 1장**)로 이전
+- 다른 팀들과 서버를 공유하기 때문에 4장 중 **1장만 할당**받아 사용. MVP 단계는
+  백엔드(FastAPI)+모델 학습+DB 저장+탐지 추론을 **할당받은 GPU 1장 안에 전부
+  통합 배포**(별도 상시 서버 불필요). GPU 패스스루는
   `nvidia-docker`(NVIDIA Container Toolkit) 필요.
-- 로컬(웹캠)과 H100 배포(RTSP 수신/샘플 영상) 간 영상 소스는 `.env`의
+- 로컬(웹캠)과 GPU 서버 배포(RTSP 수신/샘플 영상) 간 영상 소스는 `.env`의
   `CAMERA_SOURCE` 값만 다르게 관리(코드 변경 없음).
 
 ### 젯슨 나노(메인보드) 엣지 코드
 
-메인보드 입고 전까지 별도 진행 중 (`webcam_viewer.py` 등, 백엔드와는 다른 코드베이스):
+메인보드 입고 전까지 별도 진행 중 (`webcamViewer.py` 등, 백엔드와는 다른 코드베이스):
 
 1. **웹캠 캡처 → RTSP 송신**: 1단계(웹캠 뷰어) 노트북에서 테스트 완료. 다음 단계로
    GStreamer 기반 RTSP 송신 서버로 확장 예정 (JetPack 기본 포함).
@@ -87,11 +89,11 @@ API 상세 스펙은 `API_SPEC.md` 참고.
 
 ## 메인보드 입고 후 교체할 부분
 
-1. `streaming/camera_manager.py` — 웹캠 단일 소스 → CameraId별 독립 RTSP 소스로 교체
-2. `services/detection_service.py` — Mock 추론 → 확정된 탐지 모델로 교체
-3. ~~`repositories/event_repository.py` — In-memory → motor 기반 MongoDB 구현으로 교체~~
+1. `streaming/cameraManager.py` — 웹캠 단일 소스 → CameraId별 독립 RTSP 소스로 교체
+2. `services/detectionService.py` — Mock 추론 → 확정된 탐지 모델로 교체
+3. ~~`repositories/eventRepository.py` — In-memory → motor 기반 MongoDB 구현으로 교체~~
    **완료** (`USE_MOCK_DB=false`로 전환하면 실제 MongoDB 사용)
-4. `services/rpa_service.py` — 콘솔 로그 → 실제 GPIO/HW 연동 (`RPAs/` 참고,
+4. `services/rpaService.py` — 콘솔 로그 → 실제 GPIO/HW 연동 (`RPAs/` 참고,
    젯슨 나노 쪽으로 이전 검토 중)
 
 ## TBD (팀 논의 필요)
@@ -103,4 +105,4 @@ API 상세 스펙은 `API_SPEC.md` 참고.
 - 통계 대시보드 세부 지표
 - 안면인식(투기자 식별) 포함 여부 — 기본 제외
 - 젯슨 나노 ↔ 중앙 서버 알림 신호 전달 방식(MQTT/HTTP/WebSocket)
-- 학습용 원본 이미지 저장 방식 (MongoDB GridFS 재사용 vs H100 로컬 디스크 파일 축적)
+- 학습용 원본 이미지 저장 방식 (MongoDB GridFS 재사용 vs GPU 서버 로컬 디스크 파일 축적)
