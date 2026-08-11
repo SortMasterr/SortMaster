@@ -3,6 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
+
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1.0"
@@ -17,60 +18,65 @@
     >
 
     <!-- 메인 페이지 CSS -->
-    <link rel="stylesheet" href="../static/css/index.css">
+    <link rel="stylesheet" href="/static/css/index.css?v=6">
 
-    <!-- 공통 사이드바 CSS: main.css보다 아래에 배치 -->
-    <link rel="stylesheet" href="../static/css/sidebar.css?v=3">
+    <!-- 공통 사이드바 CSS -->
+    <link rel="stylesheet" href="/static/css/sidebar.css?v=6">
 </head>
 
 <body>
-    <div class="app-container">
-        <!-- 사이드바가 동적으로 들어갈 위치 -->
-        <div id="sidebar-container">
+    <div class="appContainer">
+        <!-- 사이드바 -->
+        <div id="sidebarContainer">
             {% include 'sidebar.html' %}
         </div>
 
         <!-- 우측 메인 콘텐츠 -->
-        <main class="main-content">
-            <div class="content-header">
-                <h1 id="contentTitle">현재 상태: 수거 모드</h1>
+        <main class="mainContent">
+            <div class="contentHeader">
+                <h1 id="contentTitle">
+                    현재 상태: 수거 모드
+                </h1>
 
                 <span
                     id="modeBadge"
-                    class="badge badge-collect"
+                    class="badge badgeCollect"
                 >
                     수거 가동 중
                 </span>
             </div>
 
-            <div class="content-body" id="contentBody">
+            <div
+                class="contentBody"
+                id="contentBody"
+            >
                 <h2>실시간 모니터링 (ELEV-01)</h2>
 
                 <div
-                    class="video-container"
+                    class="videoContainer"
                     id="videoContainer"
                 >
                     <button
                         id="fullscreenBtn"
-                        class="fullscreen-btn"
+                        class="fullscreenBtn"
                         title="전체화면 토글"
                         type="button"
                     >
                         <i class="fa-solid fa-expand"></i>
                     </button>
 
-                    <div class="video-placeholder">
+                    <div class="videoPlaceholder">
                         <img
-                            src="../static/images/video_placeholder.jpg"
+                            src="/static/images/videoPlaceholder.jpg"
                             alt="실시간 CCTV 화면"
                         >
                     </div>
                 </div>
 
-                <div class="control-panel">
+                <div class="controlPanel">
                     <button
                         id="testAlertBtn"
-                        class="test-btn"
+                        class="testBtn"
                         type="button"
                     >
                         <i class="fa-solid fa-triangle-exclamation"></i>
@@ -81,9 +87,9 @@
         </main>
     </div>
 
-    <!-- sidebar.js를 페이지 전용 main.js보다 먼저 불러옵니다. -->
-    <script src="../static/js/sidebar.js"></script>
-    <script src="../static/js/index.js"></script>
+    <!-- 공통 JS를 먼저 불러옵니다. -->
+    <script src="/static/js/sidebar.js?v=6"></script>
+    <script src="/static/js/index.js?v=6"></script>
 </body>
 
 </html>

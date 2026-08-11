@@ -58,6 +58,25 @@ class EventRepository:
         fromDate: datetime | None = None,
         toDate: datetime | None = None,
     ) -> list[Event]:
+        def countByDetectedClass(
+            self,
+            fromDate: datetime | None = None,
+            toDate: datetime | None = None,
+        ) -> dict[DetectedClass, int]:
+            events = self.findAll(
+                fromDate=fromDate,
+                toDate=toDate,
+            )
+
+            counts = {
+                detectedClass: 0
+                for detectedClass in DetectedClass
+            }
+
+            for event in events:
+                counts[event.detectedClass] += 1
+
+            return counts
         normalizedFromDate = self.normalizeDateTime(
             fromDate
         )

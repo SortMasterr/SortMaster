@@ -35,36 +35,48 @@
     >
 
     <!-- 이전기록 페이지 CSS -->
-    <link rel="stylesheet" href="../static/css/events_list.css">
+    <link
+        rel="stylesheet"
+        href="/static/css/eventsList.css?v=6"
+    >
 
     <!-- 공통 사이드바 CSS -->
-    <link rel="stylesheet" href="../static/css/sidebar.css?v=3">
+    <link
+        rel="stylesheet"
+        href="/static/css/sidebar.css?v=6"
+    >
 </head>
 
 <body>
-    <div class="app-container">
-        <!-- 사이드바가 동적으로 들어갈 위치 -->
-        <div id="sidebar-container">
+    <div class="appContainer">
+        <!-- 공통 사이드바 -->
+        <div id="sidebarContainer">
             {% include "sidebar.html" %}
         </div>
 
         <!-- 우측 메인 콘텐츠 -->
-        <main class="main-content">
-            <div class="content-header">
-                <h1 id="contentTitle">현재 상태: 수거 모드</h1>
+        <main class="mainContent">
+            <div class="contentHeader">
+                <h1 id="contentTitle">
+                    현재 상태: 수거 모드
+                </h1>
 
                 <span
                     id="modeBadge"
-                    class="badge badge-collect"
+                    class="badge badgeCollect"
                 >
                     수거 가동 중
                 </span>
             </div>
 
-            <div class="content-body" id="contentBody">
-                <div class="page-head">
+            <div
+                class="contentBody"
+                id="contentBody"
+            >
+                <div class="pageHead">
                     <div>
                         <h1>분류 이전기록</h1>
+
                         <p>
                             정상 분류와 오분류(알림 발생) 건을 포함한
                             배출 기록 내역입니다.
@@ -74,36 +86,54 @@
 
                 <!-- 카드 현황판 -->
                 <div class="stats">
-                    <div class="stat-card">
-                        <div class="stat-label">총 분류 횟수</div>
+                    <div class="statCard">
+                        <div class="statLabel">
+                            총 분류 횟수
+                        </div>
 
-                        <div class="stat-value" id="statTotal">
+                        <div
+                            class="statValue"
+                            id="statTotal"
+                        >
                             0<span>건</span>
                         </div>
                     </div>
 
-                    <div class="stat-card">
-                        <div class="stat-label">오늘 분류 건수</div>
+                    <div class="statCard">
+                        <div class="statLabel">
+                            오늘 분류 건수
+                        </div>
 
-                        <div class="stat-value" id="statToday">
+                        <div
+                            class="statValue"
+                            id="statToday"
+                        >
                             0<span>건</span>
                         </div>
                     </div>
 
-                    <div class="stat-card c-green">
-                        <div class="stat-label">평균 정확도</div>
+                    <div class="statCard cGreen">
+                        <div class="statLabel">
+                            평균 정확도
+                        </div>
 
-                        <div class="stat-value" id="statAccuracy">
+                        <div
+                            class="statValue"
+                            id="statAccuracy"
+                        >
                             0<span>%</span>
                         </div>
                     </div>
 
-                    <div class="stat-card c-amber">
-                        <div class="stat-label">
+                    <div class="statCard cAmber">
+                        <div class="statLabel">
                             알림 미작동 (점검 필요)
                         </div>
 
-                        <div class="stat-value" id="statAlarmOff">
+                        <div
+                            class="statValue"
+                            id="statAlarmOff"
+                        >
                             0<span>건</span>
                         </div>
                     </div>
@@ -113,25 +143,38 @@
                 <div class="filters">
                     <div class="field">
                         <label for="fFrom">시작일</label>
-                        <input type="date" id="fFrom">
+
+                        <input
+                            type="date"
+                            id="fFrom"
+                        >
                     </div>
 
                     <div class="field">
                         <label for="fTo">종료일</label>
-                        <input type="date" id="fTo">
+
+                        <input
+                            type="date"
+                            id="fTo"
+                        >
                     </div>
 
                     <div class="field">
-                        <label for="fType">분류타입</label>
+                        <label for="fType">
+                            분류타입
+                        </label>
 
                         <select id="fType">
                             <option value="">전체</option>
+
                             <option value="병/캔/플라스틱">
                                 병/캔/플라스틱
                             </option>
+
                             <option value="일반쓰레기">
                                 일반쓰레기
                             </option>
+
                             <option value="종이">
                                 종이
                             </option>
@@ -149,7 +192,9 @@
                     </div>
 
                     <div class="field">
-                        <label for="fAlarm">알림 상태</label>
+                        <label for="fAlarm">
+                            알림 상태
+                        </label>
 
                         <select id="fAlarm">
                             <option value="">전체</option>
@@ -159,14 +204,14 @@
                     </div>
 
                     <button
-                        class="btn-reset"
+                        class="btnReset"
                         id="btnReset"
                         type="button"
                     >
                         필터 초기화
                     </button>
 
-                    <div class="count-badge">
+                    <div class="countBadge">
                         <b id="countShown">0</b>
                         /
                         <span id="countAll">0</span>건 표시
@@ -174,7 +219,7 @@
                 </div>
 
                 <!-- 데이터 테이블 -->
-                <div class="table-wrap">
+                <div class="tableWrap">
                     <table>
                         <thead>
                             <tr>
@@ -225,12 +270,14 @@
 
     <!-- 상세 모달 -->
     <div
-        class="modal-backdrop"
+        class="modalBackdrop"
         id="modalBackdrop"
     >
         <div class="modal">
-            <div class="modal-head">
-                <h3 id="modalTitle">RECORD #0000</h3>
+            <div class="modalHead">
+                <h3 id="modalTitle">
+                    RECORD #0000
+                </h3>
 
                 <button
                     id="modalClose"
@@ -241,43 +288,43 @@
                 </button>
             </div>
 
-            <div class="modal-body">
-                <div class="m-item">
-                    <div class="m-label">시간</div>
-                    <div class="m-value" id="mTime">-</div>
+            <div class="modalBody">
+                <div class="mItem">
+                    <div class="mLabel">시간</div>
+                    <div class="mValue" id="mTime">-</div>
                 </div>
 
-                <div class="m-item">
-                    <div class="m-label">위치</div>
-                    <div class="m-value" id="mArea">-</div>
+                <div class="mItem">
+                    <div class="mLabel">위치</div>
+                    <div class="mValue" id="mArea">-</div>
                 </div>
 
-                <div class="m-item">
-                    <div class="m-label">분류타입</div>
-                    <div class="m-value" id="mType">-</div>
+                <div class="mItem">
+                    <div class="mLabel">분류타입</div>
+                    <div class="mValue" id="mType">-</div>
                 </div>
 
-                <div class="m-item">
-                    <div class="m-label">배출 위치</div>
-                    <div class="m-value" id="mLoc">-</div>
+                <div class="mItem">
+                    <div class="mLabel">배출 위치</div>
+                    <div class="mValue" id="mLoc">-</div>
                 </div>
 
-                <div class="m-item">
-                    <div class="m-label">결과</div>
-                    <div class="m-value" id="mResult">-</div>
+                <div class="mItem">
+                    <div class="mLabel">결과</div>
+                    <div class="mValue" id="mResult">-</div>
                 </div>
 
-                <div class="m-item full">
-                    <div class="m-label">알림 상태</div>
-                    <div class="m-value" id="mAlarm">-</div>
+                <div class="mItem full">
+                    <div class="mLabel">알림 상태</div>
+                    <div class="mValue" id="mAlarm">-</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- sidebar.js를 history.js보다 먼저 불러옵니다. -->
-    <script src="../static/js/sidebar.js?v=6"></script>
-    <script src="../static/js/events_list.js?v=6"></script>
+    <!-- 공통 JavaScript를 먼저 불러옵니다. -->
+    <script src="/static/js/sidebar.js?v=6"></script>
+    <script src="/static/js/eventsList.js?v=6"></script>
 </body>
 
 </html>

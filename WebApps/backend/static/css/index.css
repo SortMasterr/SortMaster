@@ -10,21 +10,21 @@ body {
     color: #333;
 }
 
-.app-container {
+.appContainer {
     display: flex;
     min-height: 100vh;
 }
 
-/* 사이드바 */
-#sidebar-container {
-    height: 100vh;           /* 화면 전체 높이 채우기 */
-    position: sticky;        /* 스크롤해도 화면 왼쪽에 고정 */
+/* 사이드바 영역 */
+#sidebarContainer {
+    height: 100vh;
+    position: sticky;
     top: 0;
-    flex-shrink: 0;         /* 우측 콘텐츠에 의해 줄어들지 않음 */
-    display: flex;          /* 내부 .sidebar가 높이를 다 쓸 수 있게 설정 */
+    flex-shrink: 0;
+    display: flex;
 }
 
-/* 2. 사이드바 자체 스타일 수정 */
+/* 사이드바 */
 .sidebar {
     width: 250px;
     height: 100%;
@@ -37,40 +37,40 @@ body {
     box-sizing: border-box;
 }
 
-.sidebar-header {
+.sidebarHeader {
     padding: 0 20px 20px;
     border-bottom: 1px solid #334155;
 }
 
-.sidebar-header h2 {
+.sidebarHeader h2 {
     font-size: 1.2rem;
     font-weight: 700;
     color: #38bdf8;
 }
 
-.sidebar-body {
+.sidebarBody {
     padding: 20px;
     flex: 1;
 }
 
-.menu-label {
-    font-size: 0.75rem;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+.menuLabel {
     display: block;
     margin-bottom: 12px;
+    color: #94a3b8;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
-.nav-menu {
+.navMenu {
     list-style: none;
 }
 
-.nav-menu li {
+.navMenu li {
     margin-bottom: 8px;
 }
 
-.nav-menu a {
+.navMenu a {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -82,19 +82,19 @@ body {
     transition: all 0.2s;
 }
 
-.nav-menu a:hover,
-.nav-menu li.active a {
+.navMenu a:hover,
+.navMenu li.active a {
     background-color: #0f172a;
     color: #38bdf8;
 }
 
 /* 모드 토글 버튼 */
-.sidebar-footer {
+.sidebarFooter {
     padding: 20px;
     border-top: 1px solid #334155;
 }
 
-.toggle-btn {
+.toggleBtn {
     width: 100%;
     padding: 12px;
     border: none;
@@ -109,32 +109,32 @@ body {
     transition: background-color 0.2s;
 }
 
-.mode-collect {
+.modeCollect {
     background-color: #10b981;
     color: #fff;
 }
 
-.mode-collect:hover {
+.modeCollect:hover {
     background-color: #059669;
 }
 
-.mode-admin {
+.modeAdmin {
     background-color: #f97316;
     color: #fff;
 }
 
-.mode-admin:hover {
+.modeAdmin:hover {
     background-color: #ea580c;
 }
 
 /* 우측 본문 */
-.main-content {
+.mainContent {
     flex: 1;
     display: flex;
     flex-direction: column;
 }
 
-.content-header {
+.contentHeader {
     height: 70px;
     padding: 0 30px;
     background-color: #fff;
@@ -144,7 +144,7 @@ body {
     justify-content: space-between;
 }
 
-.content-header h1 {
+.contentHeader h1 {
     font-size: 1.3rem;
     color: #0f172a;
 }
@@ -156,37 +156,37 @@ body {
     font-weight: 600;
 }
 
-.badge-collect {
+.badgeCollect {
     background-color: #d1fae5;
     color: #065f46;
 }
 
-.badge-admin {
+.badgeAdmin {
     background-color: #ffedd5;
     color: #9a3412;
 }
 
-.content-body {
+.contentBody {
     padding: 30px;
     flex: 1;
     overflow-y: auto;
 }
 
-/* 비디오 모니터링 스타일 */
-.video-container {
+/* 비디오 모니터링 */
+.videoContainer {
     position: relative;
     width: 100%;
     max-width: 1200px;
-    aspect-ratio: 16/9;
+    aspect-ratio: 16 / 9;
+    margin-top: 16px;
     background-color: #0f172a;
+    border: 4px solid transparent;
     border-radius: 12px;
     overflow: hidden;
-    border: 4px solid transparent;
     transition: border-color 0.3s;
-    margin-top: 16px;
 }
 
-.video-placeholder {
+.videoPlaceholder {
     width: 100%;
     height: 100%;
     display: flex;
@@ -196,31 +196,34 @@ body {
     color: #94a3b8;
 }
 
-.video-placeholder h2 {
-    font-size: 1.4rem;
-    color: #f8fafc;
+.videoPlaceholder h2 {
     margin-bottom: 8px;
+    color: #f8fafc;
+    font-size: 1.4rem;
 }
 
-.video-placeholder img {
+.videoPlaceholder img {
     width: 100%;
     height: 100%;
+    object-fit: cover;
 }
 
-.status-text {
-    font-size: 0.95rem;
+.statusText {
     color: #38bdf8;
+    font-size: 0.95rem;
 }
 
 /* 오배출 탐지 빨간색 테두리 점멸 */
-.video-container.warning-active {
+.videoContainer.warningActive {
     animation: warningBlink 1s infinite alternate;
 }
 
 @keyframes warningBlink {
     0% {
         border-color: #ef4444;
-        box-shadow: inset 0 0 20px #ef4444, 0 0 20px #ef4444;
+        box-shadow:
+            inset 0 0 20px #ef4444,
+            0 0 20px #ef4444;
     }
 
     100% {
@@ -229,26 +232,26 @@ body {
     }
 }
 
-.fullscreen-btn {
+.fullscreenBtn {
     position: absolute;
     top: 16px;
     right: 16px;
+    padding: 10px 12px;
     background: rgba(0, 0, 0, 0.6);
     color: #fff;
     border: none;
-    padding: 10px 12px;
     border-radius: 6px;
     cursor: pointer;
 }
 
-.control-panel {
+.controlPanel {
     margin-top: 16px;
     display: flex;
-    gap: 12px;
     align-items: center;
+    gap: 12px;
 }
 
-.test-btn {
+.testBtn {
     padding: 10px 18px;
     background-color: #ef4444;
     color: #fff;

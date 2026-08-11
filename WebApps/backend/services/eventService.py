@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from repositories.event_repository import (
+from repositories.eventRepository import (
     EventRepository,
     eventRepository,
 )

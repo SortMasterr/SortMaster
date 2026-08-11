@@ -7,7 +7,7 @@ from fastapi import (
 )
 
 from schemas.event import Event, EventCreate
-from services.event_service import eventService
+from services.eventService import eventService
 
 
 router = APIRouter(

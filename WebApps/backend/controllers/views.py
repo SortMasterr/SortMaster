@@ -22,7 +22,7 @@ async def getIndexPage(request: Request):
 async def getEventsPage(request: Request):
     return templates.TemplateResponse(
         request=request,
-        name="events_list.html",
+        name="eventsList.html",
         context={},
     )
 

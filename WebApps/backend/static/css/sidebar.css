@@ -1,5 +1,5 @@
 /* 사이드바 컨테이너 */
-#sidebar-container {
+#sidebarContainer {
     height: 100vh;
     position: sticky;
     top: 0;
@@ -15,34 +15,34 @@
     height: 100vh;
     min-height: 100vh;
     flex: 1;
+    padding: 20px 0;
     background-color: #1e293b;
     color: #ffffff;
     display: flex;
     flex-direction: column;
-    padding: 20px 0;
     box-sizing: border-box;
 }
 
 /* 사이드바 제목 */
-.sidebar-header {
+.sidebarHeader {
     padding: 0 20px 20px;
     border-bottom: 1px solid #334155;
 }
 
-.sidebar-header h2 {
+.sidebarHeader h2 {
     margin: 0;
+    color: #38bdf8;
     font-size: 1.2rem;
     font-weight: 700;
-    color: #38bdf8;
 }
 
 /* 사이드바 메뉴 영역 */
-.sidebar-body {
+.sidebarBody {
     padding: 20px;
     flex: 1;
 }
 
-.menu-label {
+.menuLabel {
     display: block;
     margin-bottom: 12px;
     color: #94a3b8;
@@ -52,17 +52,17 @@
 }
 
 /* 메뉴 목록 */
-.nav-menu {
+.navMenu {
     margin: 0;
     padding: 0;
     list-style: none;
 }
 
-.nav-menu li {
+.navMenu li {
     margin-bottom: 8px;
 }
 
-.nav-menu a {
+.navMenu a {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -76,38 +76,40 @@
         background-color 0.2s;
 }
 
-.nav-menu a:hover,
-.nav-menu li.active a {
+.navMenu a:hover,
+.navMenu li.active a {
     color: #38bdf8;
     background-color: #0f172a;
 }
 
 /* 쓰레기통 가득 참 알림 위치 */
-.sidebar-alert-area {
+.sidebarAlertArea {
     position: absolute;
 
-    /* 숫자가 작을수록 위쪽, 클수록 아래쪽으로 이동 */
+    /*
+     * 숫자가 커질수록 위로 올라가고
+     * 작아질수록 아래로 내려갑니다.
+     */
     bottom: 10%;
 
     left: 50%;
-    transform: translate(-50%, -50%);
-
     width: calc(100% - 32px);
     margin: 0;
     padding: 0;
+    transform: translateX(-50%);
     z-index: 10;
 }
 
 /* 쓰레기통 가득 참 알림 */
-.bin-full-alert {
+.binFullAlert {
+    width: 100%;
+    min-height: 54px;
+    padding: 12px 10px;
+
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 9px;
-
-    width: 100%;
-    min-height: 54px;
-    padding: 12px 10px;
 
     color: #dc2626;
     background-color: #fde047;
@@ -128,13 +130,13 @@
 }
 
 /* 쓰레기통 아이콘 */
-.bin-full-alert i {
+.binFullAlert i {
     color: #dc2626;
     font-size: 1.05rem;
 }
 
-/* hidden 상태일 때 알림 숨김 */
-.bin-full-alert[hidden] {
+/* hidden 상태에서는 알림 숨김 */
+.binFullAlert[hidden] {
     display: none;
 }
 
@@ -158,47 +160,47 @@
 }
 
 /* 모드 토글 버튼 영역 */
-.sidebar-footer {
+.sidebarFooter {
     padding: 20px;
     border-top: 1px solid #334155;
 }
 
 /* 모드 토글 버튼 */
-.toggle-btn {
+.toggleBtn {
     width: 100%;
     padding: 12px;
-    border: none;
-    border-radius: 8px;
-
-    font-size: 0.95rem;
-    font-weight: 600;
-
-    cursor: pointer;
 
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
 
+    border: none;
+    border-radius: 8px;
+
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+
     transition: background-color 0.2s;
 }
 
-/* 관리 모드 버튼 */
-.mode-collect {
+/* 수거 모드 버튼 */
+.modeCollect {
     color: #ffffff;
     background-color: #10b981;
 }
 
-.mode-collect:hover {
+.modeCollect:hover {
     background-color: #059669;
 }
 
-/* 수거 모드 버튼 */
-.mode-admin {
+/* 관리 모드 버튼 */
+.modeAdmin {
     color: #ffffff;
     background-color: #f97316;
 }
 
-.mode-admin:hover {
+.modeAdmin:hover {
     background-color: #ea580c;
 }
