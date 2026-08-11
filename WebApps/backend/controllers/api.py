@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 import cv2
@@ -16,13 +16,19 @@ from schemas.event import (
     EventCreate,
 )
 from schemas.mode import (
+    Mode,
     ModeResponse,
     ModeUpdate,
 )
 from schemas.statistics import Statistics
 from services.eventService import eventService
 from services.modeService import modeService
-from streaming.cameraManager import cameraManagers
+from services.webSocketManager import (
+    webSocketManager,
+)
+from streaming.cameraManager import (
+    cameraManagers,
+)
 
 
 router = APIRouter(
@@ -80,9 +86,40 @@ async def getEventById(
 async def createEvent(
     eventCreate: EventCreate,
 ) -> Event | None:
-    return eventService.createEvent(
-        eventCreate
+    createdEvent = (
+        eventService.createEvent(
+            eventCreate
+        )
     )
+
+    currentMode = (
+        modeService.getMode().mode
+    )
+
+    if (
+        createdEvent is not None
+        and currentMode == Mode.manage
+    ):
+        await webSocketManager.broadcast(
+            {
+                "eventType": (
+                    "MISCLASSIFICATION_DETECTED"
+                ),
+                "cameraId": (
+                    createdEvent.cameraId.value
+                ),
+                "timestamp": (
+                    createdEvent.timestamp
+                    .isoformat()
+                ),
+                "isMisclassified": (
+                    createdEvent
+                    .isMisclassified
+                ),
+            }
+        )
+
+    return createdEvent
 
 
 @router.get(
@@ -112,23 +149,47 @@ async def getStatistics(
 async def updateMode(
     modeUpdate: ModeUpdate,
 ) -> ModeResponse:
-    return modeService.updateMode(
-        modeUpdate
+    modeResponse = (
+        modeService.updateMode(
+            modeUpdate
+        )
     )
 
+    await webSocketManager.broadcast(
+        {
+            "eventType": "MODE_CHANGED",
+            "mode": (
+                modeResponse.mode.value
+            ),
+            "timestamp": (
+                datetime.now(
+                    timezone.utc
+                ).isoformat()
+            ),
+        }
+    )
 
-async def generateMjpegFrames(cameraManager):
+    return modeResponse
+
+
+async def generateMjpegFrames(
+    cameraManager,
+):
     while True:
-        frame = await cameraManager.readFrame()
+        frame = (
+            await cameraManager.readFrame()
+        )
 
         if frame is None:
             await asyncio.sleep(0.05)
             continue
 
-        encoded, buffer = await asyncio.to_thread(
-            cv2.imencode,
-            ".jpg",
-            frame,
+        encoded, buffer = (
+            await asyncio.to_thread(
+                cv2.imencode,
+                ".jpg",
+                frame,
+            )
         )
 
         if not encoded:
@@ -136,28 +197,41 @@ async def generateMjpegFrames(cameraManager):
 
         yield (
             b"--frame\r\n"
-            b"Content-Type: image/jpeg\r\n\r\n"
+            b"Content-Type: "
+            b"image/jpeg\r\n\r\n"
             + buffer.tobytes()
             + b"\r\n"
         )
 
 
-@router.get("/stream/{cameraId}")
+@router.get(
+    "/stream/{cameraId}",
+)
 async def streamCamera(
     cameraId: CameraId,
-    role: Literal["top", "side"] = "top",
+    role: Literal[
+        "top",
+        "side",
+    ] = "top",
 ) -> StreamingResponse:
-    cameraManager = cameraManagers[role]
+    cameraManager = cameraManagers[
+        role
+    ]
 
     try:
         await cameraManager.start()
-    except RuntimeError as e:
+    except RuntimeError as error:
         raise HTTPException(
             status_code=503,
-            detail=str(e),
-        )
+            detail=str(error),
+        ) from error
 
     return StreamingResponse(
-        generateMjpegFrames(cameraManager),
-        media_type="multipart/x-mixed-replace; boundary=frame",
+        generateMjpegFrames(
+            cameraManager
+        ),
+        media_type=(
+            "multipart/x-mixed-replace; "
+            "boundary=frame"
+        ),
     )
