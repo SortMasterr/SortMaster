@@ -1,4 +1,8 @@
-from datetime import datetime, timedelta, timezone
+from datetime import (
+    datetime,
+    timedelta,
+    timezone,
+)
 from uuid import uuid4
 
 from repositories.eventRepository import (
@@ -7,9 +11,11 @@ from repositories.eventRepository import (
 )
 from schemas.event import (
     ActionTaken,
+    DetectedClass,
     Event,
     EventCreate,
 )
+from schemas.statistics import Statistics
 
 
 class EventService:
@@ -30,13 +36,39 @@ class EventService:
             fromDate=fromDate,
             toDate=toDate,
         )
-        
+
     def getEventById(
         self,
         eventId: str,
     ) -> Event | None:
-        return self.repository.findById(eventId)
-        
+        return self.repository.findById(
+            eventId
+        )
+
+    def getStatistics(
+        self,
+        fromDate: datetime | None = None,
+        toDate: datetime | None = None,
+    ) -> Statistics:
+        countsByClass = (
+            self.repository.countByDetectedClass(
+                fromDate=fromDate,
+                toDate=toDate,
+            )
+        )
+
+        detectedClasses = list(
+            DetectedClass
+        )
+
+        return Statistics(
+            labels=detectedClasses,
+            counts=[
+                countsByClass[detectedClass]
+                for detectedClass
+                in detectedClasses
+            ],
+        )
 
     def createEvent(
         self,
@@ -45,21 +77,29 @@ class EventService:
         if not eventCreate.isMisclassified:
             return None
 
-        currentTime = datetime.now(timezone.utc)
+        currentTime = datetime.now(
+            timezone.utc
+        )
 
         cooldownKey = (
             eventCreate.cameraId.value,
             eventCreate.detectedClass.value,
         )
 
-        lastEventTime = self.lastEventTimes.get(
-            cooldownKey
+        lastEventTime = (
+            self.lastEventTimes.get(
+                cooldownKey
+            )
         )
 
         if (
             lastEventTime is not None
-            and currentTime - lastEventTime
-            < timedelta(seconds=self.cooldownSeconds)
+            and (
+                currentTime - lastEventTime
+                < timedelta(
+                    seconds=self.cooldownSeconds
+                )
+            )
         ):
             return None
 
@@ -67,7 +107,9 @@ class EventService:
             eventId=str(uuid4()),
             timestamp=currentTime,
             cameraId=eventCreate.cameraId,
-            detectedClass=eventCreate.detectedClass,
+            detectedClass=(
+                eventCreate.detectedClass
+            ),
             isMisclassified=(
                 eventCreate.isMisclassified
             ),
@@ -81,7 +123,9 @@ class EventService:
             notes=None,
         )
 
-        savedEvent = self.repository.save(event)
+        savedEvent = self.repository.save(
+            event
+        )
 
         self.lastEventTimes[cooldownKey] = (
             currentTime
@@ -90,4 +134,6 @@ class EventService:
         return savedEvent
 
 
-eventService = EventService(eventRepository)
+eventService = EventService(
+    eventRepository
+)

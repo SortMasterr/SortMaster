@@ -6,8 +6,17 @@ from fastapi import (
     Query,
 )
 
-from schemas.event import Event, EventCreate
+from schemas.event import (
+    Event,
+    EventCreate,
+)
+from schemas.mode import (
+    ModeResponse,
+    ModeUpdate,
+)
+from schemas.statistics import Statistics
 from services.eventService import eventService
+from services.modeService import modeService
 
 
 router = APIRouter(
@@ -43,12 +52,16 @@ async def getEvents(
 async def getEventById(
     id: str,
 ) -> Event:
-    event = eventService.getEventById(id)
+    event = eventService.getEventById(
+        id
+    )
 
     if event is None:
         raise HTTPException(
             status_code=404,
-            detail="이벤트를 찾을 수 없습니다.",
+            detail=(
+                "이벤트를 찾을 수 없습니다."
+            ),
         )
 
     return event
@@ -61,4 +74,38 @@ async def getEventById(
 async def createEvent(
     eventCreate: EventCreate,
 ) -> Event | None:
-    return eventService.createEvent(eventCreate)
+    return eventService.createEvent(
+        eventCreate
+    )
+
+
+@router.get(
+    "/statistics",
+    response_model=Statistics,
+)
+async def getStatistics(
+    fromDate: datetime | None = Query(
+        default=None,
+        alias="from",
+    ),
+    toDate: datetime | None = Query(
+        default=None,
+        alias="to",
+    ),
+) -> Statistics:
+    return eventService.getStatistics(
+        fromDate=fromDate,
+        toDate=toDate,
+    )
+
+
+@router.post(
+    "/mode",
+    response_model=ModeResponse,
+)
+async def updateMode(
+    modeUpdate: ModeUpdate,
+) -> ModeResponse:
+    return modeService.updateMode(
+        modeUpdate
+    )

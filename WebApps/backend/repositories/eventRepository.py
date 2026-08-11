@@ -39,8 +39,12 @@ class EventRepository:
             ),
         ]
 
-    def save(self, event: Event) -> Event:
+    def save(
+        self,
+        event: Event,
+    ) -> Event:
         self.events.append(event)
+
         return event
 
     def findById(
@@ -58,31 +62,12 @@ class EventRepository:
         fromDate: datetime | None = None,
         toDate: datetime | None = None,
     ) -> list[Event]:
-        def countByDetectedClass(
-            self,
-            fromDate: datetime | None = None,
-            toDate: datetime | None = None,
-        ) -> dict[DetectedClass, int]:
-            events = self.findAll(
-                fromDate=fromDate,
-                toDate=toDate,
-            )
-
-            counts = {
-                detectedClass: 0
-                for detectedClass in DetectedClass
-            }
-
-            for event in events:
-                counts[event.detectedClass] += 1
-
-            return counts
-        normalizedFromDate = self.normalizeDateTime(
-            fromDate
+        normalizedFromDate = (
+            self.normalizeDateTime(fromDate)
         )
 
-        normalizedToDate = self.normalizeDateTime(
-            toDate
+        normalizedToDate = (
+            self.normalizeDateTime(toDate)
         )
 
         filteredEvents = self.events
@@ -91,14 +76,20 @@ class EventRepository:
             filteredEvents = [
                 event
                 for event in filteredEvents
-                if event.timestamp >= normalizedFromDate
+                if (
+                    event.timestamp
+                    >= normalizedFromDate
+                )
             ]
 
         if normalizedToDate is not None:
             filteredEvents = [
                 event
                 for event in filteredEvents
-                if event.timestamp <= normalizedToDate
+                if (
+                    event.timestamp
+                    <= normalizedToDate
+                )
             ]
 
         return sorted(
@@ -106,6 +97,26 @@ class EventRepository:
             key=lambda event: event.timestamp,
             reverse=True,
         )
+
+    def countByDetectedClass(
+        self,
+        fromDate: datetime | None = None,
+        toDate: datetime | None = None,
+    ) -> dict[DetectedClass, int]:
+        events = self.findAll(
+            fromDate=fromDate,
+            toDate=toDate,
+        )
+
+        counts = {
+            detectedClass: 0
+            for detectedClass in DetectedClass
+        }
+
+        for event in events:
+            counts[event.detectedClass] += 1
+
+        return counts
 
     def normalizeDateTime(
         self,
