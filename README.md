@@ -56,9 +56,10 @@ API 상세 스펙은 `.agentfiles/apiSpec.md` 참고.
   (`ELEV-01`, `ELEV-02`, `REST-4F-01`)에 복제해서 스트리밍. 동일 웹캠을 여러 번
   열 수 없는 OS 제약 때문에 단일 캡처 + 프레임 공유 방식 사용.
 - **탐지**: `services/detectionService.py` — 랜덤 클래스 + 임의 confidence Mock.
-  탐지 모델은 YOLOv8-Nano(상시감시)+YOLOv8-Medium(정밀분석) 2단계로 확정됐지만
-  아직 코드에 통합 전이라 여전히 Mock. 이벤트도 `misclassification`(투기)/
-  `overflow`(넘침) 두 카테고리로 나뉠 예정(상세는 `.agentfiles/architecture.md`,
+  탐지 모델은 YOLOv8-Nano(상시감시+투척판단)+Qwen3-VL-8B(정밀분류, LoRA/QLoRA
+  파인튜닝)으로 확정됐지만 아직 코드에 통합 전이라 여전히 Mock. 지점당 카메라
+  2대(위+옆) 구성. 이벤트도 `misclassification`(투기)/`overflow`(넘침) 두
+  카테고리로 나뉠 예정(상세는 `.agentfiles/architecture.md`,
   `.agentfiles/apiSpec.md` 참고)
 - **저장소**: `repositories/eventRepository.py` — `.env`의 `USE_MOCK_DB` 값으로
   In-memory Mock ↔ 실제 MongoDB(motor) 전환 가능. **DB 실연동 완료**, 로컬 Docker
