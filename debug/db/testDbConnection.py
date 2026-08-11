@@ -1,7 +1,7 @@
 """
 로컬 Docker MongoDB 접속 테스트 (호스트 포트 27020).
 Atlas(mongodb+srv)가 아니라 표준 mongodb:// 스킴 + 명시적 포트 사용.
-인증 없이 띄운 컨테이너면 MONGO_USER/MONGO_PASSWORD는 비워둬도 됨.
+인증 없이 띄운 컨테이너면 DB_USER/DB_PASSWORD는 비워둬도 됨.
 """
 import os
 from urllib.parse import quote_plus
@@ -13,9 +13,9 @@ from pymongo.server_api import ServerApi
 load_dotenv()
 
 mongoHost = os.getenv("MONGO_HOST", "localhost")
-mongoPort = os.getenv("MONGO_PORT", "27020")
-mongoUser = os.getenv("MONGO_USER")
-mongoPassword = os.getenv("MONGO_PASSWORD")
+mongoPort = os.getenv("DB_PORT", "27020")
+mongoUser = os.getenv("DB_USER")
+mongoPassword = os.getenv("DB_PASSWORD")
 
 if mongoUser and mongoPassword:
     auth = f"{quote_plus(mongoUser)}:{quote_plus(mongoPassword)}@"

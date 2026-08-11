@@ -5,9 +5,9 @@
 1. Python 버전이 3.11인지 확인
 2. 필요한 패키지 목록을 여기서 직접 정의 → 누락/버전 불일치면 자동 설치
 3. Docker 설치 여부 확인
-4. MongoDB 접속 확인 — .env의 MONGO_HOST/MONGO_PORT를 그대로 사용하므로
-   팀원마다 자기 .env만 맞추면 각자 환경(로컬 Docker, 팀 공유 서버 등)에
-   맞게 체크됨. debug/testDbConnection.py, debug/testCrud.py와 동일한
+4. MongoDB 접속 확인 — .env의 MONGO_HOST/DB_PORT/DB_USER/DB_PASSWORD를 그대로
+   사용하므로 팀원마다 자기 .env만 맞추면 각자 환경(로컬 Docker, 팀 공유 서버 등)에
+   맞게 체크됨. debug/db/testDbConnection.py, debug/db/testCrud.py와 동일한
    .env 키를 공유.
 
 실행:
@@ -23,16 +23,18 @@ import time
 from importlib import metadata
 
 # (pip install에 쓸 문자열, importlib.metadata로 조회할 배포판 이름) 쌍.
+# 팀원마다 설치 시점이 달라도 같은 버전이 깔리도록 전부 정확히 고정(==).
+# 새 버전으로 올릴 땐 팀 합의 후 이 목록만 갱신하면 전원 동일하게 맞춰짐.
 requiredPackages = [
-    ("fastapi>=0.115", "fastapi"),
-    ("uvicorn[standard]>=0.30", "uvicorn"),
-    ("pydantic>=2.7", "pydantic"),
-    ("pydantic-settings>=2.3", "pydantic-settings"),
-    ("motor>=3.5", "motor"),
-    ("python-multipart>=0.0.9", "python-multipart"),
-    ("opencv-python>=4.9", "opencv-python"),
-    ("jinja2>=3.1", "jinja2"),
-    ("python-dotenv>=1.0", "python-dotenv"),
+    ("fastapi==0.141.1", "fastapi"),
+    ("uvicorn[standard]==0.52.1", "uvicorn"),
+    ("pydantic==2.13.4", "pydantic"),
+    ("pydantic-settings==2.15.0", "pydantic-settings"),
+    ("motor==3.7.1", "motor"),
+    ("python-multipart==0.0.32", "python-multipart"),
+    ("opencv-python==4.14.0.94", "opencv-python"),
+    ("jinja2==3.1.6", "jinja2"),
+    ("python-dotenv==1.2.2", "python-dotenv"),
 ]
 
 requiredPython = (3, 11)
@@ -106,16 +108,27 @@ def checkAndInstallPackages() -> bool:
 
 
 def checkDocker() -> bool:
-    """Docker/Compose 버전은 팀 TBD라 설치 여부만 확인, 버전은 참고용으로 출력."""
+    """Docker 설치 + Compose V2(`docker compose`, 하이픈 없는 플러그인) 지원 여부 확인.
+    docker-compose.yml이 profiles/GPU deploy.resources 문법을 쓰기 때문에 Compose V2 필수 —
+    구버전 standalone docker-compose(V1)는 미지원. 정확한 버전을 고정하진 않되(팀원마다
+    설치 시점 다름), v29.6.2/Compose v5.3.1 조합으로 실제 빌드+구동 검증 완료."""
     try:
         result = subprocess.run(
             ["docker", "--version"], capture_output=True, text=True, timeout=5
         )
-        if result.returncode == 0:
-            print(f"[OK ] {result.stdout.strip()} (버전 고정값 TBD - 설치 여부만 확인)")
-            return True
-        print("[FAIL] docker --version 실행 실패")
-        return False
+        if result.returncode != 0:
+            print("[FAIL] docker --version 실행 실패")
+            return False
+        print(f"[OK ] {result.stdout.strip()}")
+
+        composeResult = subprocess.run(
+            ["docker", "compose", "version"], capture_output=True, text=True, timeout=5
+        )
+        if composeResult.returncode != 0:
+            print("[FAIL] Docker Compose V2 미지원 - docker-compose.yml의 profiles/GPU 문법에 필요(V1 docker-compose로는 안 됨)")
+            return False
+        print(f"[OK ] {composeResult.stdout.strip()}")
+        return True
     except FileNotFoundError:
         print("[FAIL] Docker가 설치되어 있지 않거나 PATH에 없음")
         return False
@@ -126,8 +139,8 @@ def checkDocker() -> bool:
 
 def checkMongodb() -> bool:
     """MongoDB 접속 가능 여부 확인.
-    .env의 MONGO_HOST/MONGO_PORT/MONGO_USER/MONGO_PASSWORD를 그대로 사용 —
-    debug/testDbConnection.py, debug/testCrud.py와 동일한 대상을 테스트해서
+    .env의 MONGO_HOST/DB_PORT/DB_USER/DB_PASSWORD를 그대로 사용 —
+    debug/db/testDbConnection.py, debug/db/testCrud.py와 동일한 대상을 테스트해서
     "스크립트마다 접속 대상이 다른" 혼선을 방지한다. 팀원마다 자기 .env의
     MONGO_HOST만 바꾸면 각자 환경에 맞게 체크됨.
     Windows Docker Desktop은 첫 연결이 느릴 수 있어 재시도 포함."""
@@ -141,9 +154,9 @@ def checkMongodb() -> bool:
         load_dotenv()
 
         mongoHost = os.getenv("MONGO_HOST", "localhost")
-        mongoPort = os.getenv("MONGO_PORT", "27020")
-        mongoUser = os.getenv("MONGO_USER")
-        mongoPassword = os.getenv("MONGO_PASSWORD")
+        mongoPort = os.getenv("DB_PORT", "27020")
+        mongoUser = os.getenv("DB_USER")
+        mongoPassword = os.getenv("DB_PASSWORD")
 
         if mongoUser and mongoPassword:
             auth = f"{quote_plus(mongoUser)}:{quote_plus(mongoPassword)}@"
@@ -172,7 +185,7 @@ def checkMongodb() -> bool:
                     print(f"      접속 시도 {attempt}/{mongodbRetries} 실패, 재시도 중...")
                     time.sleep(1.5)
 
-        print(f"[FAIL] MongoDB 접속 실패 ({target}) - .env의 MONGO_HOST/MONGO_PORT 확인: {lastError}")
+        print(f"[FAIL] MongoDB 접속 실패 ({target}) - .env의 MONGO_HOST/DB_PORT 확인: {lastError}")
         return False
     except ImportError as e:
         print(f"[FAIL] 필요한 패키지 미설치({e}) - 위 패키지 설치 단계를 먼저 확인하세요")

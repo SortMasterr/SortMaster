@@ -1,0 +1,47 @@
+services:
+  backend:
+    build:
+      context: ./WebApps/backend
+    container_name: sortmaster-backend
+    restart: unless-stopped
+    ports:
+      - "8047:8047"
+    env_file:
+      - .env
+    depends_on:
+      - mongo
+
+  mongo:
+    image: mongo:7.0
+    container_name: sortmaster-mongo
+    restart: unless-stopped
+    ports:
+      - "27020:27017"
+    volumes:
+      - mongo-data:/data/db
+    # 이 컨테이너는 로컬용 별도 인스턴스 — 팀 공유 서버(192.168.0.30)와는 다른 DB.
+    # 지금은 인증 없이 기동. 필요해지면 MONGO_INITDB_ROOT_USERNAME/PASSWORD 추가.
+
+  # 라벨링/학습(YOLOv8 재학습 + Qwen3-VL-8B LoRA·QLoRA) 때만 기동:
+  #   docker compose --profile training up training
+  # best.pt 등 산출물 나오면 내리기:
+  #   docker compose --profile training down
+  training:
+    build:
+      context: ./training
+    container_name: sortmaster-training
+    profiles: ["training"]
+    env_file:
+      - .env
+    volumes:
+      - ./training:/workspace
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  mongo-data:

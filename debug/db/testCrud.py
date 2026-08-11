@@ -12,9 +12,9 @@ from pymongo.server_api import ServerApi
 load_dotenv()
 
 mongoHost = os.getenv("MONGO_HOST", "localhost")
-mongoPort = os.getenv("MONGO_PORT", "27020")
-mongoUser = os.getenv("MONGO_USER")
-mongoPassword = os.getenv("MONGO_PASSWORD")
+mongoPort = os.getenv("DB_PORT", "27020")
+mongoUser = os.getenv("DB_USER")
+mongoPassword = os.getenv("DB_PASSWORD")
 
 if mongoUser and mongoPassword:
     auth = f"{quote_plus(mongoUser)}:{quote_plus(mongoPassword)}@"

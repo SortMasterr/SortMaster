@@ -102,10 +102,10 @@ Detect → Create Event → Save Event → Check mode
 
 ## DB 접속 (팀 공유 vs 로컬)
 
-- `.env`의 `MONGO_HOST/PORT/USER/PASSWORD`를 팀원마다 다르게 설정
+- `.env`의 `MONGO_HOST`/`DB_PORT`/`DB_USER`/`DB_PASSWORD`를 팀원마다 다르게 설정
   - 팀 공유: `MONGO_HOST=192.168.0.30`
   - 로컬(`my-mongo`): `MONGO_HOST=localhost`
-- `infra/checkEnv.py`, `debug/testDbConnection.py`, `debug/testCrud.py` 세 스크립트가 `.env` 키 공유 — 값 다르면 결과 엇갈림
+- `infra/checkEnv.py`, `debug/db/testDbConnection.py`, `debug/db/testCrud.py` 세 스크립트가 `.env` 키 공유 — 값 다르면 결과 엇갈림
 - 디버그 스크립트는 Atlas → 로컬/자체 Docker로 전환(`mongodb+srv://` → `mongodb://`+포트)
 
 ## TBD

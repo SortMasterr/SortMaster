@@ -9,14 +9,14 @@ pip install pymongo python-dotenv
 Notion에 공유된 `.env` 값을 그대로 프로젝트 루트에 저장(아래 키 포함돼 있는지 확인):
 ```
 MONGO_HOST=
-MONGO_PORT=27020
-MONGO_USER=ID
-MONGO_PASSWORD=PW
+DB_PORT=27020
+DB_USER=ID
+DB_PASSWORD=PW
 ```
 
 ## 3. 접속 테스트 (⚠️ 반드시 프로젝트 루트에서 실행)
 ```bash
-python debug/testDbConnection.py
+python debug/db/testDbConnection.py
 ```
 `debug/` 폴더 안에서 실행하면 `.env`를 못 찾습니다 — 루트 디렉터리에서 실행하세요.
 
@@ -28,7 +28,7 @@ python debug/testDbConnection.py
 Mongo는 스키마리스라 DB/컬렉션을 미리 만들 필요 없음 — 코드에서 첫 insert 시 자동 생성됨.
 
 ```bash
-python debug/testCrud.py
+python debug/db/testCrud.py
 ```
 
 ## 참고

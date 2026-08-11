@@ -10,20 +10,25 @@
 | 웹 프레임워크 | FastAPI (최신 안정 버전) + `uvicorn[standard]` | 버전도 `infra/checkEnv.py`에서 관리 |
 | DB 드라이버 | `motor` (비동기) | MongoDB 연동용 |
 | DB 실행 | Docker | 호스트 포트 `27020`, 컨테이너 내부는 `27017` 유지 (팀 간 포트 충돌 방지) |
-| MongoDB 버전 | **TBD** | Docker 이미지 태그로 고정 예정 (예: `mongo:7.0`) — 확정 전 임의 지정 금지 |
-| Docker / Docker Compose 버전 | **TBD** | 팀 확정 후 여기에 기재 |
+| MongoDB 버전 | **`mongo:7.0`** | 확정됨, `docker-compose.yml`의 `mongo` 서비스 이미지 태그 |
+| Docker / Docker Compose 버전 | **Compose V2** | V1(standalone `docker-compose`) 불가, `docker compose version`으로 확인. v29.6.2/Compose v5.3.1 조합으로 빌드+구동 검증 완료 |
 | 형상관리 | GitHub | 브랜치 전략은 `Docs/skills/github/README.md` 참고 |
 | IDE / AI 코딩 툴 | 개인별 사용 | 팀 공통 지정 없음, 각자 편한 도구 사용 |
 | 프론트엔드 | Node.js/React 사용 안 함 — Jinja2 + 바닐라 JS | 별도 런타임 설치 불필요 |
 
 > **TBD 항목은 확정되는 대로 이 표를 업데이트해서 전원이 동일한 버전으로 맞춰야 함.**
 > 특히 Python은 3.11 외 버전(3.12, 3.10 등) 사용 금지 — 라이브러리 호환성 문제 방지.
+>
+> **`git pull` 이후에는 반드시 `python infra/checkEnv.py`를 실행할 것.** 패키지 버전이
+> 팀원마다 갈리지 않도록 `requiredPackages`를 전부 정확히 버전 고정(`==`)해뒀는데,
+> pull로 새 패키지가 추가되거나 버전이 바뀌어도 직접 실행하기 전까진 반영이 안 됨.
 
 ### 필수 설치 확인
 
 ```bash
 python --version   # Python 3.11.x 인지 확인
-docker --version   # Docker 설치 확인 (버전 TBD 확정 전까지는 최신 stable 사용)
+docker --version   # Docker 설치 확인
+docker compose version   # Compose V2인지 확인 (V1 standalone docker-compose는 미지원)
 git --version
 ```
 
@@ -31,9 +36,11 @@ git --version
 설치+체크까지 담당함(또는 `infra/checkEnv.bat` 더블클릭). Python 버전·필요 패키지
 자동 설치·Docker 설치 여부·MongoDB(포트 27020) 접속을 한 번에 확인.
 
-## 실행 방법 (Windows 로컬 개발)
+## 실행 방법
 
-```bash
+### Windows 로컬 개발
+
+```bat
 cd WebApps/backend
 python -m venv venv
 venv\Scripts\activate
@@ -50,29 +57,43 @@ uvicorn main:app --reload --port 8047
 브라우저에서 http://localhost:8047 접속.
 API 상세 스펙은 `.agentfiles/apiSpec.md` 참고.
 
+### Docker Compose
+
+```bash
+# .env는 프로젝트 루트에 위치해야 함(Notion 공유값)
+docker compose up --build
+```
+
+- `backend`(포트 8047) + `mongo`(호스트 포트 27020) 상시 기동. 로컬 웹캠을 백엔드가 직접 여는 코드는 아직 없어서 지금은 컨테이너에 카메라 디바이스 패스스루 불필요
+- 여기서 뜨는 `mongo`는 로컬 전용 별도 인스턴스 — 팀 공유 서버(`192.168.0.30`)와는 다른 DB. 팀 공유 서버를 쓰려면 `.env`의 `MONGO_HOST`를 그쪽으로 두고 compose의 `mongo` 서비스는 안 띄워도 됨(`docker compose up backend`)
+- 라벨링/학습(YOLOv8 재학습 + Qwen3-VL-8B LoRA·QLoRA)은 평소엔 내려두고 필요할 때만:
+  ```bash
+  docker compose --profile training up --build training
+  docker compose --profile training down   # best.pt 등 산출물 나오면
+  ```
+  GPU 패스스루에 `nvidia-docker`(NVIDIA Container Toolkit) 필요. `training/Dockerfile`은 실제 학습 코드 들어오기 전까지 플레이스홀더
+
 ## 현재 상태 (Mock 단계)
 
-- **영상 소스**: 웹캠(`CAMERA_SOURCE=0`) 1개를 열어, 프레임을 3개 카메라ID
-  (`ELEV-01`, `ELEV-02`, `REST-4F-01`)에 복제해서 스트리밍. 동일 웹캠을 여러 번
-  열 수 없는 OS 제약 때문에 단일 캡처 + 프레임 공유 방식 사용.
-- **탐지**: `services/detectionService.py` — 랜덤 클래스 + 임의 confidence Mock.
-  탐지 모델은 YOLOv8-Nano(상시감시+투척판단)+Qwen3-VL-8B(정밀분류, LoRA/QLoRA
-  파인튜닝)으로 확정됐지만 아직 코드에 통합 전이라 여전히 Mock. 지점당 카메라
-  2대(위+옆) 구성. 이벤트도 `misclassification`(투기)/`overflow`(넘침) 두
-  카테고리로 나뉠 예정(상세는 `.agentfiles/architecture.md`,
-  `.agentfiles/apiSpec.md` 참고)
-- **저장소**: `repositories/eventRepository.py` — `.env`의 `USE_MOCK_DB` 값으로
-  In-memory Mock ↔ 실제 MongoDB(motor) 전환 가능. **DB 실연동 완료**, 로컬 Docker
-  MongoDB(포트 27020)로 저장 테스트 확인됨.
-- **RPA(전구/경고음)**: `services/rpaService.py` — 콘솔 로그로 대체(젯슨 나노 GPIO
-  연동 전까지 유지).
-- **DB**: MongoDB Docker, 호스트 포트 `27020`(다른 팀과 충돌 방지, 컨테이너 내부는
-  `27017` 유지).
+- **영상 소스**: 아직 미착수 — 카메라 캡처/스트리밍 코드(`CAMERA_SOURCE` 등) 없음.
+  지점당 위+옆 카메라 2대 구성은 확정됐지만 코드 통합 전.
+- **탐지**: 아직 미착수. 탐지 모델은 YOLOv8-Nano(상시감시+투척판단)+Qwen3-VL-8B
+  (정밀분류, LoRA/QLoRA 파인튜닝)으로 확정됐지만 코드에 통합 전(상세는
+  `.agentfiles/architecture.md`, `.agentfiles/apiSpec.md` 참고). 이벤트는
+  `misclassification`(투기)/`overflow`(넘침) 두 카테고리로 나뉠 예정.
+- **API/저장소**: `controllers/api.py` — 이벤트 CRUD(`/api/events`), 통계
+  (`GET /api/statistics`), 모드 전환(`POST /api/mode`, MANAGE/COLLECT) 구현됨.
+  `repositories/eventRepository.py`는 **순수 In-memory Mock**(리스트 저장) —
+  motor/MongoDB 연동 코드나 `USE_MOCK_DB` 같은 전환 스위치는 아직 코드에 없음.
+- **RPA(전구/경고음)**: 아직 미착수. 모드 전환 API(`/api/mode`)는 있지만 실제
+  RPA 트리거·Mute로 이어지는 코드는 없음.
+- **DB**: MongoDB는 Docker로 준비됐지만(호스트 포트 `27020`, 컨테이너 내부는
+  `27017`) 백엔드 코드가 아직 연결하지 않음.
 
 ### 배포 전략
 
-- 개발: Windows 노트북에서 Docker로 진행(로컬 웹캠 테스트)
-- 배포: 동일 Docker 이미지를 그대로 학원 GPU 서버(Linux, **NVIDIA L40S 4장 중
+- **개발**: Windows 노트북에서 Docker로 진행(로컬 웹캠 테스트)
+- **배포**: 동일 Docker 이미지를 그대로 학원 GPU 서버(Linux, **NVIDIA L40S 4장 중
   할당받은 1장**)로 이전
 - 다른 팀들과 서버를 공유하기 때문에 4장 중 **1장만 할당**받아 사용. MVP 단계는
   백엔드(FastAPI)+모델 학습+DB 저장+탐지 추론을 **할당받은 GPU 1장 안에 전부
@@ -91,14 +112,16 @@ API 상세 스펙은 `.agentfiles/apiSpec.md` 참고.
    중앙 백엔드 안에서 Mock 처리 중인 자리만 잡아둔 상태 — 실제로는 젯슨 나노 쪽
    리스너로 옮겨야 할 가능성 높음. 신호 전달 방식(MQTT/HTTP/WebSocket)은 TBD.
 
-## 메인보드 입고 후 교체할 부분
+## 메인보드 입고 후 개발할 부분
 
-1. `streaming/cameraManager.py` — 웹캠 단일 소스 → CameraId별 독립 RTSP 소스로 교체
-2. `services/detectionService.py` — Mock 추론 → YOLOv8-Nano(상시감시)+YOLOv8-Medium(정밀분석) 2단계 파이프라인으로 교체
-3. ~~`repositories/eventRepository.py` — In-memory → motor 기반 MongoDB 구현으로 교체~~
-   **완료** (`USE_MOCK_DB=false`로 전환하면 실제 MongoDB 사용)
-4. `services/rpaService.py` — 콘솔 로그 → 실제 GPIO/HW 연동 (`RPAs/` 참고,
-   젯슨 나노 쪽으로 이전 검토 중)
+1. `streaming/cameraManager.py` — 아직 미작성. 메인보드 입고 전까지는 웹캠 단일
+   소스로 개발, 입고 후 CameraId별 독립 RTSP 소스로 구현
+2. `services/detectionService.py` — 아직 미작성. YOLOv8-Nano(상시감시+투척판단)+
+   Qwen3-VL-8B(정밀분류) 파이프라인으로 구현 예정
+3. `repositories/eventRepository.py` — 현재 In-memory Mock만 구현됨. motor 기반
+   MongoDB 연동은 아직 미작성
+4. `services/rpaService.py` — 아직 미작성. 실제 GPIO/HW 연동(`RPAs/` 참고, 젯슨
+   나노 쪽으로 이전 검토 중)
 
 ## TBD (팀 논의 필요)
 
