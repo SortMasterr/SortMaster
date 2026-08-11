@@ -22,7 +22,7 @@ v0.1(MVP/Mock). Base URL `http://localhost:8047`(배포 시 GPU 서버 주소). 
 
 | ID | Method/Path | 설명 | Params | 상태코드 | 부수효과 |
 |---|---|---|---|---|---|
-| EP-01 | GET /api/stream/{cameraId} | MJPEG 스트림 | Path: cameraId(CameraId) | 200 | 없음. 개발=웹캠1개 복제 제공, 배포=카메라별 독립 RTSP |
+| EP-01 | GET /api/stream/{cameraId} | MJPEG 스트림 | Path: cameraId(CameraId), Query: role?("top"\|"side", 기본 "top") | 200/503 | 지점당 위/옆 카메라 2대 중 선택. 카메라 미설정/연결 실패 시 503. 개발=`.env`의 `CAMERA_SOURCE`(top)/`CAMERA_SOURCE_SIDE`(side) 웹캠, 배포=카메라별 독립 RTSP |
 | EP-03 | GET /api/events | 이벤트 목록 | Query: from?, to?(ISO8601) | 200 | 없음. 페이지네이션 미구현(TBD) |
 | EP-04 | GET /api/events/{id} | 이벤트 상세 | Path: id | 200 | 없음. not found 시 404 vs null TBD |
 | EP-05 | GET /api/statistics | 클래스별 집계, 온디맨드(캐시없음) | Query: from?, to? | 200 | 없음. Chart.js는 WS로 낙관적 증가, 새로고침 시 재동기화 |
@@ -58,7 +58,7 @@ TemplateResponse만 반환, views.py/api.py 혼용 금지.
 
 | ID | Path | 템플릿 | 설명 |
 |---|---|---|---|
-| PG-01 | GET / | main.html | 카메라 3대 스트리밍+모니터링 현황. mode를 컨텍스트로 전달(새로고침 시 상태유지) |
+| PG-01 | GET / | index.html | 지점 1곳의 위/옆 카메라 2대 스트리밍(2분할)+모니터링 현황. mode를 컨텍스트로 전달(새로고침 시 상태유지) |
 | PG-02 | GET /events | history.html | EP-03 결과 표 렌더링(이전기록) |
 | PG-03 | GET /events/{id} | (미정) | EP-04 결과 렌더링 — 템플릿 아직 없음, 구현 전 |
 | PG-04 | GET /statistics | dashboard.html | EP-05 결과 Chart.js 렌더링 |

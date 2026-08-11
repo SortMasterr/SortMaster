@@ -28,7 +28,7 @@
 ```bash
 python --version   # Python 3.11.x 인지 확인
 docker --version   # Docker 설치 확인
-docker compose version   # Compose V2인지 확인 (V1 standalone docker-compose는 미지원)
+docker compose version   # Compose V2인지 확인 (V1 standalone docker-compose인 경우 버전명이 안뜸)
 git --version
 ```
 
@@ -49,7 +49,8 @@ python ..\..\infra\checkEnv.py
 :: 패키지 자동 설치 + Python/Docker/MongoDB 체크. 전부 OK가 아니면 여기서 먼저 해결
 
 :: .env는 Notion에 공유된 팀 값을 그대로 받아 프로젝트 루트(WebApps/backend 상위)에 저장
-:: 필요 시 .env 값 수정 (CAMERA_SOURCE, USE_MOCK_DB 등)
+:: 필요 시 .env 값 수정 (CAMERA_SOURCE, CAMERA_SOURCE_SIDE, USE_MOCK_DB 등)
+:: CAMERA_SOURCE=위(Top) 카메라, CAMERA_SOURCE_SIDE=옆(Side) 카메라 — 웹캠 1대만 있으면 SIDE는 비워두면 됨(해당 스트림만 503)
 
 uvicorn main:app --reload --port 8047
 ```
@@ -75,8 +76,11 @@ docker compose up --build
 
 ## 현재 상태 (Mock 단계)
 
-- **영상 소스**: 아직 미착수 — 카메라 캡처/스트리밍 코드(`CAMERA_SOURCE` 등) 없음.
-  지점당 위+옆 카메라 2대 구성은 확정됐지만 코드 통합 전.
+- **영상 소스**: 구현됨. `streaming/cameraManager.py` — `.env`의 `CAMERA_SOURCE`(위)/
+  `CAMERA_SOURCE_SIDE`(옆)로 지점 1곳의 위+옆 카메라 2대를 관리하고,
+  `GET /api/stream/{cameraId}?role=top|side`로 MJPEG 송출. 웹캠 1대만 있으면
+  `CAMERA_SOURCE_SIDE`를 비워두면 됨(`role=side`만 503, 다른 기능엔 영향 없음).
+  메인보드 입고 후엔 `CAMERA_SOURCE`/`CAMERA_SOURCE_SIDE`를 RTSP URL로 교체(코드 불변).
 - **탐지**: 아직 미착수. 탐지 모델은 YOLOv8-Nano(상시감시+투척판단)+Qwen3-VL-8B
   (정밀분류, LoRA/QLoRA 파인튜닝)으로 확정됐지만 코드에 통합 전(상세는
   `.agentfiles/architecture.md`, `.agentfiles/apiSpec.md` 참고). 이벤트는
@@ -114,13 +118,18 @@ docker compose up --build
 
 ## 메인보드 입고 후 개발할 부분
 
-1. `streaming/cameraManager.py` — 아직 미작성. 메인보드 입고 전까지는 웹캠 단일
-   소스로 개발, 입고 후 CameraId별 독립 RTSP 소스로 구현
+1. ~~`streaming/cameraManager.py`~~ **완료** — 위/옆 카메라 2대, `/api/stream/{cameraId}?role=top|side`
+   MJPEG 송출 구현됨. 메인보드 입고 후엔 `CAMERA_SOURCE`/`CAMERA_SOURCE_SIDE`를
+   RTSP URL로 교체만 하면 됨(코드 변경 불필요). 저장/DB 연동은 아래 항목들이 선행돼야 함
 2. `services/detectionService.py` — 아직 미작성. YOLOv8-Nano(상시감시+투척판단)+
    Qwen3-VL-8B(정밀분류) 파이프라인으로 구현 예정
-3. `repositories/eventRepository.py` — 현재 In-memory Mock만 구현됨. motor 기반
-   MongoDB 연동은 아직 미작성
-4. `services/rpaService.py` — 아직 미작성. 실제 GPIO/HW 연동(`RPAs/` 참고, 젯슨
+3. **이벤트 트리거 녹화** — 아직 미작성. 상시 녹화가 아니라 탐지 트리거 시점에만
+   10초 녹화(architecture.md 원칙). 2번(탐지)이 먼저 있어야 트리거 기준이 생김
+4. **GridFS 업로드** — 아직 미작성. 3번에서 만든 클립을 MongoDB GridFS에 저장하고
+   파일 ID 발급
+5. `repositories/eventRepository.py` — 현재 In-memory Mock만 구현됨. motor 기반
+   MongoDB 연동으로 교체하면서 4번의 GridFS 파일 ID를 `imageFileId`로 같이 저장
+6. `services/rpaService.py` — 아직 미작성. 실제 GPIO/HW 연동(`RPAs/` 참고, 젯슨
    나노 쪽으로 이전 검토 중)
 
 ## TBD (팀 논의 필요)

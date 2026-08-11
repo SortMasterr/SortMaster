@@ -1,12 +1,17 @@
+import asyncio
 from datetime import datetime
+from typing import Literal
 
+import cv2
 from fastapi import (
     APIRouter,
     HTTPException,
     Query,
 )
+from fastapi.responses import StreamingResponse
 
 from schemas.event import (
+    CameraId,
     Event,
     EventCreate,
 )
@@ -17,6 +22,7 @@ from schemas.mode import (
 from schemas.statistics import Statistics
 from services.eventService import eventService
 from services.modeService import modeService
+from streaming.cameraManager import cameraManagers
 
 
 router = APIRouter(
@@ -108,4 +114,50 @@ async def updateMode(
 ) -> ModeResponse:
     return modeService.updateMode(
         modeUpdate
+    )
+
+
+async def generateMjpegFrames(cameraManager):
+    while True:
+        frame = await cameraManager.readFrame()
+
+        if frame is None:
+            await asyncio.sleep(0.05)
+            continue
+
+        encoded, buffer = await asyncio.to_thread(
+            cv2.imencode,
+            ".jpg",
+            frame,
+        )
+
+        if not encoded:
+            continue
+
+        yield (
+            b"--frame\r\n"
+            b"Content-Type: image/jpeg\r\n\r\n"
+            + buffer.tobytes()
+            + b"\r\n"
+        )
+
+
+@router.get("/stream/{cameraId}")
+async def streamCamera(
+    cameraId: CameraId,
+    role: Literal["top", "side"] = "top",
+) -> StreamingResponse:
+    cameraManager = cameraManagers[role]
+
+    try:
+        await cameraManager.start()
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=str(e),
+        )
+
+    return StreamingResponse(
+        generateMjpegFrames(cameraManager),
+        media_type="multipart/x-mixed-replace; boundary=frame",
     )

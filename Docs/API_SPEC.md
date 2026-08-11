@@ -41,13 +41,15 @@
 
 ### 1-1. `GET /api/stream/{cameraId}`
 
-카메라별 실시간 영상 스트림.
+카메라별 실시간 영상 스트림. 지점당 위(Top)/옆(Side) 카메라 2대 중 하나를 선택해서 받음.
 
 | 항목 | 내용 |
 |---|---|
 | Path Param | `cameraId` — `CameraId` Enum |
+| Query Param | `role` — `"top"` \| `"side"`, 기본값 `"top"` |
 | 응답 | `multipart/x-mixed-replace; boundary=frame` (MJPEG 스트림) |
-| 비고 | 개발 단계는 웹캠 1개를 3개 카메라ID에 복제해서 제공. 배포 후엔 각 카메라ID별 독립 RTSP 소스로 교체 예정 |
+| 상태 코드 | 200 정상 / 503 카메라 미설정·연결 실패 |
+| 비고 | 개발 단계: `.env`의 `CAMERA_SOURCE`(top)/`CAMERA_SOURCE_SIDE`(side) 웹캠을 그대로 제공(`CAMERA_SOURCE_SIDE` 미설정 시 `role=side`는 503). 배포 후엔 각 카메라별 독립 RTSP 소스로 교체 예정 |
 
 ---
 
@@ -213,7 +215,7 @@ JSON을 반환하지 않고 `TemplateResponse`만 반환. JSON API와 컨트롤�
 
 | Method | Path | 템플릿 | 설명 |
 |---|---|---|---|
-| GET | `/` | `main.html` | 메인 — 카메라 3대 스트리밍 + 모니터링 현황 |
+| GET | `/` | `index.html` | 메인 — 지점 1곳의 위/옆 카메라 2대 스트리밍(2분할) + 모니터링 현황 |
 | GET | `/events` | `history.html` | 이전기록(이벤트 목록) |
 | GET | `/events/{id}` | (미정) | 이벤트 상세 — 템플릿 아직 없음, 구현 전 |
 | GET | `/statistics` | `dashboard.html` | 통계 대시보드 |

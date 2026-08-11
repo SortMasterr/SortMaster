@@ -50,7 +50,7 @@
                 class="contentBody"
                 id="contentBody"
             >
-                <h2>실시간 모니터링 (ELEV-01)</h2>
+                <h2>실시간 모니터링 ({{ cameraId }})</h2>
 
                 <div
                     class="videoContainer"
@@ -65,11 +65,22 @@
                         <i class="fa-solid fa-expand"></i>
                     </button>
 
-                    <div class="videoPlaceholder">
-                        <img
-                            src="/static/images/videoPlaceholder.jpg"
-                            alt="실시간 CCTV 화면"
-                        >
+                    <div class="videoSplit">
+                        <div class="videoPane">
+                            <span class="videoPaneLabel">위(Top)</span>
+                            <img
+                                src="/api/stream/{{ cameraId }}?role=top"
+                                alt="위 카메라 실시간 화면"
+                            >
+                        </div>
+
+                        <div class="videoPane">
+                            <span class="videoPaneLabel">옆(Side)</span>
+                            <img
+                                src="/api/stream/{{ cameraId }}?role=side"
+                                alt="옆 카메라 실시간 화면"
+                            >
+                        </div>
                     </div>
                 </div>
 

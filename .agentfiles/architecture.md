@@ -57,13 +57,13 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
   탐지 모델 몫으로 남겨둠 (`docker run --gpus`는 추론 컨테이너에만 적용)
 - 서버 CPU/RAM이 팀별로 분리되는지(GPU만 분리되는지)는 서버 관리자 확인 필요(TBD)
 - GPU 패스스루: nvidia-docker 필요
-- 영상 소스는 `.env`의 `CAMERA_SOURCE`만 환경별로 교체, 코드 불변
+- 영상 소스는 `.env`의 `CAMERA_SOURCE`(위)/`CAMERA_SOURCE_SIDE`(옆)만 환경별로 교체, 코드 불변
 
-## 웹캠 시뮬레이션 (메인보드 입고 전)
+## 웹캠 시뮬레이션 (메인보드 입고 전) — 구현됨
 
-- 웹캠 동시 다중 오픈 불가(OS 제약) → 단일 캡처 + 프레임을 3개 카메라ID에 복제
-- 입고 후 CameraId별 독립 RTSP로 교체(이 부분만)
-- `cv2.VideoCapture().read()` 동기 블로킹 → `async def` 직접 호출 금지, `asyncio.to_thread()` 필수
+- `streaming/cameraManager.py`: 지점당 위(top)/옆(side) 카메라 각각 별도 `CameraManager` 인스턴스로 관리(`GET /api/stream/{cameraId}?role=top|side`). 웹캠이 1대뿐이면 `CAMERA_SOURCE_SIDE`를 비워두면 되고, 그 경우 `role=side` 요청만 503(다른 기능엔 영향 없음)
+- 입고 후 CameraId별 독립 RTSP로 교체(소스 문자열만 RTSP URL로 교체, 로직 불변)
+- `cv2.VideoCapture().read()` 동기 블로킹 → `asyncio.to_thread()`로 감쌈(적용 완료)
 
 ## 젯슨 나노 엣지 코드 (미착수)
 
