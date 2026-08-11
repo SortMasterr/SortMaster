@@ -140,11 +140,14 @@ def chooseCameras(cameras: list[str]) -> tuple[str, str]:
     return cameras[topIndex], cameras[sideIndex]
 
 
+logDir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+
+
 def startFfmpegPush(
     ffmpegPath: str,
     cameraName: str,
     rtspPath: str,
-) -> subprocess.Popen:
+) -> tuple[subprocess.Popen, str]:
     command = [
         ffmpegPath,
         "-f", "dshow",
@@ -161,10 +164,38 @@ def startFfmpegPush(
         f"rtsp://localhost:{rtspPort}/{rtspPath}",
     ]
 
-    return subprocess.Popen(
+    os.makedirs(logDir, exist_ok=True)
+    logPath = os.path.join(logDir, f"ffmpeg_{rtspPath}.log")
+    logFile = open(logPath, "w", encoding="utf-8", errors="replace")
+
+    process = subprocess.Popen(
         command,
-        creationflags=subprocess.CREATE_NEW_CONSOLE,
+        stdout=logFile,
+        stderr=subprocess.STDOUT,
     )
+
+    return process, logPath
+
+
+def checkAlive(
+    process: subprocess.Popen,
+    label: str,
+    logPath: str,
+) -> None:
+    # FFmpeg가 창 없이 백그라운드로 뜨기 때문에, 바로 죽었는지 확인해서
+    # 로그를 즉시 보여줌(창이 순식간에 닫혀서 에러를 못 보는 문제 방지).
+    time.sleep(2)
+
+    if process.poll() is not None:
+        print(f"[FAIL] {label} 프로세스가 바로 종료됨(exit {process.returncode})")
+        print(f"       로그: {logPath}")
+
+        with open(logPath, encoding="utf-8", errors="replace") as f:
+            tail = f.readlines()[-15:]
+
+        print("".join(tail))
+    else:
+        print(f"[OK ] {label} 정상 실행 중 (로그: {logPath})")
 
 
 def main():
@@ -198,8 +229,11 @@ def main():
     time.sleep(2)
 
     print("=== 5. FFmpeg 송신 시작 ===")
-    topProcess = startFfmpegPush(ffmpegPath, topCamera, "top")
-    sideProcess = startFfmpegPush(ffmpegPath, sideCamera, "side")
+    topProcess, topLog = startFfmpegPush(ffmpegPath, topCamera, "top")
+    sideProcess, sideLog = startFfmpegPush(ffmpegPath, sideCamera, "side")
+
+    checkAlive(topProcess, "top", topLog)
+    checkAlive(sideProcess, "side", sideLog)
 
     print(f"""
 완료. .env에 아래 두 줄을 추가하세요:

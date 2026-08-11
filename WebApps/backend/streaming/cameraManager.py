@@ -23,6 +23,11 @@ class CameraManager:
         self.lock = asyncio.Lock()
 
     def _open(self) -> cv2.VideoCapture:
+        if isinstance(self.source, str) and self.source.startswith("rtsp://"):
+            # RTSP 영상 데이터는 기본적으로 UDP로 전송되는데, 방화벽에 UDP 포트를
+            # 별도로 안 열어도 되도록 TCP로 강제(제어 채널과 같은 8554 포트로 처리됨).
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+
         capture = cv2.VideoCapture(self.source)
         capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         return capture
