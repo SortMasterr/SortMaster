@@ -115,7 +115,7 @@ def ensureMediaMtx() -> bool:
     return True
 
 
-def listDshowCameras(ffmpegPath: str) -> list[str]:
+def listDshowCameras(ffmpegPath: str) -> list[tuple[str, str]]:
     # ffmpeg는 장치명을 UTF-8로 출력하므로(한글 장치명 포함),
     # Windows 기본 로케일 인코딩(cp949)이 아니라 명시적으로 utf-8로 읽어야 함.
     result = subprocess.run(
@@ -125,19 +125,49 @@ def listDshowCameras(ffmpegPath: str) -> list[str]:
         errors="replace",
     )
 
-    return re.findall(r'"([^"]+)"\s*\(video\)', result.stderr)
+    lines = result.stderr.splitlines()
+    cameras = []
+
+    for i, line in enumerate(lines):
+        nameMatch = re.search(r'"([^"]+)"\s*\(video\)', line)
+
+        if not nameMatch:
+            continue
+
+        friendlyName = nameMatch.group(1)
+        # 카메라 모델이 같으면 friendlyName이 똑같아서(예: "ABKO APC480 SD WEBCAM"
+        # 이 2개), 이름만으로 열면 둘 다 같은 물리 장치로 열려서 충돌남 — 장치별로
+        # 고유한 "Alternative name"(다음 줄)을 실제 -i 값으로 써서 구분해야 함.
+        altName = friendlyName
+
+        if i + 1 < len(lines):
+            altMatch = re.search(r'Alternative name "([^"]+)"', lines[i + 1])
+
+            if altMatch:
+                altName = altMatch.group(1)
+
+        cameras.append((friendlyName, altName))
+
+    return cameras
 
 
-def chooseCameras(cameras: list[str]) -> tuple[str, str]:
+def chooseCameras(
+    cameras: list[tuple[str, str]],
+) -> tuple[str, str]:
     print("\n감지된 카메라:")
 
-    for i, name in enumerate(cameras):
-        print(f"  [{i}] {name}")
+    for i, (friendlyName, _) in enumerate(cameras):
+        print(f"  [{i}] {friendlyName}")
+
+    print(
+        "(이름이 똑같이 나오면 실제로는 다른 물리 장치일 수 있음 — "
+        "화면 가리기 등으로 직접 구분 필요)"
+    )
 
     topIndex = int(input("\n위(top) 카메라 번호 입력: "))
     sideIndex = int(input("옆(side) 카메라 번호 입력: "))
 
-    return cameras[topIndex], cameras[sideIndex]
+    return cameras[topIndex][1], cameras[sideIndex][1]
 
 
 logDir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
