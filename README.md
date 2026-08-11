@@ -81,6 +81,8 @@ docker compose up --build
   `GET /api/stream/{cameraId}?role=top|side`로 MJPEG 송출. 웹캠 1대만 있으면
   `CAMERA_SOURCE_SIDE`를 비워두면 됨(`role=side`만 503, 다른 기능엔 영향 없음).
   메인보드 입고 후엔 `CAMERA_SOURCE`/`CAMERA_SOURCE_SIDE`를 RTSP URL로 교체(코드 불변).
+  젯슨 나노 입고 전 RTSP 경로를 미리 테스트하려면 `debug/streaming/startRtspSim.py`
+  참고(이 PC 웹캠으로 RTSP 송신 흉내, 백엔드와 무관한 로컬 테스트 전용 도구).
 - **탐지**: 아직 미착수. 탐지 모델은 YOLOv8-Nano(상시감시+투척판단)+Qwen3-VL-8B
   (정밀분류, LoRA/QLoRA 파인튜닝)으로 확정됐지만 코드에 통합 전(상세는
   `.agentfiles/architecture.md`, `.agentfiles/apiSpec.md` 참고). 이벤트는

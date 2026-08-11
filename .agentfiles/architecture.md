@@ -64,6 +64,10 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
 - `streaming/cameraManager.py`: 지점당 위(top)/옆(side) 카메라 각각 별도 `CameraManager` 인스턴스로 관리(`GET /api/stream/{cameraId}?role=top|side`). 웹캠이 1대뿐이면 `CAMERA_SOURCE_SIDE`를 비워두면 되고, 그 경우 `role=side` 요청만 503(다른 기능엔 영향 없음)
 - 입고 후 CameraId별 독립 RTSP로 교체(소스 문자열만 RTSP URL로 교체, 로직 불변)
 - `cv2.VideoCapture().read()` 동기 블로킹 → `asyncio.to_thread()`로 감쌈(적용 완료)
+- **로컬에서 RTSP 경로 미리 테스트**: `debug/streaming/startRtspSim.py` — 이 PC 웹캠 2대로
+  젯슨 나노 역할(FFmpeg+MediaMTX로 RTSP 송신)을 흉내냄. `infra/checkEnv.py`처럼 필요한 것
+  자동 설치하지만, RTSP 테스트하는 사람만 필요해서 `checkEnv.py`와는 별도 유지(`debug/db/`와
+  같은 패턴). WebApps/backend·docker-compose.yml과 무관 — 백엔드는 수정 없이 그대로 RTSP 수신
 
 ## 젯슨 나노 엣지 코드 (미착수)
 
