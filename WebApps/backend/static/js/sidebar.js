@@ -1,21 +1,51 @@
 let isCollectMode =
-    localStorage.getItem("currentMode") !== "MANAGE";
+    localStorage.getItem(
+        "currentMode"
+    ) === "COLLECT";
+
+let sidebarSocket = null;
+let reconnectTimer = null;
+let sidebarWarningTimer = null;
+
+
+function applyMode(mode) {
+    isCollectMode =
+        mode === "COLLECT";
+
+    localStorage.setItem(
+        "currentMode",
+        mode
+    );
+
+    updateSidebarUI();
+}
+
 
 function updateSidebarUI() {
     const modeToggleBtn =
-        document.getElementById("modeToggleBtn");
+        document.getElementById(
+            "modeToggleBtn"
+        );
 
     const modeText =
-        document.getElementById("modeText");
+        document.getElementById(
+            "modeText"
+        );
 
     const contentTitle =
-        document.getElementById("contentTitle");
+        document.getElementById(
+            "contentTitle"
+        );
 
     const modeBadge =
-        document.getElementById("modeBadge");
+        document.getElementById(
+            "modeBadge"
+        );
 
     const videoContainer =
-        document.getElementById("videoContainer");
+        document.getElementById(
+            "videoContainer"
+        );
 
     if (!modeToggleBtn) {
         return;
@@ -26,7 +56,8 @@ function updateSidebarUI() {
             "toggleBtn modeCollect";
 
         if (modeText) {
-            modeText.textContent = "수거모드";
+            modeText.textContent =
+                "수거모드";
         }
 
         if (contentTitle) {
@@ -35,7 +66,9 @@ function updateSidebarUI() {
         }
 
         if (modeBadge) {
-            modeBadge.textContent = "수거 가동 중";
+            modeBadge.textContent =
+                "수거 가동 중";
+
             modeBadge.className =
                 "badge badgeCollect";
         }
@@ -50,7 +83,8 @@ function updateSidebarUI() {
             "toggleBtn modeAdmin";
 
         if (modeText) {
-            modeText.textContent = "관리모드";
+            modeText.textContent =
+                "관리모드";
         }
 
         if (contentTitle) {
@@ -68,11 +102,15 @@ function updateSidebarUI() {
     }
 }
 
+
 function updateActiveMenu() {
-    const currentPath = window.location.pathname;
+    const currentPath =
+        window.location.pathname;
 
     document
-        .querySelectorAll(".navMenu li")
+        .querySelectorAll(
+            ".navMenu li"
+        )
         .forEach((menuItem) => {
             const link =
                 menuItem.querySelector("a");
@@ -87,13 +125,11 @@ function updateActiveMenu() {
             let isActive =
                 linkPath === currentPath;
 
-            /*
-             * 이벤트 상세 페이지도
-             * 이전기록 메뉴로 표시합니다.
-             */
             if (
                 linkPath === "/events" &&
-                currentPath.startsWith("/events/")
+                currentPath.startsWith(
+                    "/events/"
+                )
             ) {
                 isActive = true;
             }
@@ -110,30 +146,189 @@ function updateActiveMenu() {
         });
 }
 
-function initSidebarEvents() {
-    updateActiveMenu();
-    updateSidebarUI();
 
+function showMisclassificationWarning() {
+    const videoContainer =
+        document.getElementById(
+            "videoContainer"
+        );
+
+    if (!videoContainer) {
+        return;
+    }
+
+    if (sidebarWarningTimer !== null) {
+        clearTimeout(
+            sidebarWarningTimer
+        );
+    }
+
+    videoContainer.classList.add(
+        "warningActive"
+    );
+
+    sidebarWarningTimer =
+        setTimeout(() => {
+            videoContainer.classList.remove(
+                "warningActive"
+            );
+
+            sidebarWarningTimer = null;
+        }, 5000);
+}
+
+
+function connectSidebarSocket() {
+    if (
+        sidebarSocket !== null &&
+        (
+            sidebarSocket.readyState ===
+                WebSocket.CONNECTING ||
+            sidebarSocket.readyState ===
+                WebSocket.OPEN
+        )
+    ) {
+        return;
+    }
+
+    const protocol =
+        window.location.protocol === "https:"
+            ? "wss"
+            : "ws";
+
+    sidebarSocket = new WebSocket(
+        `${protocol}://` +
+        `${window.location.host}` +
+        "/ws/events"
+    );
+
+    sidebarSocket.onmessage = (
+        event
+    ) => {
+        const message =
+            JSON.parse(event.data);
+
+        if (
+            message.eventType ===
+            "MODE_CHANGED"
+        ) {
+            applyMode(message.mode);
+        }
+
+        if (
+            message.eventType ===
+            "MISCLASSIFICATION_DETECTED"
+        ) {
+            showMisclassificationWarning();
+        }
+    };
+
+    sidebarSocket.onclose = () => {
+        sidebarSocket = null;
+
+        if (reconnectTimer !== null) {
+            clearTimeout(
+                reconnectTimer
+            );
+        }
+
+        reconnectTimer = setTimeout(
+            connectSidebarSocket,
+            3000
+        );
+    };
+
+    sidebarSocket.onerror = (
+        error
+    ) => {
+        console.error(
+            "WebSocket 연결 오류:",
+            error
+        );
+    };
+}
+
+
+async function requestModeChange() {
     const modeToggleBtn =
-        document.getElementById("modeToggleBtn");
+        document.getElementById(
+            "modeToggleBtn"
+        );
 
     if (!modeToggleBtn) {
         return;
     }
 
-    modeToggleBtn.addEventListener("click", () => {
-        isCollectMode = !isCollectMode;
+    const nextMode =
+        isCollectMode
+            ? "MANAGE"
+            : "COLLECT";
 
-        localStorage.setItem(
-            "currentMode",
-            isCollectMode
-                ? "COLLECT"
-                : "MANAGE"
+    modeToggleBtn.disabled = true;
+
+    try {
+        const response = await fetch(
+            "/api/mode",
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type":
+                        "application/json"
+                },
+                body: JSON.stringify({
+                    mode: nextMode
+                })
+            }
         );
 
-        updateSidebarUI();
-    });
+        if (!response.ok) {
+            throw new Error(
+                `모드 변경 실패: ` +
+                `${response.status}`
+            );
+        }
+
+        const modeResponse =
+            await response.json();
+
+        applyMode(
+            modeResponse.mode
+        );
+    } catch (error) {
+        console.error(
+            "모드 변경 오류:",
+            error
+        );
+
+        alert(
+            "모드를 변경하지 못했습니다."
+        );
+    } finally {
+        modeToggleBtn.disabled = false;
+    }
 }
+
+
+function initSidebarEvents() {
+    updateActiveMenu();
+    updateSidebarUI();
+    connectSidebarSocket();
+
+    const modeToggleBtn =
+        document.getElementById(
+            "modeToggleBtn"
+        );
+
+    if (!modeToggleBtn) {
+        return;
+    }
+
+    modeToggleBtn.addEventListener(
+        "click",
+        requestModeChange
+    );
+}
+
 
 document.addEventListener(
     "DOMContentLoaded",

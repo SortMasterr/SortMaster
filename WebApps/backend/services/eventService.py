@@ -15,7 +15,9 @@ from schemas.event import (
     Event,
     EventCreate,
 )
+from schemas.mode import Mode
 from schemas.statistics import Statistics
+from services.modeService import modeService
 
 
 class EventService:
@@ -51,7 +53,8 @@ class EventService:
         toDate: datetime | None = None,
     ) -> Statistics:
         countsByClass = (
-            self.repository.countByDetectedClass(
+            self.repository
+            .countByDetectedClass(
                 fromDate=fromDate,
                 toDate=toDate,
             )
@@ -64,7 +67,9 @@ class EventService:
         return Statistics(
             labels=detectedClasses,
             counts=[
-                countsByClass[detectedClass]
+                countsByClass[
+                    detectedClass
+                ]
                 for detectedClass
                 in detectedClasses
             ],
@@ -97,11 +102,24 @@ class EventService:
             and (
                 currentTime - lastEventTime
                 < timedelta(
-                    seconds=self.cooldownSeconds
+                    seconds=(
+                        self.cooldownSeconds
+                    )
                 )
             )
         ):
             return None
+
+        currentMode = (
+            modeService.getMode().mode
+        )
+
+        if currentMode == Mode.manage:
+            actionTaken = (
+                ActionTaken.LIGHT_AND_SOUND
+            )
+        else:
+            actionTaken = ActionTaken.NONE
 
         event = Event(
             eventId=str(uuid4()),
@@ -116,20 +134,20 @@ class EventService:
             confidenceScore=(
                 eventCreate.confidenceScore
             ),
-            actionTaken=(
-                ActionTaken.LIGHT_AND_SOUND
-            ),
+            actionTaken=actionTaken,
             imageFileId=None,
             notes=None,
         )
 
-        savedEvent = self.repository.save(
-            event
+        savedEvent = (
+            self.repository.save(
+                event
+            )
         )
 
-        self.lastEventTimes[cooldownKey] = (
-            currentTime
-        )
+        self.lastEventTimes[
+            cooldownKey
+        ] = currentTime
 
         return savedEvent
 
