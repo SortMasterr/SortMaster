@@ -30,3 +30,8 @@ Thumbs.db
 # 모델 가중치 (Git LFS/별도 스토리지 방식 TBD)
 *.pt
 *.pth
+
+# 젯슨 나노 RTSP 시뮬레이션 실행 중 생성되는 파일(debug/streaming/startRtspSim.py)
+debug/streaming/logs/
+debug/streaming/auto.crt
+debug/streaming/auto.key

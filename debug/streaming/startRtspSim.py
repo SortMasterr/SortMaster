@@ -252,11 +252,30 @@ def main():
     topCamera, sideCamera = chooseCameras(cameras)
 
     print("\n=== 4. MediaMTX 실행 ===")
+    os.makedirs(logDir, exist_ok=True)
+    mediaMtxLog = os.path.join(logDir, "mediamtx.log")
+    mediaMtxLogFile = open(mediaMtxLog, "w", encoding="utf-8", errors="replace")
+
     mediaMtxProcess = subprocess.Popen(
         [mediaMtxExe],
-        creationflags=subprocess.CREATE_NEW_CONSOLE,
+        cwd=mediaMtxDir,  # mediamtx.yml을 설치 폴더 기준으로 찾게 함
+        stdout=mediaMtxLogFile,
+        stderr=subprocess.STDOUT,
     )
+    print(f"      로그: {mediaMtxLog}")
     time.sleep(2)
+
+    if mediaMtxProcess.poll() is not None:
+        print(
+            f"[FAIL] MediaMTX가 바로 종료됨(exit {mediaMtxProcess.returncode}) "
+            "— 이미 다른 MediaMTX가 8554 포트를 쓰고 있을 수 있음(작업관리자에서 "
+            "mediamtx.exe 중복 실행 확인)"
+        )
+
+        with open(mediaMtxLog, encoding="utf-8", errors="replace") as f:
+            print("".join(f.readlines()[-15:]))
+
+        sys.exit(1)
 
     print("=== 5. FFmpeg 송신 시작 ===")
     topProcess, topLog = startFfmpegPush(ffmpegPath, topCamera, "top")
