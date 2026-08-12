@@ -60,7 +60,14 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
   탐지/추론 컨테이너만 사용**, DB/백엔드는 GPU 미사용(CPU/RAM만) — VRAM은
   탐지 모델 몫으로 남겨둠 (`docker run --gpus`는 추론 컨테이너에만 적용)
 - 서버 CPU/RAM이 팀별로 분리되는지(GPU만 분리되는지)는 서버 관리자 확인 필요(TBD)
-- GPU 패스스루: nvidia-docker 필요
+- GPU 패스스루: nvidia-docker 필요. `docker-compose.yml`의 `training` 서비스는
+  `.env`의 `GPU_DEVICE_ID`(nvidia-smi 기준 카드 인덱스, 예: `2`)로 할당받은 카드
+  1장만 지정해서 씀(`count: all`로 두면 서버의 다른 GPU까지 전부 잡아서 타 팀과 충돌남)
+- **GPU 서버는 다인 공유 환경**(팀 5명뿐 아니라 다른 수강생들도 같은 호스트에서 rootful
+  Docker 데몬을 공유) — 컨테이너 이름/호스트 포트가 겹칠 수 있어 각자 계정에
+  **rootless Docker**(`dockerd-rootless-setuptool.sh install` 또는
+  `curl -fsSL https://get.docker.com/rootless | sh`, 필요 시 `--force`/
+  `FORCE_ROOTLESS_INSTALL=1`)를 설치해 완전히 격리된 데몬을 쓰는 걸 권장
 - 영상 소스는 `.env`의 `CAMERA_SOURCE_<CameraId>`(예: `CAMERA_SOURCE_ELEV01`)만 환경별로 교체, 코드 불변
 
 ## 웹캠 시뮬레이션 (메인보드 입고 전) — 구현됨

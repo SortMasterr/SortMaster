@@ -43,7 +43,10 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: all
+              # 팀당 GPU 1장만 할당(architecture.md 참고) — count: all로 두면 서버의
+              # 다른 4장을 전부 잡으려 들어서 다른 팀과 충돌남. .env의 GPU_DEVICE_ID로
+              # 할당받은 카드 번호(nvidia-smi 기준 인덱스, 예: 2)를 지정할 것.
+              device_ids: ["${GPU_DEVICE_ID:-0}"]
               capabilities: [gpu]
 
 volumes:
