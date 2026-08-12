@@ -49,7 +49,7 @@ python ..\..\infra\checkEnv.py
 :: 패키지 자동 설치 + Python/Docker/MongoDB 체크. 전부 OK가 아니면 여기서 먼저 해결
 
 :: .env는 Notion에 공유된 팀 값을 그대로 받아 프로젝트 루트(WebApps/backend 상위)에 저장
-:: 필요 시 .env 값 수정 (CAMERA_SOURCE_ELEV01, CAMERA_SOURCE_ELEV02, USE_MOCK_DB 등)
+:: 필요 시 .env 값 수정 (CAMERA_SOURCE_ELEV01, CAMERA_SOURCE_ELEV02, MONGO_HOST 등)
 :: CAMERA_SOURCE_<CameraId> — 카메라 1대당 지점 1개. ELEV-01만 기본값 0(로컬 웹캠 1대로 바로 됨), 나머지는 미설정 시 해당 지점만 503
 
 uvicorn main:app --reload --port 8047
@@ -87,15 +87,25 @@ docker compose up --build
 - **탐지**: 아직 미착수. 탐지 모델은 YOLOv8-Nano(상시감시+투척판단)+Qwen3-VL-8B
   (정밀분류, LoRA/QLoRA 파인튜닝)으로 확정됐지만 코드에 통합 전(상세는
   `.agentfiles/architecture.md`, `.agentfiles/apiSpec.md` 참고). 이벤트는
-  `misclassification`(투기)/`overflow`(넘침) 두 카테고리로 나뉠 예정.
+  `misclassification`(투기)/`overflow`(넘침) 두 카테고리로 나뉨(스키마에 반영 완료,
+  `schemas/event.py`의 `EventCategory`). 실제 트리거는 아직 없어서
+  `debug/detection/simulateEventPipeline.py`로 시작/종료 신호를 흉내내 파이프라인만
+  검증 중.
+- **이벤트 트리거 녹화**: 구현됨. `services/recordingService.py` — 상시 녹화가 아니라
+  트리거 시점에만 캡처(architecture.md 원칙). 고정 10초가 아니라, 향후 탐지 파이프라인이
+  보내는 시작/종료 두 신호 사이의 실제 구간만큼 녹화(신호 유실 대비 최대 30초 안전 캡).
+- **GIF 인코딩/GridFS 업로드**: 구현됨. `services/mediaService.py`(OpenCV 프레임 →
+  애니메이션 GIF, Pillow) + `repositories/mediaRepository.py`(GridFS 업로드) —
+  결과 파일 ID가 `Event.imageFileId`에 저장됨.
 - **API/저장소**: `controllers/api.py` — 이벤트 CRUD(`/api/events`), 통계
   (`GET /api/statistics`), 모드 전환(`POST /api/mode`, MANAGE/COLLECT) 구현됨.
-  `repositories/eventRepository.py`는 **순수 In-memory Mock**(리스트 저장) —
-  motor/MongoDB 연동 코드나 `USE_MOCK_DB` 같은 전환 스위치는 아직 코드에 없음.
+  `repositories/eventRepository.py`는 motor 기반 MongoDB 연동으로 전환 완료(In-memory
+  Mock 제거) — `.env`의 `MONGO_HOST`/`DB_PORT`/`DB_USER`/`DB_PASSWORD`/`DB_NAME` 사용.
 - **RPA(전구/경고음)**: 아직 미착수. 모드 전환 API(`/api/mode`)는 있지만 실제
   RPA 트리거·Mute로 이어지는 코드는 없음.
-- **DB**: MongoDB는 Docker로 준비됐지만(호스트 포트 `27020`, 컨테이너 내부는
-  `27017`) 백엔드 코드가 아직 연결하지 않음.
+- **DB**: MongoDB Docker(호스트 포트 `27020`, 컨테이너 내부는 `27017`)에 백엔드가
+  motor로 연결됨. 이벤트 메타데이터는 `events` 컬렉션, GIF 클립은 GridFS(`fs.files`+
+  `fs.chunks`)에 저장.
 
 ### 배포 전략
 
@@ -125,13 +135,18 @@ docker compose up --build
    MJPEG 송출 구현됨. 메인보드 입고 후엔 `CAMERA_SOURCE_<CameraId>`를
    RTSP URL로 교체만 하면 됨(코드 변경 불필요). 저장/DB 연동은 아래 항목들이 선행돼야 함
 2. `services/detectionService.py` — 아직 미작성. YOLOv8-Nano(상시감시+투척판단)+
-   Qwen3-VL-8B(정밀분류) 파이프라인으로 구현 예정
-3. **이벤트 트리거 녹화** — 아직 미작성. 상시 녹화가 아니라 탐지 트리거 시점에만
-   10초 녹화(architecture.md 원칙). 2번(탐지)이 먼저 있어야 트리거 기준이 생김
-4. **GridFS 업로드** — 아직 미작성. 3번에서 만든 클립을 MongoDB GridFS에 저장하고
-   파일 ID 발급
-5. `repositories/eventRepository.py` — 현재 In-memory Mock만 구현됨. motor 기반
-   MongoDB 연동으로 교체하면서 4번의 GridFS 파일 ID를 `imageFileId`로 같이 저장
+   Qwen3-VL-8B(정밀분류) 파이프라인으로 구현 예정. 완성되면 이벤트 시작/종료 시점마다
+   아래 3~5번 파이프라인(`recordingService.start`/`stop` → `mediaService.saveClipAsGif`
+   → `eventService.createEvent`)을 그대로 호출하면 됨(순서는
+   `debug/detection/simulateEventPipeline.py` 참고)
+3. ~~**이벤트 트리거 녹화**~~ **완료** — `services/recordingService.py`. 탐지 서비스가
+   아직 없어서 고정 10초 대신, 시작/종료 두 신호(향후 탐지 파이프라인이 전달) 사이의
+   실제 구간을 캡처하는 구조로 미리 구현. 2번이 없는 지금은 디버그 스크립트로 신호를
+   흉내내서 검증
+4. ~~**GridFS 업로드**~~ **완료** — `services/mediaService.py`(GIF 인코딩) +
+   `repositories/mediaRepository.py`(GridFS 저장), 파일 ID 발급까지 구현됨
+5. ~~`repositories/eventRepository.py`~~ **완료** — motor 기반 MongoDB 연동으로 교체,
+   4번의 GridFS 파일 ID를 `imageFileId`로 같이 저장
 6. `services/rpaService.py` — 아직 미작성. 실제 GPIO/HW 연동(`RPAs/` 참고, 젯슨
    나노 쪽으로 이전 검토 중)
 

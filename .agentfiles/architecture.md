@@ -120,6 +120,12 @@ Detect → Create Event → Save Event → Check mode
   - 로컬(`my-mongo`): `MONGO_HOST=localhost`
 - `infra/checkEnv.py`, `debug/db/testDbConnection.py`, `debug/db/testCrud.py` 세 스크립트가 `.env` 키 공유 — 값 다르면 결과 엇갈림
 - 디버그 스크립트는 Atlas → 로컬/자체 Docker로 전환(`mongodb+srv://` → `mongodb://`+포트)
+- **팀 공유 서버 계정**: `.30`의 Mongo는 팀원별 계정(`user01`~`user05`, `sortMaster` DB에
+  `readWrite` 권한만)으로 인증. root(관리자) 계정은 팀장만 보유. 계정 생성은
+  `docker exec -it sortmaster-mongo mongosh`로 접속해 수동으로 `db.createUser()` 실행
+  (무인증 상태에서 계정부터 만든 뒤 `docker-compose.yml`의 mongo `command: ["mongod",
+  "--auth"]` 주석을 해제하고 재시작해야 인증이 걸림 — 순서 반대로 하면 아무도 로그인 못 함).
+  각 팀원은 자기 `.env`의 `DB_USER`/`DB_PASSWORD`를 배정받은 계정으로 채우면 됨
 
 ## TBD
 

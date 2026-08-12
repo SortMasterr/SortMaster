@@ -33,6 +33,7 @@ requiredPackages = [
     ("motor==3.7.1", "motor"),
     ("python-multipart==0.0.32", "python-multipart"),
     ("opencv-python==4.14.0.94", "opencv-python"),
+    ("Pillow==11.1.0", "Pillow"),
     ("jinja2==3.1.6", "jinja2"),
     ("python-dotenv==1.2.2", "python-dotenv"),
 ]

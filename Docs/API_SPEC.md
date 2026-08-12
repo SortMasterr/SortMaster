@@ -1,7 +1,7 @@
 # API 명세서 — CCTV 기반 분리수거 오분류 탐지·자동 경고 시스템
 
-> **버전**: v0.1 MVP / In-memory Mock
-> **기준일**: 2026-08-11
+> **버전**: v0.1 MVP / MongoDB(motor) 연동
+> **기준일**: 2026-08-12
 > **Base URL**: `http://localhost:8047`
 > **배포 환경**: GPU 서버(L40S) 주소로 대체 예정
 > **Swagger UI**: `http://localhost:8047/docs`
@@ -28,15 +28,18 @@
 * 5초 중복 이벤트 방지 Cooldown
 * 요청 스키마 및 Enum 검증
 * 이벤트 미존재 시 HTTP 404 처리
+* MongoDB(motor) 연동 — 이벤트 저장소가 In-memory Mock에서 완전히 전환됨
+* `overflow` 이벤트(스키마·쿨다운·WS `BIN_OVERFLOW_DETECTED` 포함) 구현
+* 이벤트 트리거 녹화 → GIF 인코딩 → GridFS 업로드 파이프라인(`recordingService`/
+  `mediaService`/`mediaRepository`) — 실제 탐지 서비스가 아직 없어 `debug/detection/
+  simulateEventPipeline.py`로 시작/종료 신호를 흉내내 검증
 
 ### 현재 Mock 또는 미구현
 
-* 이벤트 저장소는 In-memory Mock
-* 서버 재시작 시 생성된 이벤트와 모드 상태 초기화
-* MongoDB 및 GridFS 연동 미구현
+* 서버 재시작 시 모드 상태 초기화(이벤트는 이제 MongoDB에 영속화되어 재시작에도 유지됨)
 * 실제 RPA 전구·경고음 장치 연동 미구현
-* AI 탐지 모델 연동 미구현
-* `overflow` 이벤트 미구현
+* AI 탐지 모델 연동 미구현 — 이벤트 생성/녹화 트리거가 아직 실제 탐지가 아니라 수동/디버그
+  스크립트 호출 기준
 * 카메라 연결 해제 및 시스템 오류 WebSocket 이벤트 미구현
 * 이벤트 상세 페이지 미구현
 * 인증 및 권한 미구현
@@ -92,6 +95,7 @@
 | Enum            | 허용 값                                                                      |
 | --------------- | ------------------------------------------------------------------------- |
 | `CameraId`      | `ELEV-01` | `ELEV-02` | `REST-4F-01`                                      |
+| `EventCategory` | `misclassification` | `overflow`                                       |
 | `DetectedClass` | `general` | `paper` | `plastic` | `coffeeCup` | `mixed` | `uncertain`     |
 | `ActionTaken`   | `lightAndSound` | `soundOnly` | `lightOnly` | `notificationOnly` | `none` |
 | `Mode`          | `MANAGE` | `COLLECT`                                                      |
@@ -110,9 +114,10 @@
 
 | Enum            | 예정 값                                                             | 현재 상태        |
 | --------------- | ---------------------------------------------------------------- | ------------ |
-| `EventCategory` | `misclassification` | `overflow`                                 | 미구현          |
 | `CameraStatus`  | `ONLINE` | `OFFLINE`                                             | API 응답에서 미사용 |
-| `WSEventType`   | `BIN_OVERFLOW_DETECTED` | `CAMERA_DISCONNECTED` | `SYSTEM_ERROR` | 미구현          |
+| `WSEventType`   | `CAMERA_DISCONNECTED` | `SYSTEM_ERROR`                                | 미구현          |
+
+> `EventCategory`, `WSEventType`의 `BIN_OVERFLOW_DETECTED`는 구현 완료 — 위 "허용 값" 표 및 EP-02 참고.
 
 ---
 
@@ -166,27 +171,48 @@ multipart/x-mixed-replace; boundary=frame
 
 ## EP-02. `POST /api/events`
 
-오분류 판정 결과를 전달받아 이벤트를 생성한다.
+판정 결과를 전달받아 이벤트를 생성한다. `eventCategory`로 `misclassification`(투기, 분류
+정보 포함)/`overflow`(넘침, 분류 없이 감지만) 두 카테고리를 모두 지원한다.
 
-현재 v0.1에서는 `misclassification` 이벤트만 지원한다. `overflow` 이벤트는 아직 요청 스키마에 포함되어 있지 않다.
+녹화 파이프라인(`recordingService`/`mediaService`)이 이벤트 클립을 GIF로 인코딩해 GridFS에
+올린 뒤, 그 파일 ID를 `imageFileId`로 함께 전달할 수 있다(선택 필드, 생략하면 `null`).
+탐지 서비스가 아직 없어 지금은 `debug/detection/simulateEventPipeline.py`가 이 흐름
+전체(녹화 시작/종료 → GIF → GridFS → 이 엔드포인트 호출과 동등한 내부 함수 호출)를 시뮬레이션한다.
 
 ### Request Body — `EventCreate`
 
-| 필드                | 타입            | 필수 | 제약 조건             | 설명           |
-| ----------------- | ------------- | -- | ----------------- | ------------ |
-| `cameraId`        | CameraId      | ✅  | Enum 값            | 이벤트가 발생한 카메라 |
-| `detectedClass`   | DetectedClass | ✅  | Enum 값            | 탐지된 쓰레기 클래스  |
-| `isMisclassified` | boolean       | ✅  | `true` 또는 `false` | 오분류 여부       |
-| `confidenceScore` | float         | ✅  | 0.0 이상 1.0 이하     | AI 판단 신뢰도    |
+| 필드                | 타입            | 필수                     | 제약 조건             | 설명                                  |
+| ----------------- | ------------- | ---------------------- | ----------------- | ----------------------------------- |
+| `cameraId`        | CameraId      | ✅                       | Enum 값            | 이벤트가 발생한 카메라                        |
+| `eventCategory`   | EventCategory | ✅                       | Enum 값            | `misclassification` 또는 `overflow`   |
+| `detectedClass`   | DetectedClass | `misclassification`만 ✅ | Enum 값            | 탐지된 쓰레기 클래스, overflow는 생략(`null`)   |
+| `isMisclassified` | boolean       | `misclassification`만 ✅ | `true` 또는 `false` | 오분류 여부, overflow는 생략(`null`)        |
+| `confidenceScore` | float         | `misclassification`만 ✅ | 0.0 이상 1.0 이하     | AI 판단 신뢰도, overflow는 생략(`null`)     |
+| `imageFileId`     | string        | 선택                     | GridFS 파일 ID      | 녹화 파이프라인이 업로드한 GIF 파일 ID, 생략 시 `null` |
 
-### 요청 예시
+`eventCategory=misclassification`인데 `detectedClass`/`isMisclassified`/`confidenceScore` 중
+하나라도 빠지면 HTTP 422(Pydantic `model_validator` 검증).
+
+### 요청 예시 — misclassification
 
 ```json
 {
   "cameraId": "ELEV-01",
+  "eventCategory": "misclassification",
   "detectedClass": "mixed",
   "isMisclassified": true,
-  "confidenceScore": 0.85
+  "confidenceScore": 0.85,
+  "imageFileId": "68f2c1a4b9d3e2f1a0c5d6e7"
+}
+```
+
+### 요청 예시 — overflow
+
+```json
+{
+  "cameraId": "ELEV-02",
+  "eventCategory": "overflow",
+  "imageFileId": "68f2c1a4b9d3e2f1a0c5d6e8"
 }
 ```
 
@@ -195,20 +221,20 @@ multipart/x-mixed-replace; boundary=frame
 ```bash
 curl -X POST "http://localhost:8047/api/events" \
   -H "Content-Type: application/json" \
-  -d "{\"cameraId\":\"ELEV-01\",\"detectedClass\":\"mixed\",\"isMisclassified\":true,\"confidenceScore\":0.85}"
+  -d "{\"cameraId\":\"ELEV-01\",\"eventCategory\":\"misclassification\",\"detectedClass\":\"mixed\",\"isMisclassified\":true,\"confidenceScore\":0.85}"
 ```
 
 ### 이벤트가 생성되는 경우
 
-* `isMisclassified`가 `true`
-* 동일한 `cameraId`와 `detectedClass` 조합으로 생성된 직전 이벤트로부터 5초 이상 경과
+* `misclassification`: `isMisclassified`가 `true`이고, 동일한 `cameraId`+`detectedClass` 조합으로 생성된 직전 이벤트로부터 5초 이상 경과
+* `overflow`: 분류 단계 없이, 동일한 `cameraId` 기준 직전 이벤트로부터 5초 이상 경과하면 즉시 생성
 
 ### 이벤트가 생성되지 않는 경우
 
 다음 조건에서는 HTTP 200과 함께 `null`을 반환한다.
 
-* `isMisclassified=false`
-* 동일한 `cameraId`와 `detectedClass` 조합의 5초 Cooldown이 적용 중
+* `misclassification`이고 `isMisclassified=false`
+* 쿨다운 적용 중(misclassification은 `cameraId`+`detectedClass` 기준, overflow는 `cameraId` 기준 5초)
 
 ### 정상 응답 — `Event`
 
@@ -217,42 +243,46 @@ curl -X POST "http://localhost:8047/api/events" \
   "eventId": "a3b70dae-3a1b-48b6-a8d1-a06afcb934d1",
   "timestamp": "2026-08-11T06:47:50.261977Z",
   "cameraId": "ELEV-01",
+  "eventCategory": "misclassification",
   "detectedClass": "mixed",
   "isMisclassified": true,
   "confidenceScore": 0.85,
   "actionTaken": "lightAndSound",
-  "imageFileId": null,
+  "imageFileId": "68f2c1a4b9d3e2f1a0c5d6e7",
   "notes": null
 }
 ```
 
 ### Response 필드
 
-| 필드                | 타입                | null 허용 | 설명                                     |
-| ----------------- | ----------------- | ------- | -------------------------------------- |
-| `eventId`         | string            | ❌       | 생성 이벤트는 UUID, 초기 Mock 이벤트는 고정 ID 사용 가능 |
-| `timestamp`       | ISO 8601 datetime | ❌       | 서버의 UTC 기준 이벤트 생성 시각                   |
-| `cameraId`        | CameraId          | ❌       | 카메라 ID                                 |
-| `detectedClass`   | DetectedClass     | ❌       | 탐지 클래스                                 |
-| `isMisclassified` | boolean           | ❌       | 오분류 여부                                 |
-| `confidenceScore` | float             | ❌       | 신뢰도                                    |
-| `actionTaken`     | ActionTaken       | ❌       | 모드에 따른 경고 처리 결과                        |
-| `imageFileId`     | string            | ✅       | 향후 GridFS 파일 ID, 현재 `null`             |
-| `notes`           | string            | ✅       | 추가 설명, 현재 생성 이벤트는 `null`               |
+| 필드                | 타입                | null 허용 | 설명                                             |
+| ----------------- | ----------------- | ------- | ----------------------------------------------- |
+| `eventId`         | string            | ❌       | UUID                                            |
+| `timestamp`       | ISO 8601 datetime | ❌       | 서버의 UTC 기준 이벤트 생성 시각                            |
+| `cameraId`        | CameraId          | ❌       | 카메라 ID                                          |
+| `eventCategory`   | EventCategory     | ❌       | `misclassification` 또는 `overflow`               |
+| `detectedClass`   | DetectedClass     | ✅       | 탐지 클래스, overflow는 `null`                        |
+| `isMisclassified` | boolean           | ✅       | 오분류 여부, overflow는 `null`                        |
+| `confidenceScore` | float             | ✅       | 신뢰도, overflow는 `null`                           |
+| `actionTaken`     | ActionTaken       | ❌       | 모드에 따른 경고 처리 결과                                 |
+| `imageFileId`     | string            | ✅       | GridFS 파일 ID(GIF), 녹화 파이프라인 연동 전이거나 생략 시 `null` |
+| `notes`           | string            | ✅       | 추가 설명, 현재 생성 이벤트는 `null`                        |
 
 ### 모드별 처리
 
-| 현재 Mode   | 이벤트 저장 | `actionTaken`   | WebSocket 오분류 알림 |
-| --------- | ------ | --------------- | ---------------- |
-| `MANAGE`  | 저장     | `lightAndSound` | 전송               |
-| `COLLECT` | 저장     | `none`          | 전송하지 않음          |
+| 현재 Mode   | 이벤트 저장 | `actionTaken`   | WebSocket 알림 |
+| --------- | ------ | --------------- | ------------ |
+| `MANAGE`  | 저장     | `lightAndSound` | 전송           |
+| `COLLECT` | 저장     | `none`          | 전송하지 않음      |
 
 > 현재 `lightAndSound`는 실제 RPA 장치 작동 결과가 아니라 Mock 응답 값이다.
 
 ### 부수 효과
 
-`MANAGE` 모드에서 이벤트가 실제로 생성되면 연결된 WebSocket 클라이언트에 다음 메시지를 전송한다.
+`MANAGE` 모드에서 이벤트가 실제로 생성되면 연결된 WebSocket 클라이언트에 카테고리별로 다른
+메시지를 전송한다.
 
+misclassification:
 ```json
 {
   "eventType": "MISCLASSIFICATION_DETECTED",
@@ -262,13 +292,22 @@ curl -X POST "http://localhost:8047/api/events" \
 }
 ```
 
+overflow:
+```json
+{
+  "eventType": "BIN_OVERFLOW_DETECTED",
+  "cameraId": "ELEV-02",
+  "timestamp": "2026-08-11T06:47:50.261977+00:00"
+}
+```
+
 ### 상태 코드
 
-| 상태 코드 | 설명                                    |
-| ----- | ------------------------------------- |
-| 200   | 이벤트 생성 또는 `null` 반환                   |
-| 422   | 필수 필드 누락, Enum 오류, 타입 오류 또는 신뢰도 범위 오류 |
-| 500   | 서버 내부 처리 오류                           |
+| 상태 코드 | 설명                                                       |
+| ----- | -------------------------------------------------------- |
+| 200   | 이벤트 생성 또는 `null` 반환                                       |
+| 422   | 필수 필드 누락(카테고리별 조건 포함), Enum 오류, 타입 오류 또는 신뢰도 범위 오류         |
+| 500   | 서버 내부 처리 오류                                              |
 
 ---
 
@@ -326,10 +365,8 @@ GET /api/events?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
 
 ### 현재 저장 방식
 
-* In-memory 리스트에 저장한다.
-* 서버 시작 시 Mock 이벤트 2건이 생성된다.
-* API로 생성한 이벤트는 실행 중인 서버 메모리에 추가된다.
-* 서버를 다시 시작하면 API로 생성한 이벤트는 사라진다.
+* MongoDB `events` 컬렉션에 저장한다(motor, In-memory Mock 아님).
+* 서버를 다시 시작해도 이벤트는 유지된다.
 * 현재 페이지네이션은 지원하지 않는다.
 
 ### 상태 코드
@@ -355,22 +392,23 @@ GET /api/events?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
 ### 요청 예시
 
 ```http
-GET /api/events/event-001
+GET /api/events/a3b70dae-3a1b-48b6-a8d1-a06afcb934d1
 ```
 
 ### 정상 응답
 
 ```json
 {
-  "eventId": "event-001",
+  "eventId": "a3b70dae-3a1b-48b6-a8d1-a06afcb934d1",
   "timestamp": "2026-08-11T01:05:53.810490Z",
   "cameraId": "ELEV-01",
+  "eventCategory": "misclassification",
   "detectedClass": "plastic",
   "isMisclassified": true,
   "confidenceScore": 0.91,
   "actionTaken": "lightAndSound",
-  "imageFileId": null,
-  "notes": "플라스틱 오분류 Mock 이벤트"
+  "imageFileId": "68f2c1a4b9d3e2f1a0c5d6e7",
+  "notes": null
 }
 ```
 
@@ -462,7 +500,7 @@ GET /api/statistics?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
 * 모든 클래스가 항상 `labels`에 포함된다.
 * 이벤트가 없는 클래스는 `counts` 값으로 `0`을 반환한다.
 * `from`, `to`가 있으면 해당 기간의 이벤트만 집계한다.
-* 현재 `overflow` 이벤트는 구현되지 않았으므로 통계에 포함되지 않는다.
+* `overflow` 이벤트는 `detectedClass`가 없어 이 집계(클래스별 카운트)에는 포함되지 않는다(별도 집계 여부는 TBD).
 
 ### 상태 코드
 
@@ -623,11 +661,12 @@ wss://서버주소/ws/events
 
 ### 향후 구현 예정 메시지
 
-| `eventType`             | 예정 Payload              | 현재 상태                   |
-| ----------------------- | ----------------------- | ----------------------- |
-| `BIN_OVERFLOW_DETECTED` | `cameraId`, `timestamp` | `overflow` 기능과 함께 구현 예정 |
-| `CAMERA_DISCONNECTED`   | `cameraId`, `timestamp` | 카메라 연결 감시 구현 후 추가 예정    |
-| `SYSTEM_ERROR`          | `message`, `timestamp`  | 서버 오류 알림 정책 확정 후 추가 예정  |
+| `eventType`           | 예정 Payload              | 현재 상태                  |
+| ---------------------- | ----------------------- | ---------------------- |
+| `CAMERA_DISCONNECTED`  | `cameraId`, `timestamp` | 카메라 연결 감시 구현 후 추가 예정   |
+| `SYSTEM_ERROR`         | `message`, `timestamp`  | 서버 오류 알림 정책 확정 후 추가 예정 |
+
+> `BIN_OVERFLOW_DETECTED`는 구현 완료 — EP-02 "부수 효과" 참고.
 
 > `eventType` 값은 대문자 스네이크케이스를 사용한다. JSON Payload 필드명은 camelCase를 사용한다.
 
@@ -788,18 +827,19 @@ WS /ws/events
 
 ## 이벤트 저장소
 
-현재 `repositories/eventRepository.py`는 In-memory Mock 저장소다.
+`repositories/eventRepository.py`는 motor 기반 MongoDB 저장소다(In-memory Mock 아님).
 
-| 항목     | 현재 동작                  |
-| ------ | ---------------------- |
-| 저장 방식  | Python 리스트             |
-| 초기 데이터 | Mock 이벤트 2건            |
-| 생성 이벤트 | 실행 중인 서버 메모리에 추가       |
-| 서버 재시작 | 생성 이벤트 초기화             |
-| 정렬     | `timestamp` 최신순        |
-| 상세 조회  | `eventId` 일치 검색        |
-| 기간 조회  | `from`, `to` 기준 필터     |
-| 통계     | `DetectedClass`별 개수 집계 |
+| 항목     | 현재 동작                       |
+| ------ | --------------------------- |
+| 저장 방식  | MongoDB `events` 컬렉션(motor) |
+| 초기 데이터 | 없음(시드 제거)                   |
+| 생성 이벤트 | `events` 컬렉션에 영구 저장         |
+| 서버 재시작 | 이벤트 유지                      |
+| 정렬     | `timestamp` 최신순             |
+| 상세 조회  | `eventId` 일치 검색             |
+| 기간 조회  | `from`, `to` 기준 필터          |
+| 통계     | `DetectedClass`별 집계 파이프라인   |
+| 미디어 저장 | GridFS(GIF), `imageFileId`로 참조 |
 
 ## 모드 상태
 
@@ -815,13 +855,11 @@ WS /ws/events
 
 ---
 
-# 5. 향후 구현 예정 API 변경 사항
-
-> 아래 내용은 현재 API에 구현되어 있지 않다. 구현 전에 스키마와 응답 호환성을 CTO와 협의해야 한다.
+# 5. 이벤트 카테고리 / 녹화 / MongoDB·GridFS 연동 (구현 완료)
 
 ## 5-1. 이벤트 카테고리
 
-향후 `EventCreate`와 `Event`에 다음 필드를 추가할 수 있다.
+`EventCreate`와 `Event`에 `eventCategory` 필드가 구현되어 있다(상세는 EP-02 참고).
 
 ```json
 {
@@ -829,14 +867,14 @@ WS /ws/events
 }
 ```
 
-예정 값:
+허용 값:
 
 ```text
 misclassification
 overflow
 ```
 
-### 예정 의미
+### 의미
 
 | 값                   | 설명                |
 | ------------------- | ----------------- |
@@ -845,9 +883,9 @@ overflow
 
 ---
 
-## 5-2. Overflow 이벤트
+## 5-2. Overflow 이벤트 및 녹화 파이프라인
 
-예정 요청 예시:
+요청 예시:
 
 ```json
 {
@@ -856,7 +894,7 @@ overflow
 }
 ```
 
-예정 WebSocket 메시지:
+WebSocket 메시지:
 
 ```json
 {
@@ -866,31 +904,39 @@ overflow
 }
 ```
 
+트리거 시점 녹화 → GIF 인코딩 → GridFS 업로드 파이프라인이 구현되어 있다
+(`services/recordingService.py`, `services/mediaService.py`,
+`repositories/mediaRepository.py`). 고정 10초가 아니라 시작~종료 신호 사이 실제 구간을
+캡처하며(신호 유실 대비 최대 30초 안전 캡), 결과 GridFS 파일 ID가 `imageFileId`로
+저장된다. 실제 탐지 서비스가 아직 없어 지금은 `debug/detection/simulateEventPipeline.py`로
+시작/종료 신호를 흉내내 검증한다.
+
 다음 사항은 아직 확정되지 않았다.
 
-* Overflow Cooldown 시간
+* Overflow Cooldown 시간(현재 misclassification과 동일 5초로 구현, 재검토 필요)
 * Overflow 이벤트의 `actionTaken`
 * Overflow 이벤트의 RPA 처리 방식
-* Overflow 통계 응답 구조
-* 영상 녹화 파일 저장 위치
-* 기존 Event 스키마 필드의 null 허용 범위
+* Overflow 통계 응답 구조(현재 `GET /api/statistics`는 `DetectedClass` 기준이라 overflow 미포함)
 
 ---
 
 ## 5-3. MongoDB 및 GridFS
 
-향후 In-memory 저장소를 Motor 기반 MongoDB 저장소로 교체할 예정이다.
+In-memory 저장소를 Motor 기반 MongoDB 저장소로 교체 완료했다(`repositories/eventRepository.py`,
+`repositories/mongoClient.py`, `repositories/mediaRepository.py`).
 
-| 항목           | 예정 내용                       |
-| ------------ | --------------------------- |
-| MongoDB 이미지  | `mongo:7.0`                 |
-| 로컬 Host Port | `27020`                     |
-| 컨테이너 Port    | `27017`                     |
-| Python 드라이버  | `motor`                     |
-| 파일 저장        | GridFS 또는 GPU 서버 로컬 디스크 검토  |
-| 저장 대상        | 이벤트, 모드 상태, 이미지 또는 영상 메타데이터 |
+| 항목           | 구현 내용                        |
+| ------------ | ---------------------------- |
+| MongoDB 이미지  | `mongo:7.0`                  |
+| 로컬 Host Port | `27020`                      |
+| 컨테이너 Port    | `27017`                      |
+| Python 드라이버  | `motor`                      |
+| 파일 저장        | GridFS(`fs.files`+`fs.chunks`), GIF |
+| 저장 대상        | 이벤트(`events` 컬렉션), 이벤트 클립(GridFS) |
 
-MongoDB 연결 후에도 외부 JSON API 필드명은 camelCase를 유지한다.
+모드 상태(`services/modeService.py`)는 여전히 메모리로만 관리되어 서버 재시작 시
+`MANAGE`로 초기화된다(DB 저장 대상 아님). MongoDB 연결 후에도 외부 JSON API 필드명은
+camelCase를 유지한다.
 
 ---
 
@@ -926,8 +972,7 @@ MongoDB 연결 후에도 외부 JSON API 필드명은 camelCase를 유지한다.
   * Cursor 방식
 * 통계 API에 전체 건수와 오분류 건수를 함께 포함할지 여부
 * 통계 API에서 `overflow`를 별도 집계할지 여부
-* `overflow` Cooldown 기준
-* `EventCategory` 적용 시 기존 Event 응답 호환 방식
+* `overflow` Cooldown 기준(현재 misclassification과 동일 5초로 구현, 재검토 필요)
 * 카메라 상태 조회 API 추가 여부
 * 모드 조회용 `GET /api/mode` 추가 여부
 * 실제 RPA 통신 방식

@@ -13,6 +13,7 @@ from schemas.event import (
     ActionTaken,
     DetectedClass,
     Event,
+    EventCategory,
     EventCreate,
 )
 from schemas.mode import Mode
@@ -29,32 +30,31 @@ class EventService:
         self.cooldownSeconds = 5
         self.lastEventTimes = {}
 
-    def getEvents(
+    async def getEvents(
         self,
         fromDate: datetime | None = None,
         toDate: datetime | None = None,
     ) -> list[Event]:
-        return self.repository.findAll(
+        return await self.repository.findAll(
             fromDate=fromDate,
             toDate=toDate,
         )
 
-    def getEventById(
+    async def getEventById(
         self,
         eventId: str,
     ) -> Event | None:
-        return self.repository.findById(
+        return await self.repository.findById(
             eventId
         )
 
-    def getStatistics(
+    async def getStatistics(
         self,
         fromDate: datetime | None = None,
         toDate: datetime | None = None,
     ) -> Statistics:
         countsByClass = (
-            self.repository
-            .countByDetectedClass(
+            await self.repository.countByDetectedClass(
                 fromDate=fromDate,
                 toDate=toDate,
             )
@@ -75,20 +75,23 @@ class EventService:
             ],
         )
 
-    def createEvent(
+    async def createEvent(
         self,
         eventCreate: EventCreate,
     ) -> Event | None:
-        if not eventCreate.isMisclassified:
+        if (
+            eventCreate.eventCategory
+            == EventCategory.MISCLASSIFICATION
+            and not eventCreate.isMisclassified
+        ):
             return None
 
         currentTime = datetime.now(
             timezone.utc
         )
 
-        cooldownKey = (
-            eventCreate.cameraId.value,
-            eventCreate.detectedClass.value,
+        cooldownKey = self._buildCooldownKey(
+            eventCreate
         )
 
         lastEventTime = (
@@ -125,6 +128,9 @@ class EventService:
             eventId=str(uuid4()),
             timestamp=currentTime,
             cameraId=eventCreate.cameraId,
+            eventCategory=(
+                eventCreate.eventCategory
+            ),
             detectedClass=(
                 eventCreate.detectedClass
             ),
@@ -135,12 +141,14 @@ class EventService:
                 eventCreate.confidenceScore
             ),
             actionTaken=actionTaken,
-            imageFileId=None,
+            imageFileId=(
+                eventCreate.imageFileId
+            ),
             notes=None,
         )
 
         savedEvent = (
-            self.repository.save(
+            await self.repository.save(
                 event
             )
         )
@@ -150,6 +158,24 @@ class EventService:
         ] = currentTime
 
         return savedEvent
+
+    def _buildCooldownKey(
+        self,
+        eventCreate: EventCreate,
+    ):
+        if (
+            eventCreate.eventCategory
+            == EventCategory.MISCLASSIFICATION
+        ):
+            return (
+                eventCreate.cameraId.value,
+                eventCreate.detectedClass.value,
+            )
+
+        return (
+            eventCreate.cameraId.value,
+            "overflow",
+        )
 
 
 eventService = EventService(

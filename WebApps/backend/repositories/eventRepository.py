@@ -1,111 +1,116 @@
 from datetime import datetime, timezone
 
+from repositories.mongoClient import getMongoDb
 from schemas.event import (
     ActionTaken,
     CameraId,
     DetectedClass,
     Event,
+    EventCategory,
 )
 
 
 class EventRepository:
-    def __init__(self):
-        self.events = [
-            Event(
-                eventId="event-001",
-                timestamp=datetime.now(timezone.utc),
-                cameraId=CameraId.ELEV01,
-                detectedClass=DetectedClass.PLASTIC,
-                isMisclassified=True,
-                confidenceScore=0.91,
-                actionTaken=(
-                    ActionTaken.LIGHT_AND_SOUND
-                ),
-                imageFileId=None,
-                notes="플라스틱 오분류 Mock 이벤트",
-            ),
-            Event(
-                eventId="event-002",
-                timestamp=datetime.now(timezone.utc),
-                cameraId=CameraId.ELEV02,
-                detectedClass=DetectedClass.PAPER,
-                isMisclassified=True,
-                confidenceScore=0.87,
-                actionTaken=(
-                    ActionTaken.LIGHT_AND_SOUND
-                ),
-                imageFileId=None,
-                notes="종이 오분류 Mock 이벤트",
-            ),
-        ]
+    @property
+    def collection(self):
+        return getMongoDb()["events"]
 
-    def save(
+    def _toDocument(self, event: Event) -> dict:
+        document = event.model_dump()
+        document["cameraId"] = event.cameraId.value
+        document["eventCategory"] = event.eventCategory.value
+        document["detectedClass"] = (
+            event.detectedClass.value
+            if event.detectedClass is not None
+            else None
+        )
+        document["actionTaken"] = event.actionTaken.value
+
+        return document
+
+    def _fromDocument(self, document: dict) -> Event:
+        return Event(
+            eventId=document["eventId"],
+            timestamp=document["timestamp"],
+            cameraId=CameraId(document["cameraId"]),
+            eventCategory=EventCategory(document["eventCategory"]),
+            detectedClass=(
+                DetectedClass(document["detectedClass"])
+                if document.get("detectedClass") is not None
+                else None
+            ),
+            isMisclassified=document.get("isMisclassified"),
+            confidenceScore=document.get("confidenceScore"),
+            actionTaken=ActionTaken(document["actionTaken"]),
+            imageFileId=document.get("imageFileId"),
+            notes=document.get("notes"),
+        )
+
+    async def save(
         self,
         event: Event,
     ) -> Event:
-        self.events.append(event)
+        await self.collection.insert_one(
+            self._toDocument(event)
+        )
 
         return event
 
-    def findById(
+    async def findById(
         self,
         eventId: str,
     ) -> Event | None:
-        for event in self.events:
-            if event.eventId == eventId:
-                return event
+        document = await self.collection.find_one(
+            {"eventId": eventId}
+        )
 
-        return None
+        return (
+            self._fromDocument(document)
+            if document is not None
+            else None
+        )
 
-    def findAll(
+    async def findAll(
         self,
         fromDate: datetime | None = None,
         toDate: datetime | None = None,
     ) -> list[Event]:
-        normalizedFromDate = (
-            self.normalizeDateTime(fromDate)
+        query = self._buildDateQuery(
+            fromDate=fromDate,
+            toDate=toDate,
         )
 
-        normalizedToDate = (
-            self.normalizeDateTime(toDate)
+        cursor = self.collection.find(query).sort(
+            "timestamp", -1
         )
 
-        filteredEvents = self.events
+        return [
+            self._fromDocument(document)
+            async for document in cursor
+        ]
 
-        if normalizedFromDate is not None:
-            filteredEvents = [
-                event
-                for event in filteredEvents
-                if (
-                    event.timestamp
-                    >= normalizedFromDate
-                )
-            ]
-
-        if normalizedToDate is not None:
-            filteredEvents = [
-                event
-                for event in filteredEvents
-                if (
-                    event.timestamp
-                    <= normalizedToDate
-                )
-            ]
-
-        return sorted(
-            filteredEvents,
-            key=lambda event: event.timestamp,
-            reverse=True,
-        )
-
-    def countByDetectedClass(
+    async def countByDetectedClass(
         self,
         fromDate: datetime | None = None,
         toDate: datetime | None = None,
     ) -> dict[DetectedClass, int]:
-        events = self.findAll(
+        query = self._buildDateQuery(
             fromDate=fromDate,
             toDate=toDate,
+        )
+
+        pipeline = []
+
+        if query:
+            pipeline.append({"$match": query})
+
+        pipeline.append(
+            {
+                "$group": {
+                    "_id": "$detectedClass",
+                    "count": {"$sum": 1},
+                }
+            }
         )
 
         counts = {
@@ -113,10 +118,51 @@ class EventRepository:
             for detectedClass in DetectedClass
         }
 
-        for event in events:
-            counts[event.detectedClass] += 1
+        async for result in self.collection.aggregate(
+            pipeline
+        ):
+            groupId = result["_id"]
+
+            if groupId is not None:
+                counts[DetectedClass(groupId)] = result[
+                    "count"
+                ]
 
         return counts
+
+    async def updateImageFileId(
+        self,
+        eventId: str,
+        imageFileId: str,
+    ) -> None:
+        await self.collection.update_one(
+            {"eventId": eventId},
+            {"$set": {"imageFileId": imageFileId}},
+        )
+
+    def _buildDateQuery(
+        self,
+        fromDate: datetime | None,
+        toDate: datetime | None,
+    ) -> dict:
+        normalizedFromDate = self.normalizeDateTime(
+            fromDate
+        )
+        normalizedToDate = self.normalizeDateTime(toDate)
+
+        timestampQuery = {}
+
+        if normalizedFromDate is not None:
+            timestampQuery["$gte"] = normalizedFromDate
+
+        if normalizedToDate is not None:
+            timestampQuery["$lte"] = normalizedToDate
+
+        return (
+            {"timestamp": timestampQuery}
+            if timestampQuery
+            else {}
+        )
 
     def normalizeDateTime(
         self,

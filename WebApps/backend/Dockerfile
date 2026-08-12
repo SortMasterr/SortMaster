@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir \
         "motor==3.7.1" \
         "python-multipart==0.0.32" \
         "opencv-python==4.14.0.94" \
+        "Pillow==11.1.0" \
         "jinja2==3.1.6" \
         "python-dotenv==1.2.2"
 

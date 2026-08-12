@@ -30,9 +30,9 @@ v0.1(MVP/Mock). Base URL `http://localhost:8047`(배포 시 GPU 서버 주소). 
 
 ### EP-02. POST /api/events — 이벤트 생성
 
-Request(EventCreate): cameraId(CameraId), eventCategory(EventCategory), detectedClass(DetectedClass, misclassification일 때만 필수), isMisclassified(bool, misclassification일 때만), confidenceScore(float 0~1, misclassification일 때만) — overflow는 cameraId+eventCategory만
+Request(EventCreate): cameraId(CameraId), eventCategory(EventCategory), detectedClass(DetectedClass, misclassification일 때만 필수), isMisclassified(bool, misclassification일 때만), confidenceScore(float 0~1, misclassification일 때만), imageFileId(str|null, 선택 — 녹화 파이프라인이 GridFS 업로드 후 채워서 전달, 생략 시 null) — overflow는 cameraId+eventCategory(+imageFileId)만
 
-Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory, detectedClass(null 가능), isMisclassified(null 가능), confidenceScore(null 가능), actionTaken(ActionTaken), imageFileId(str|null, GridFS, Mock단계 null), notes(str|null)
+Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory, detectedClass(null 가능), isMisclassified(null 가능), confidenceScore(null 가능), actionTaken(ActionTaken), imageFileId(str|null, GridFS 파일 ID, 녹화 파이프라인 연동 전엔 null), notes(str|null)
 - misclassification: isMisclassified=false 또는 5초 Cooldown 중이면 null 반환
 - overflow: 감지 즉시 이벤트 생성(분류 단계 없음), 영상 녹화만 수행
 

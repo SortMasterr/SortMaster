@@ -15,6 +15,7 @@ mongoHost = os.getenv("MONGO_HOST", "localhost")
 mongoPort = os.getenv("DB_PORT", "27020")
 mongoUser = os.getenv("DB_USER")
 mongoPassword = os.getenv("DB_PASSWORD")
+mongoDbName = os.getenv("DB_NAME", "sortMaster")
 
 if mongoUser and mongoPassword:
     auth = f"{quote_plus(mongoUser)}:{quote_plus(mongoPassword)}@"
@@ -24,8 +25,8 @@ else:
 mongoUri = f"mongodb://{auth}{mongoHost}:{mongoPort}/?appName=sortMasterDB"
 
 client = MongoClient(mongoUri, server_api=ServerApi("1"))
-db = client["cctv_project"]  # DB 이름 (없으면 자동 생성)
-events = db["events"]  # 컬렉션 이름 (없으면 자동 생성)
+db = client[mongoDbName]  # DB 이름은 .env의 DB_NAME(없으면 자동 생성)
+events = db["events"]  # 컬렉션 이름 (없으면 자동 생성, 실제 백엔드가 쓰는 것과 동일한 컬렉션)
 
 # CREATE
 doc = {

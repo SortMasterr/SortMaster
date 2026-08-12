@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from schemas.event import (
     CameraId,
     Event,
+    EventCategory,
     EventCreate,
 )
 from schemas.mode import (
@@ -50,7 +51,7 @@ async def getEvents(
         alias="to",
     ),
 ) -> list[Event]:
-    return eventService.getEvents(
+    return await eventService.getEvents(
         fromDate=fromDate,
         toDate=toDate,
     )
@@ -63,7 +64,7 @@ async def getEvents(
 async def getEventById(
     id: str,
 ) -> Event:
-    event = eventService.getEventById(
+    event = await eventService.getEventById(
         id
     )
 
@@ -86,7 +87,7 @@ async def createEvent(
     eventCreate: EventCreate,
 ) -> Event | None:
     createdEvent = (
-        eventService.createEvent(
+        await eventService.createEvent(
             eventCreate
         )
     )
@@ -99,8 +100,11 @@ async def createEvent(
         createdEvent is not None
         and currentMode == Mode.manage
     ):
-        await webSocketManager.broadcast(
-            {
+        if (
+            createdEvent.eventCategory
+            == EventCategory.MISCLASSIFICATION
+        ):
+            payload = {
                 "eventType": (
                     "MISCLASSIFICATION_DETECTED"
                 ),
@@ -116,6 +120,22 @@ async def createEvent(
                     .isMisclassified
                 ),
             }
+        else:
+            payload = {
+                "eventType": (
+                    "BIN_OVERFLOW_DETECTED"
+                ),
+                "cameraId": (
+                    createdEvent.cameraId.value
+                ),
+                "timestamp": (
+                    createdEvent.timestamp
+                    .isoformat()
+                ),
+            }
+
+        await webSocketManager.broadcast(
+            payload
         )
 
     return createdEvent
@@ -135,7 +155,7 @@ async def getStatistics(
         alias="to",
     ),
 ) -> Statistics:
-    return eventService.getStatistics(
+    return await eventService.getStatistics(
         fromDate=fromDate,
         toDate=toDate,
     )
