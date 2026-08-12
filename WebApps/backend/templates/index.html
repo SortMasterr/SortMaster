@@ -4,25 +4,37 @@
 <head>
     <meta charset="UTF-8">
 
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
 
     <title>스마트 수거 / 관리 시스템</title>
 
     <!-- Font Awesome 아이콘 -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    >
 
     <!-- 메인 페이지 CSS -->
-    <link rel="stylesheet" href="/static/css/index.css?v=9">
+    <link
+        rel="stylesheet"
+        href="/static/css/index.css?v=10"
+    >
 
     <!-- 공통 사이드바 CSS -->
-    <link rel="stylesheet" href="/static/css/sidebar.css?v=9">
+    <link
+        rel="stylesheet"
+        href="/static/css/sidebar.css?v=9"
+    >
 </head>
 
 <body>
     <div class="appContainer">
         <!-- 사이드바 -->
         <div id="sidebarContainer">
-            {% include 'sidebar.html' %}
+            {% include "sidebar.html" %}
         </div>
 
         <!-- 우측 메인 콘텐츠 -->
@@ -32,7 +44,10 @@
                     현재 상태: 수거 모드
                 </h1>
 
-                <span id="modeBadge" class="badge badgeCollect">
+                <span
+                    id="modeBadge"
+                    class="badge badgeCollect"
+                >
                     수거 가동 중
                 </span>
             </div>
@@ -43,15 +58,35 @@
             >
                 <h2>실시간 모니터링</h2>
 
-                <div class="videoContainer" id="videoContainer">
-                    <button id="fullscreenBtn" class="fullscreenBtn" title="전체화면 토글" type="button">
+                <div
+                    class="videoContainer"
+                    id="videoContainer"
+                >
+                    <!-- 두 카메라 전체 확대 버튼 -->
+                    <button
+                        id="fullscreenBtn"
+                        class="fullscreenBtn"
+                        title="두 카메라 전체화면 보기"
+                        aria-label="두 카메라 전체화면 보기"
+                        type="button"
+                    >
                         <i class="fa-solid fa-expand"></i>
                     </button>
 
                     <div class="videoSplit">
                         {% for id in cameraIds %}
-                        <div class="videoPane">
-                            <span class="videoPaneLabel">{{ id }}</span>
+                        <div
+                            class="videoPane"
+                            data-camera-id="{{ id }}"
+                            tabindex="0"
+                            role="button"
+                            title="{{ id }} 카메라 전체화면 보기"
+                            aria-label="{{ id }} 카메라 전체화면 보기"
+                        >
+                            <span class="videoPaneLabel">
+                                {{ id }}
+                            </span>
+
                             <img
                                 src="/api/stream/{{ id }}"
                                 alt="{{ id }} 카메라 실시간 화면"
@@ -62,7 +97,11 @@
                 </div>
 
                 <div class="controlPanel">
-                    <button id="testAlertBtn" class="testBtn" type="button">
+                    <button
+                        id="testAlertBtn"
+                        class="testBtn"
+                        type="button"
+                    >
                         <i class="fa-solid fa-triangle-exclamation"></i>
                         오배출 경고 테스트 (5초)
                     </button>
@@ -73,7 +112,7 @@
 
     <!-- 공통 JS를 먼저 불러옵니다. -->
     <script src="/static/js/sidebar.js?v=9"></script>
-    <script src="/static/js/index.js?v=9"></script>
+    <script src="/static/js/index.js?v=10"></script>
 </body>
 
 </html>

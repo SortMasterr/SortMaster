@@ -1,33 +1,42 @@
-// js/main.js
-// 사이드바 로딩/활성화 표시는 js/sidebar.js가 전담합니다.
-// (main.html에서 sidebar.js를 main.js보다 먼저 불러오므로
-//  전역 변수 isCollectMode는 sidebar.js에서 이미 선언되어 있습니다.)
-
-// 메인 페이지 전용 JavaScript
-// sidebar.js에서 선언한 isCollectMode를 사용합니다.
+// static/js/index.js
+//
+// 사이드바 로딩, 메뉴 활성화 및 모드 전환은
+// sidebar.js가 담당합니다.
 
 let alertTimer = null;
 
-document.addEventListener("DOMContentLoaded", () => {
-    initMainEvents();
-});
+
+document.addEventListener(
+    "DOMContentLoaded",
+    initMainEvents
+);
+
 
 function initMainEvents() {
+    initTestAlertButton();
+    initContainerFullscreen();
+    initVideoPaneFullscreen();
+}
+
+
+/* 오배출 경고 테스트 */
+function initTestAlertButton() {
     const testAlertBtn =
         document.getElementById("testAlertBtn");
-
-    const fullscreenBtn =
-        document.getElementById("fullscreenBtn");
 
     const videoContainer =
         document.getElementById("videoContainer");
 
-    /* 오배출 경고 테스트 */
-    if (testAlertBtn && videoContainer) {
-        testAlertBtn.addEventListener("click", () => {
+    if (!testAlertBtn || !videoContainer) {
+        return;
+    }
+
+    testAlertBtn.addEventListener(
+        "click",
+        () => {
             /*
-             * API 명세 기준:
-             * 수거 모드에서는 알림을 발생시키지 않습니다.
+             * 수거 모드에서는 오배출 알림을
+             * 발생시키지 않습니다.
              */
             if (isCollectMode) {
                 alert(
@@ -46,31 +55,256 @@ function initMainEvents() {
                 "warningActive"
             );
 
-            alertTimer = setTimeout(() => {
-                videoContainer.classList.remove(
-                    "warningActive"
-                );
+            alertTimer = setTimeout(
+                () => {
+                    videoContainer.classList.remove(
+                        "warningActive"
+                    );
 
-                alertTimer = null;
-            }, 5000);
-        });
+                    alertTimer = null;
+                },
+                5000
+            );
+        }
+    );
+}
+
+
+/* 두 카메라를 함께 전체화면으로 표시 */
+function initContainerFullscreen() {
+    const fullscreenBtn =
+        document.getElementById("fullscreenBtn");
+
+    const videoContainer =
+        document.getElementById("videoContainer");
+
+    if (!fullscreenBtn || !videoContainer) {
+        return;
     }
 
-    /* 전체화면 버튼 */
-    if (fullscreenBtn && videoContainer) {
-        fullscreenBtn.addEventListener("click", async () => {
+    fullscreenBtn.addEventListener(
+        "click",
+        async () => {
             try {
-                if (!document.fullscreenElement) {
-                    await videoContainer.requestFullscreen();
-                } else {
+                /*
+                 * 개별 카메라가 전체화면인 경우에도
+                 * 버튼을 누르면 전체화면을 종료합니다.
+                 */
+                if (document.fullscreenElement) {
                     await document.exitFullscreen();
+                    return;
                 }
+
+                clearFocusedPane(videoContainer);
+
+                await videoContainer.requestFullscreen();
             } catch (error) {
                 console.error(
-                    "전체화면 전환 오류:",
+                    "두 카메라 전체화면 전환 오류:",
                     error
                 );
             }
-        });
+        }
+    );
+
+    document.addEventListener(
+        "fullscreenchange",
+        () => {
+            const isContainerFullscreen =
+                document.fullscreenElement ===
+                videoContainer;
+
+            updateFullscreenButton(
+                fullscreenBtn,
+                isContainerFullscreen
+            );
+
+            /*
+             * 전체화면을 완전히 종료하면
+             * 개별 카메라 선택 상태도 초기화합니다.
+             */
+            if (!document.fullscreenElement) {
+                clearFocusedPane(videoContainer);
+            }
+        }
+    );
+
+    updateFullscreenButton(
+        fullscreenBtn,
+        false
+    );
+}
+
+
+/* 전체화면 버튼 아이콘 및 안내 문구 변경 */
+function updateFullscreenButton(
+    fullscreenBtn,
+    isFullscreen
+) {
+    const icon =
+        fullscreenBtn.querySelector("i");
+
+    if (icon) {
+        icon.className = isFullscreen
+            ? "fa-solid fa-compress"
+            : "fa-solid fa-expand";
     }
+
+    const buttonLabel = isFullscreen
+        ? "전체화면 종료"
+        : "두 카메라 전체화면 보기";
+
+    fullscreenBtn.title = buttonLabel;
+
+    fullscreenBtn.setAttribute(
+        "aria-label",
+        buttonLabel
+    );
+}
+
+
+/* 각 카메라의 개별 확대 기능 */
+function initVideoPaneFullscreen() {
+    const videoContainer =
+        document.getElementById("videoContainer");
+
+    const videoPanes =
+        document.querySelectorAll(".videoPane");
+
+    if (!videoContainer || videoPanes.length === 0) {
+        return;
+    }
+
+    videoPanes.forEach((videoPane) => {
+        videoPane.addEventListener(
+            "click",
+            async () => {
+                await toggleVideoPaneFullscreen(
+                    videoContainer,
+                    videoPane
+                );
+            }
+        );
+
+        videoPane.addEventListener(
+            "keydown",
+            async (event) => {
+                if (
+                    event.key !== "Enter"
+                    && event.key !== " "
+                ) {
+                    return;
+                }
+
+                event.preventDefault();
+
+                await toggleVideoPaneFullscreen(
+                    videoContainer,
+                    videoPane
+                );
+            }
+        );
+    });
+}
+
+
+/*
+ * 일반 화면:
+ * 선택한 videoPane 자체를 브라우저 전체화면으로 전환합니다.
+ *
+ * 두 화면 전체화면:
+ * videoContainer 전체화면은 유지하면서 선택한 Pane만 표시합니다.
+ * 이렇게 해야 브라우저의 전체화면 전환 제한과 충돌하지 않습니다.
+ */
+async function toggleVideoPaneFullscreen(
+    videoContainer,
+    videoPane
+) {
+    try {
+        const fullscreenElement =
+            document.fullscreenElement;
+
+        /*
+         * 선택한 카메라 자체가 전체화면인 경우
+         * 다시 클릭하면 전체화면을 종료합니다.
+         */
+        if (fullscreenElement === videoPane) {
+            await document.exitFullscreen();
+            return;
+        }
+
+        /*
+         * 두 화면이 함께 전체화면인 상태
+         */
+        if (fullscreenElement === videoContainer) {
+            const isAlreadyFocused =
+                videoPane.classList.contains(
+                    "paneFocused"
+                );
+
+            if (isAlreadyFocused) {
+                clearFocusedPane(videoContainer);
+                return;
+            }
+
+            focusVideoPane(
+                videoContainer,
+                videoPane
+            );
+
+            return;
+        }
+
+        /*
+         * 일반 화면에서는 선택한 카메라만
+         * 브라우저 전체화면으로 전환합니다.
+         */
+        clearFocusedPane(videoContainer);
+
+        await videoPane.requestFullscreen();
+    } catch (error) {
+        console.error(
+            "개별 카메라 전체화면 전환 오류:",
+            error
+        );
+    }
+}
+
+
+/* 두 화면 전체화면에서 카메라 하나만 표시 */
+function focusVideoPane(
+    videoContainer,
+    selectedPane
+) {
+    const videoPanes =
+        videoContainer.querySelectorAll(
+            ".videoPane"
+        );
+
+    videoContainer.classList.add(
+        "singlePaneMode"
+    );
+
+    videoPanes.forEach((videoPane) => {
+        videoPane.classList.toggle(
+            "paneFocused",
+            videoPane === selectedPane
+        );
+    });
+}
+
+
+/* 개별 카메라 선택 상태 해제 */
+function clearFocusedPane(videoContainer) {
+    videoContainer.classList.remove(
+        "singlePaneMode"
+    );
+
+    videoContainer
+        .querySelectorAll(".videoPane")
+        .forEach((videoPane) => {
+            videoPane.classList.remove(
+                "paneFocused"
+            );
+        });
 }
