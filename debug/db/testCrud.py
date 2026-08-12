@@ -22,7 +22,10 @@ if mongoUser and mongoPassword:
 else:
     auth = ""
 
-mongoUri = f"mongodb://{auth}{mongoHost}:{mongoPort}/?appName=sortMasterDB"
+mongoUri = (
+    f"mongodb://{auth}{mongoHost}:{mongoPort}/"
+    f"?appName=sortMasterDB&authSource={mongoDbName}"
+)
 
 client = MongoClient(mongoUri, server_api=ServerApi("1"))
 db = client[mongoDbName]  # DB 이름은 .env의 DB_NAME(없으면 자동 생성)

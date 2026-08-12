@@ -5,6 +5,10 @@ motor(AsyncIOMotorClient) 접근 헬퍼 + GridFS 버킷.
 checkMongodb(), debug/db/testDbConnection.py와 동일한 URI 조립 규칙을 따름(값이
 갈리지 않도록). DB_USER/DB_PASSWORD가 비어있으면 인증 없이 접속(로컬 Docker Mongo).
 
+authSource를 DB_NAME으로 명시한다 — 안 넣으면 드라이버가 기본값인 admin DB를 인증
+기준으로 삼는데, 계정을 DB_NAME(예: sortMaster)에 스코프해서 만들었으면
+"Authentication failed"가 난다(둘이 다른 DB라서).
+
 클라이언트를 모듈 import 시점에 즉시 생성하지 않고 getMongoDb() 호출 시점에 만든다.
 motor 클라이언트는 생성될 때의 실행 중인 이벤트 루프에 바인딩되는데, uvicorn처럼
 "앱 임포트 시점의 루프"와 "실제 요청을 처리하는 루프"가 갈리는 환경에서 import 시점에
@@ -36,7 +40,10 @@ if mongoUser and mongoPassword:
 else:
     _auth = ""
 
-mongoUri = f"mongodb://{_auth}{mongoHost}:{mongoPort}/?appName=sortMasterDB"
+mongoUri = (
+    f"mongodb://{_auth}{mongoHost}:{mongoPort}/"
+    f"?appName=sortMasterDB&authSource={mongoDbName}"
+)
 
 _client: AsyncIOMotorClient | None = None
 _clientLoop: asyncio.AbstractEventLoop | None = None

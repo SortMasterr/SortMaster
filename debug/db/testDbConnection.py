@@ -16,13 +16,19 @@ mongoHost = os.getenv("MONGO_HOST", "localhost")
 mongoPort = os.getenv("DB_PORT", "27020")
 mongoUser = os.getenv("DB_USER")
 mongoPassword = os.getenv("DB_PASSWORD")
+mongoDbName = os.getenv("DB_NAME", "sortMaster")
 
 if mongoUser and mongoPassword:
     auth = f"{quote_plus(mongoUser)}:{quote_plus(mongoPassword)}@"
 else:
     auth = ""
 
-mongoUri = f"mongodb://{auth}{mongoHost}:{mongoPort}/?appName=sortMasterDB"
+# authSource를 명시 안 하면 드라이버가 admin DB를 인증 기준으로 삼음 — 계정을
+# DB_NAME(예: sortMaster)에 스코프해서 만들었으면 안 넣으면 인증 실패남.
+mongoUri = (
+    f"mongodb://{auth}{mongoHost}:{mongoPort}/"
+    f"?appName=sortMasterDB&authSource={mongoDbName}"
+)
 
 client = MongoClient(mongoUri, server_api=ServerApi("1"))
 try:
