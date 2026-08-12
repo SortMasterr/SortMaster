@@ -72,7 +72,17 @@ docker compose up --build
   docker compose --profile training up --build training
   docker compose --profile training down   # best.pt 등 산출물 나오면
   ```
-  GPU 패스스루에 `nvidia-docker`(NVIDIA Container Toolkit) 필요. `training/Dockerfile`은 실제 학습 코드 들어오기 전까지 플레이스홀더
+  GPU 패스스루에 `nvidia-docker`(NVIDIA Container Toolkit) 필요. GPU 서버에서
+  띄우기 전엔 `.env`의 `GPU_DEVICE_ID`(할당받은 카드 번호)가 맞는지 꼭 확인할 것 —
+  안 맞으면 다른 팀 카드를 잡을 수 있음
+- **팀 공용 JupyterLab**: `training` 컨테이너가 뜨면 `http://<GPU서버IP>:${JUPYTER_PORT:-8899}`로
+  접속(토큰은 `.env`의 `JUPYTER_TOKEN`, 팀원끼리만 공유). `ultralytics`/`transformers`/
+  `peft`/`bitsandbytes`/`accelerate` 설치돼 있어 YOLOv8 재학습·Qwen3-VL LoRA/QLoRA
+  파인튜닝 코드를 노트북으로 바로 작성 가능. `/workspace`가 `training/` 디렉터리에
+  마운트되어 저장한 노트북/코드는 호스트에 남음(단, 체크포인트·데이터셋·`best.pt`
+  등 산출물은 `.gitignore`에 이미 제외 설정됨 — 별도 저장 방식은 TBD).
+  **주의**: JupyterLab은 진짜 멀티유저(JupyterHub)가 아니라 커널 하나를 공유하는
+  구조라, 팀원 여러 명이 동시에 같은 셀을 실행하면 충돌할 수 있음 — 번갈아 쓰는 걸 권장
 
 ## 현재 상태 (Mock 단계)
 

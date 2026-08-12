@@ -31,6 +31,12 @@ Thumbs.db
 *.pt
 *.pth
 
+# JupyterLab(training 컨테이너)에서 생성되는 산출물 — 학습 데이터셋/체크포인트/캐시
+.ipynb_checkpoints/
+training/runs/
+training/datasets/
+training/wandb/
+
 # 젯슨 나노 RTSP 시뮬레이션 실행 중 생성되는 파일(debug/streaming/startRtspSim.py)
 debug/streaming/logs/
 debug/streaming/auto.crt
