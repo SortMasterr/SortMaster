@@ -1,6 +1,5 @@
 import asyncio
 from datetime import datetime, timezone
-from typing import Literal
 
 import cv2
 from fastapi import (
@@ -209,13 +208,9 @@ async def generateMjpegFrames(
 )
 async def streamCamera(
     cameraId: CameraId,
-    role: Literal[
-        "top",
-        "side",
-    ] = "top",
 ) -> StreamingResponse:
     cameraManager = cameraManagers[
-        role
+        cameraId.value
     ]
 
     try:

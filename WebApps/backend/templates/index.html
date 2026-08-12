@@ -41,7 +41,7 @@
                 class="contentBody"
                 id="contentBody"
             >
-                <h2>실시간 모니터링 ({{ cameraId }})</h2>
+                <h2>실시간 모니터링</h2>
 
                 <div class="videoContainer" id="videoContainer">
                     <button id="fullscreenBtn" class="fullscreenBtn" title="전체화면 토글" type="button">
@@ -49,21 +49,15 @@
                     </button>
 
                     <div class="videoSplit">
+                        {% for id in cameraIds %}
                         <div class="videoPane">
-                            <span class="videoPaneLabel">위(Top)</span>
+                            <span class="videoPaneLabel">{{ id }}</span>
                             <img
-                                src="/api/stream/{{ cameraId }}?role=top"
-                                alt="위 카메라 실시간 화면"
+                                src="/api/stream/{{ id }}"
+                                alt="{{ id }} 카메라 실시간 화면"
                             >
                         </div>
-
-                        <div class="videoPane">
-                            <span class="videoPaneLabel">옆(Side)</span>
-                            <img
-                                src="/api/stream/{{ cameraId }}?role=side"
-                                alt="옆 카메라 실시간 화면"
-                            >
-                        </div>
+                        {% endfor %}
                     </div>
                 </div>
 

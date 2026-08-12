@@ -26,7 +26,7 @@
 | `services/` | 비즈니스 로직(쿨다운 판정, 모드 전환 등) |
 | `repositories/` | 저장소 접근(현재 In-memory, 추후 motor/MongoDB) |
 | `schemas/` | Pydantic 모델(요청/응답 스키마) |
-| `streaming/` | 카메라 캡처·프레임 스트리밍 로직. `cameraManager.py` 구현됨(위/옆 카메라 2개, MJPEG) |
+| `streaming/` | 카메라 캡처·프레임 스트리밍 로직. `cameraManager.py` 구현됨(카메라 1대당 독립 `CameraId`, MJPEG) |
 | `static/`, `templates/` | 정적 파일, Jinja2 템플릿 |
 
 새로운 책임(예: 탐지 파이프라인, RPA 연동)이 생기면 위 표에 맞는 폴더가 없을 때만 최상위에 새 폴더 추가(`detection/`, `rpa/` 등) — 기존 폴더 하나에 억지로 우겨넣지 말 것.

@@ -1,12 +1,14 @@
 """
-젯슨 나노 도착 전, 이 PC의 웹캠 2대(위+옆)로 RTSP 송신을 흉내내는 로컬 테스트 도구.
+젯슨 나노 도착 전, 이 PC의 웹캠들로 RTSP 송신을 흉내내는 로컬 테스트 도구.
+지점(CameraId)당 독립 젯슨 나노 1대+카메라 1대 구성(architecture.md 참고) —
+카메라 여러 대를 각각 다른 지점(ELEV-01, ELEV-02 등)에 할당해서 동시에 RTSP로 송신.
 infra/checkEnv.py처럼 필요한 것(FFmpeg/MediaMTX)을 자동으로 확인+설치하고,
 카메라 장치도 자동으로 찾아서 MediaMTX + FFmpeg 송신을 바로 띄운다.
 
-실제 배포 시엔 젯슨 나노가 이 역할(GStreamer RTSP 서버)을 대신하므로, 이 스크립트는
-WebApps/backend·docker-compose.yml과 무관한 로컬 테스트 전용 — 카메라를 든 쪽(현재는
-이 PC, 나중엔 젯슨 나노)의 역할만 흉내낸다. 백엔드(streaming/cameraManager.py)는
-RTSP URL을 받기만 하면 되므로 수정 불필요.
+실제 배포 시엔 각 지점의 젯슨 나노가 이 역할(GStreamer RTSP 서버)을 대신하므로,
+이 스크립트는 WebApps/backend·docker-compose.yml과 무관한 로컬 테스트 전용 —
+카메라를 든 쪽(현재는 이 PC, 나중엔 젯슨 나노)의 역할만 흉내낸다.
+백엔드(streaming/cameraManager.py)는 RTSP URL을 받기만 하면 되므로 수정 불필요.
 
 실행:
     python startRtspSim.py
@@ -151,9 +153,13 @@ def listDshowCameras(ffmpegPath: str) -> list[tuple[str, str]]:
     return cameras
 
 
-def chooseCameras(
+# schemas/event.py의 CameraId 값과 동일하게 유지 — 지점당 독립 젯슨 나노+카메라 1대.
+cameraIdChoices = ["ELEV-01", "ELEV-02", "REST-4F-01"]
+
+
+def chooseCameraAssignments(
     cameras: list[tuple[str, str]],
-) -> tuple[str, str]:
+) -> dict[str, str]:
     print("\n감지된 카메라:")
 
     for i, (friendlyName, _) in enumerate(cameras):
@@ -164,10 +170,29 @@ def chooseCameras(
         "화면 가리기 등으로 직접 구분 필요)"
     )
 
-    topIndex = int(input("\n위(top) 카메라 번호 입력: "))
-    sideIndex = int(input("옆(side) 카메라 번호 입력: "))
+    print("\n지점(cameraId) 후보:")
 
-    return cameras[topIndex][1], cameras[sideIndex][1]
+    for i, cameraId in enumerate(cameraIdChoices):
+        print(f"  [{i}] {cameraId}")
+
+    assignments: dict[str, str] = {}
+
+    while True:
+        raw = input(
+            "\n카메라 번호 입력(할당 다 끝났으면 Enter만): "
+        ).strip()
+
+        if raw == "":
+            break
+
+        cameraIndex = int(raw)
+        idRaw = input("  → 어느 지점인가요(위 목록 번호): ").strip()
+        cameraId = cameraIdChoices[int(idRaw)]
+
+        assignments[cameraId] = cameras[cameraIndex][1]
+        print(f"  [OK] {cameraId} = {cameras[cameraIndex][0]}")
+
+    return assignments
 
 
 logDir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
@@ -243,13 +268,15 @@ def main():
     print("\n=== 3. 카메라 장치 감지 ===")
     cameras = listDshowCameras(ffmpegPath)
 
-    if len(cameras) < 2:
-        print(
-            f"[FAIL] 카메라가 {len(cameras)}개만 감지됨(2개 필요): {cameras}"
-        )
+    if len(cameras) < 1:
+        print("[FAIL] 카메라가 감지되지 않음")
         sys.exit(1)
 
-    topCamera, sideCamera = chooseCameras(cameras)
+    assignments = chooseCameraAssignments(cameras)
+
+    if not assignments:
+        print("[FAIL] 지점에 할당된 카메라가 없음")
+        sys.exit(1)
 
     print("\n=== 4. MediaMTX 실행 ===")
     os.makedirs(logDir, exist_ok=True)
@@ -278,16 +305,23 @@ def main():
         sys.exit(1)
 
     print("=== 5. FFmpeg 송신 시작 ===")
-    topProcess, topLog = startFfmpegPush(ffmpegPath, topCamera, "top")
-    sideProcess, sideLog = startFfmpegPush(ffmpegPath, sideCamera, "side")
+    ffmpegProcesses = []
 
-    checkAlive(topProcess, "top", topLog)
-    checkAlive(sideProcess, "side", sideLog)
+    for cameraId, altName in assignments.items():
+        process, logPath = startFfmpegPush(ffmpegPath, altName, cameraId)
+        checkAlive(process, cameraId, logPath)
+        ffmpegProcesses.append(process)
+
+    envLines = "\n".join(
+        # streaming/cameraManager.py의 _envKeyForCameraId와 동일한 규칙
+        f"  CAMERA_SOURCE_{cameraId.replace('-', '').upper()}="
+        f"rtsp://localhost:{rtspPort}/{cameraId}"
+        for cameraId in assignments
+    )
 
     print(f"""
-완료. .env에 아래 두 줄을 추가하세요:
-  CAMERA_SOURCE=rtsp://localhost:{rtspPort}/top
-  CAMERA_SOURCE_SIDE=rtsp://localhost:{rtspPort}/side
+완료. .env에 아래 줄을 추가하세요:
+{envLines}
 
 종료하려면 이 창에서 Ctrl+C
 """)
@@ -297,7 +331,7 @@ def main():
     except KeyboardInterrupt:
         print("\n종료 중...")
 
-        for process in (mediaMtxProcess, topProcess, sideProcess):
+        for process in (mediaMtxProcess, *ffmpegProcesses):
             process.terminate()
 
 

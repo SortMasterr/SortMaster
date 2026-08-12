@@ -20,14 +20,18 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
 | 항목 | 내용 |
 |---|---|
 | 위치(최종 목표) | 엘리베이터 2대(`ELEV-01`,`ELEV-02`), 4층 휴게실 1대(`REST-4F-01`) — MVP 이후 순서/구성 재확인 필요 |
-| 위치(MVP) | 12층 1곳만 우선 진행(카메라 2대). 고도화 단계에 4층(`REST-4F-01` 추정, 확정 아님) 위 카메라 1대 추가 예정 |
+| 위치(MVP) | 지점 2곳(`ELEV-01`,`ELEV-02`), 각 지점 독립 젯슨 나노 1대+카메라 1대. 4층(`REST-4F-01`)은 고도화 단계에 추가 예정 |
 | 메인보드 | Jetson Nano, 입고 약 2주 소요 |
-| 카메라 구성 | **지점당 위(Top)+옆(Side) 2대**. 위: 상시 ROI 모니터링(YOLO-Nano 트리거용). 옆: 정밀 캡처(LLM 분류용)+투척 동작/투입 위치 판단(YOLO) |
+| 카메라 구성 | **카메라 1대당 독립 젯슨 나노 1대**(`CameraId` 1개 = 카메라 1대). 지점 늘리려면 젯슨 나노+카메라 세트를 추가 |
 | 카메라 스펙 | 웹캠 실촬영 해상도 **640×480**(약 30만 화소). YOLO 입력 전처리는 **640×640**으로 통일(레터박스 패딩 방식 — 비율 유지, 단순 리사이즈 아님). 크롭 좌표를 LLM에 넘길 때 패딩 오프셋 보정 필요 |
-| 배포 구조 | 지점별 독립 메인보드, 지점당 웹캠 2대(위+옆) |
+| 배포 구조 | 지점별(카메라별) 독립 메인보드+카메라 1대 |
 | 클래스 | general, paper, plastic(coffeeCup 별도), mixed, uncertain |
 
 ## 탐지 파이프라인 (YOLO 2단계 + LLM 분류, 확정)
+
+> ⚠️ 아래 "위 카메라/옆 카메라" 표현은 이전 설계(지점당 카메라 2대) 기준 그대로 남겨둠.
+> 카메라 구성이 "지점당 1대"로 바뀌면서, 상시감시(트리거)와 정밀캡처(분류/투척판단)를
+> 카메라 1대로 같이 처리할지 판단 로직을 재설계할지 팀 논의 필요(TBD 참고).
 
 - **상시 감시(경량, 위 카메라)**: YOLOv8-Nano 상주, ROI(쓰레기통 위치 고정) 내 객체 분석, 실시간 프레임 스캔, 메모리 ~300MB
 - **트리거 조건**(ROI 내 객체 조합으로 즉시 판단):
@@ -57,17 +61,22 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
   탐지 모델 몫으로 남겨둠 (`docker run --gpus`는 추론 컨테이너에만 적용)
 - 서버 CPU/RAM이 팀별로 분리되는지(GPU만 분리되는지)는 서버 관리자 확인 필요(TBD)
 - GPU 패스스루: nvidia-docker 필요
-- 영상 소스는 `.env`의 `CAMERA_SOURCE`(위)/`CAMERA_SOURCE_SIDE`(옆)만 환경별로 교체, 코드 불변
+- 영상 소스는 `.env`의 `CAMERA_SOURCE_<CameraId>`(예: `CAMERA_SOURCE_ELEV01`)만 환경별로 교체, 코드 불변
 
 ## 웹캠 시뮬레이션 (메인보드 입고 전) — 구현됨
 
-- `streaming/cameraManager.py`: 지점당 위(top)/옆(side) 카메라 각각 별도 `CameraManager` 인스턴스로 관리(`GET /api/stream/{cameraId}?role=top|side`). 웹캠이 1대뿐이면 `CAMERA_SOURCE_SIDE`를 비워두면 되고, 그 경우 `role=side` 요청만 503(다른 기능엔 영향 없음)
+- `streaming/cameraManager.py`: `CameraId`(`schemas/event.py`)마다 별도 `CameraManager` 인스턴스로 관리
+  (`GET /api/stream/{cameraId}`, role 파라미터 없음 — 카메라 1대=1지점=1`CameraId`). `.env`
+  키는 `CAMERA_SOURCE_ELEV01`/`CAMERA_SOURCE_ELEV02`/`CAMERA_SOURCE_REST4F01`(하이픈 제거+대문자).
+  `ELEV-01`만 기본값 `0`이라 로컬 웹캠 1대짜리 개발 환경에서 바로 동작. 나머지는 미설정 시
+  해당 `cameraId` 요청만 503(다른 지점엔 영향 없음)
 - 입고 후 CameraId별 독립 RTSP로 교체(소스 문자열만 RTSP URL로 교체, 로직 불변)
 - `cv2.VideoCapture().read()` 동기 블로킹 → `asyncio.to_thread()`로 감쌈(적용 완료)
-- **로컬에서 RTSP 경로 미리 테스트**: `debug/streaming/startRtspSim.py` — 이 PC 웹캠 2대로
-  젯슨 나노 역할(FFmpeg+MediaMTX로 RTSP 송신)을 흉내냄. `infra/checkEnv.py`처럼 필요한 것
-  자동 설치하지만, RTSP 테스트하는 사람만 필요해서 `checkEnv.py`와는 별도 유지(`debug/db/`와
-  같은 패턴). WebApps/backend·docker-compose.yml과 무관 — 백엔드는 수정 없이 그대로 RTSP 수신
+- **로컬에서 RTSP 경로 미리 테스트**: `debug/streaming/startRtspSim.py` — 이 PC의 웹캠 여러 대를
+  각각 다른 지점(`CameraId`)에 할당해서, 지점별로 독립된 젯슨 나노 역할(FFmpeg+MediaMTX로
+  RTSP 송신)을 동시에 흉내냄. `infra/checkEnv.py`처럼 필요한 것 자동 설치하지만, RTSP
+  테스트하는 사람만 필요해서 `checkEnv.py`와는 별도 유지(`debug/db/`와 같은 패턴).
+  WebApps/backend·docker-compose.yml과 무관 — 백엔드는 수정 없이 그대로 RTSP 수신
 
 ## 젯슨 나노 엣지 코드 (미착수)
 
@@ -119,8 +128,10 @@ Detect → Create Event → Save Event → Check mode
 - 경고 전구 HW/GPIO 연동, 젯슨↔중앙 신호 전달 방식
 - 학습용 원본 이미지 저장 방식
 - 안면인식 레포 포함 여부
-- **지점당 카메라 2대(위+옆) 체계에서 CameraId 스키마 미정** — `.agentfiles/apiSpec.md`의 `CameraId` enum(`ELEV-01/ELEV-02/REST-4F-01`)은 카메라 1대=1지점 가정으로 작성됨. 지점 1개 ID로 통합(내부에서 위/옆 2개 스트림 처리)할지, 카메라별 별도 ID로 나눌지 결정 필요. `GET /api/stream/{cameraId}`(단일 스트림 반환) 스펙에도 영향
-- 최종 설치 지점 구성(엘리베이터 2대+4층 1대 유지 여부, MVP의 "12층"과의 관계) 재확인 필요
+- **탐지 파이프라인의 "위/옆 카메라 역할 분담" 설계가 "카메라 1대=1지점" 구조와 어떻게
+  맞물릴지 미정** — 상시감시(트리거)와 정밀캡처(분류/투척판단)를 카메라 1대로 같이
+  처리할지, 지점을 늘려서 역할별로 나눌지 재논의 필요(위 "탐지 파이프라인" 섹션 참고)
+- 최종 설치 지점 구성(엘리베이터 2대+4층 1대 유지 여부) 재확인 필요
 
 ## 해결된 TBD
 
@@ -128,3 +139,5 @@ Detect → Create Event → Save Event → Check mode
 - IDE/AI 코딩 툴 → 개인별 사용
 - 탐지 모델/프레임워크 → YOLOv8-Nano(상시감시+투척판단) + Qwen3-VL-8B(정밀분류, LoRA/QLoRA 파인튜닝) 확정. YOLOv8-Medium은 Qwen3-VL-8B로 대체
 - GPU 배분 → L40S 4장 중 팀당 1장 전용 할당(타 팀과 경합 없음)
+- **CameraId 스키마** → 카메라별 별도 ID로 확정(지점 통합 ID 방식 아님). 카메라 1대 = 지점 1개 =
+  `CameraId` 1개 = 독립 젯슨 나노 1대. `GET /api/stream/{cameraId}`에 role 파라미터 없음

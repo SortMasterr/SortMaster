@@ -124,19 +124,18 @@
 
 ### 요청
 
-| 구분    | 이름         | 타입       | 필수 | 설명                         |
-| ----- | ---------- | -------- | -- | -------------------------- |
-| Path  | `cameraId` | CameraId | ✅  | 카메라 위치 ID                  |
-| Query | `role`     | string   | ❌  | `top` 또는 `side`, 기본값 `top` |
+| 구분   | 이름         | 타입       | 필수 | 설명                                |
+| ---- | ---------- | -------- | -- | --------------------------------- |
+| Path | `cameraId` | CameraId | ✅  | 카메라 ID(카메라 1대 = 지점 1개 = CameraId 1개) |
 
 ### 요청 예시
 
 ```http
-GET /api/stream/ELEV-01?role=top
+GET /api/stream/ELEV-01
 ```
 
 ```http
-GET /api/stream/ELEV-01?role=side
+GET /api/stream/ELEV-02
 ```
 
 ### 정상 응답
@@ -150,19 +149,18 @@ multipart/x-mixed-replace; boundary=frame
 
 ### 에러 응답
 
-| 상태 코드 | 발생 조건                           |
-| ----- | ------------------------------- |
-| 422   | `cameraId` 또는 `role`이 허용된 값과 다름 |
-| 503   | 카메라가 설정되지 않았거나 연결할 수 없음         |
+| 상태 코드 | 발생 조건                  |
+| ----- | ---------------------- |
+| 422   | `cameraId`가 허용된 값과 다름  |
+| 503   | 카메라가 설정되지 않았거나 연결할 수 없음 |
 
 ### 현재 구현 참고사항
 
 * `cameraId`는 `CameraId` Enum으로 검증한다.
-* `role`에 따라 `top` 또는 `side` 카메라 관리자를 선택한다.
-* 현재 개발용 카메라 소스는 환경 설정을 사용한다.
-* `side` 카메라 소스가 설정되지 않은 경우 HTTP 503이 발생할 수 있다.
+* `cameraId`마다 별도 카메라 관리자를 사용한다(카메라 1대당 독립 젯슨 나노 1대 구성).
+* 현재 개발용 카메라 소스는 `.env`의 `CAMERA_SOURCE_<ID>`(예: `CAMERA_SOURCE_ELEV01`)를 사용한다.
+* 소스가 설정되지 않은 `cameraId`는 HTTP 503이 발생할 수 있다.
 * 실제 CameraId별 독립 RTSP 소스 연결은 향후 확장 범위다.
-* 스트리밍 구현은 CTO 담당 영역이며, 변경 시 사전 협의가 필요하다.
 
 ---
 
@@ -653,8 +651,8 @@ JSON API는 `controllers/api.py`, 페이지 라우트는 `controllers/views.py`�
 
 ### 주요 기능
 
-* Jinja2 Context로 `cameraId` 전달
-* `top`, `side` 카메라 스트림 표시
+* Jinja2 Context로 `cameraIds` 목록 전달
+* 지점(카메라)별 스트림 분할 표시
 * 사이드바 메뉴
 * 관리/수거 모드 표시
 * WebSocket 연결
@@ -663,8 +661,7 @@ JSON API는 `controllers/api.py`, 페이지 라우트는 `controllers/views.py`�
 ### 사용하는 API
 
 ```text
-GET /api/stream/{cameraId}?role=top
-GET /api/stream/{cameraId}?role=side
+GET /api/stream/{cameraId}
 POST /api/mode
 WS /ws/events
 ```
@@ -947,7 +944,7 @@ MongoDB 연결 후에도 외부 JSON API 필드명은 camelCase를 유지한다.
 
 | ID      | 기능                    | 현재 상태           |
 | ------- | --------------------- | --------------- |
-| EP-01   | 카메라 MJPEG 스트리밍        | 구현됨 — CTO 담당 영역 |
+| EP-01   | 카메라 MJPEG 스트리밍        | 구현됨             |
 | EP-02   | 오분류 이벤트 생성            | 구현됨             |
 | EP-03   | 이벤트 목록 및 기간 조회        | 구현됨             |
 | EP-04   | 이벤트 상세 및 404 처리       | 구현됨             |
@@ -981,4 +978,3 @@ MongoDB 연결 후에도 외부 JSON API 필드명은 camelCase를 유지한다.
 * API 변경 후 `/docs`에서 실제 요청과 응답을 검증한다.
 * Git 작업 전 최신 `dev`와 루트 `README.md`를 확인한다.
 * `git pull` 후 `python ..\..\infra\checkEnv.py`를 실행한다.
-* 스트리밍 관련 변경은 CTO 담당 영역이므로 사전 협의한다.
