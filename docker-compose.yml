@@ -30,7 +30,7 @@ services:
     # "DB 접속" 절 참고 — 계정 없이 먼저 --auth부터 켜면 아무도 로그인 못 하니 순서 반드시 지킬 것):
     command: ["mongod", "--auth"]
 
-  # 라벨링/학습(YOLOv8 재학습 + Qwen3-VL-8B LoRA·QLoRA) 때만 기동:
+  # 라벨링/학습(YOLO26 재학습 + Qwen3-VL-8B LoRA·QLoRA) 때만 기동:
   #   docker compose --profile training up training
   # best.pt 등 산출물 나오면 내리기:
   #   docker compose --profile training down

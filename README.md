@@ -94,7 +94,7 @@ docker compose up --build
   메인보드 입고 후엔 `CAMERA_SOURCE_<CameraId>`를 RTSP URL로 교체(코드 불변).
   젯슨 나노 입고 전 RTSP 경로를 미리 테스트하려면 `debug/streaming/startRtspSim.py`
   참고(이 PC 웹캠 여러 대를 지점별로 할당해 RTSP 송신 흉내, 백엔드와 무관한 로컬 테스트 전용 도구).
-  **⚠️ 위+옆 카메라 지점 도입으로 `CameraId`가 `ELEV-TOP`/`ELEV-SIDE`로 확정됨(구조 변경은 아님, 아직 코드 미반영). 단 설치 위치(엘리베이터) 번호 처리는 미정 — `.agentfiles/architecture.md`의 TBD 참고**
+  **⚠️ 위+옆 카메라 지점 도입으로 `CameraId`가 `ELEV-TOP`/`ELEV-SIDE`로 확정됨(구조 변경은 아님, 아직 코드 미반영). 참고로 "엘리베이터 2대" 설치 계획은 착오였고 실제로는 12층 엘리베이터 앞 쓰레기통 1개뿐이라 지점 번호가 필요 없음 — `.agentfiles/architecture.md` 참고**
 - **탐지**: 아직 미착수. 탐지 모델은 YOLO26(상시감시+투척판단)+Qwen3-VL-8B
   (정밀분류, LoRA/QLoRA 파인튜닝)으로 확정됐지만 코드에 통합 전(상세는
   `.agentfiles/architecture.md`, `.agentfiles/apiSpec.md` 참고). 트리거 조건은 손 감지
