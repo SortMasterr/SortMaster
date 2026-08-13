@@ -67,7 +67,7 @@ docker compose up --build
 
 - `backend`(포트 8047) + `mongo`(호스트 포트 27020) 상시 기동. 로컬 웹캠을 백엔드가 직접 여는 코드는 아직 없어서 지금은 컨테이너에 카메라 디바이스 패스스루 불필요
 - 여기서 뜨는 `mongo`는 로컬 전용 별도 인스턴스 — 팀 공유 서버(`192.168.0.30`)와는 다른 DB. 팀 공유 서버를 쓰려면 `.env`의 `MONGO_HOST`를 그쪽으로 두고 compose의 `mongo` 서비스는 안 띄워도 됨(`docker compose up backend`)
-- 라벨링/학습(YOLOv8 재학습 + Qwen3-VL-8B LoRA·QLoRA)은 평소엔 내려두고 필요할 때만:
+- 라벨링/학습(YOLO26 재학습 + Qwen3-VL-8B LoRA·QLoRA)은 평소엔 내려두고 필요할 때만:
   ```bash
   docker compose --profile training up --build training
   docker compose --profile training down   # best.pt 등 산출물 나오면
@@ -77,7 +77,7 @@ docker compose up --build
   안 맞으면 다른 팀 카드를 잡을 수 있음
 - **팀 공용 JupyterLab**: `training` 컨테이너가 뜨면 `http://<GPU서버IP>:${JUPYTER_PORT:-8899}`로
   접속(토큰은 `.env`의 `JUPYTER_TOKEN`, 팀원끼리만 공유). `ultralytics`/`transformers`/
-  `peft`/`bitsandbytes`/`accelerate` 설치돼 있어 YOLOv8 재학습·Qwen3-VL LoRA/QLoRA
+  `peft`/`bitsandbytes`/`accelerate` 설치돼 있어 YOLO26 재학습·Qwen3-VL LoRA/QLoRA
   파인튜닝 코드를 노트북으로 바로 작성 가능. `/workspace`가 `training/` 디렉터리에
   마운트되어 저장한 노트북/코드는 호스트에 남음(단, 체크포인트·데이터셋·`best.pt`
   등 산출물은 `.gitignore`에 이미 제외 설정됨 — 별도 저장 방식은 TBD).
@@ -86,7 +86,7 @@ docker compose up --build
 
 ## 현재 상태 (Mock 단계)
 
-- **영상 소스**: 구현됨. `streaming/cameraManager.py` — 카메라 1대당 독립 젯슨 나노 1대
+- **영상 소스**: 구현됨(단, 카메라 1대=1지점 시절 구현 — 아래 참고). `streaming/cameraManager.py` — 카메라 1대당 독립 젯슨 나노 1대
   구성으로, `.env`의 `CAMERA_SOURCE_<CameraId>`(예: `CAMERA_SOURCE_ELEV01`,
   `CAMERA_SOURCE_ELEV02`)마다 별도 `CameraManager`를 관리하고 `GET /api/stream/{cameraId}`로
   MJPEG 송출(role 파라미터 없음). `ELEV-01`만 기본값 `0`이라 웹캠 1대짜리 로컬 개발
@@ -94,9 +94,13 @@ docker compose up --build
   메인보드 입고 후엔 `CAMERA_SOURCE_<CameraId>`를 RTSP URL로 교체(코드 불변).
   젯슨 나노 입고 전 RTSP 경로를 미리 테스트하려면 `debug/streaming/startRtspSim.py`
   참고(이 PC 웹캠 여러 대를 지점별로 할당해 RTSP 송신 흉내, 백엔드와 무관한 로컬 테스트 전용 도구).
-- **탐지**: 아직 미착수. 탐지 모델은 YOLOv8-Nano(상시감시+투척판단)+Qwen3-VL-8B
+  **⚠️ 위+옆 카메라 지점 도입으로 `CameraId`가 `ELEV-TOP`/`ELEV-SIDE`로 확정됨(구조 변경은 아님, 아직 코드 미반영). 단 설치 위치(엘리베이터) 번호 처리는 미정 — `.agentfiles/architecture.md`의 TBD 참고**
+- **탐지**: 아직 미착수. 탐지 모델은 YOLO26(상시감시+투척판단)+Qwen3-VL-8B
   (정밀분류, LoRA/QLoRA 파인튜닝)으로 확정됐지만 코드에 통합 전(상세는
-  `.agentfiles/architecture.md`, `.agentfiles/apiSpec.md` 참고). 이벤트는
+  `.agentfiles/architecture.md`, `.agentfiles/apiSpec.md` 참고). 트리거 조건은 손 감지
+  조합이 아니라 **쓰레기 감지 자체**로 변경됨 — 옆 카메라 넘침 감지+위 카메라 위치 특정으로
+  `overflow` 판정, YOLO26 추적+Qwen3-VL-8B 비동기 분류 일치 여부로 `misclassification`
+  판정(상세는 `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고). 이벤트는
   `misclassification`(투기)/`overflow`(넘침) 두 카테고리로 나뉨(스키마에 반영 완료,
   `schemas/event.py`의 `EventCategory`). 실제 트리거는 아직 없어서
   `debug/detection/simulateEventPipeline.py`로 시작/종료 신호를 흉내내 파이프라인만
@@ -144,7 +148,7 @@ docker compose up --build
 1. ~~`streaming/cameraManager.py`~~ **완료** — 카메라 1대당 독립 지점(`CameraId`), `/api/stream/{cameraId}`
    MJPEG 송출 구현됨. 메인보드 입고 후엔 `CAMERA_SOURCE_<CameraId>`를
    RTSP URL로 교체만 하면 됨(코드 변경 불필요). 저장/DB 연동은 아래 항목들이 선행돼야 함
-2. `services/detectionService.py` — 아직 미작성. YOLOv8-Nano(상시감시+투척판단)+
+2. `services/detectionService.py` — 아직 미작성. YOLO26(상시감시+투척판단)+
    Qwen3-VL-8B(정밀분류) 파이프라인으로 구현 예정. 완성되면 이벤트 시작/종료 시점마다
    아래 3~5번 파이프라인(`recordingService.start`/`stop` → `mediaService.saveClipAsGif`
    → `eventService.createEvent`)을 그대로 호출하면 됨(순서는

@@ -48,7 +48,7 @@ erDiagram
 - **CAMERA**: 별도 컬렉션 없음. `CameraId` Enum + 설정값으로만 존재하는 개념적 엔티티. 3대 고정(`ELEV-01`, `ELEV-02`, `REST-4F-01`).
 - **통계(`GET /api/statistics`)**: 저장 없이 매 요청마다 `EVENT`에서 온디맨드 집계 — 별도 엔티티 아님. `overflow` 포함 여부는 TBD.
 - **SystemState.mode**(`MANAGE`/`COLLECT`): 전역 상태로만 언급되고 영속화 계층(DB/파일) 명시 없어 ERD에서 제외.
-- 2단계 탐지 모델(YOLOv8-Nano/Medium) 자체는 DB에 영속화되는 대상이 아니라 GPU 서버 내 추론 컴포넌트라 ERD 범위 밖.
+- 탐지 모델(YOLO26/Qwen3-VL-8B) 자체는 DB에 영속화되는 대상이 아니라 GPU 서버 내 추론 컴포넌트라 ERD 범위 밖.
 
 ## TBD (ERD에 영향 줄 수 있는 항목)
 
