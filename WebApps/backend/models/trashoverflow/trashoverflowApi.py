@@ -246,7 +246,7 @@ class PredictResponse(BaseModel):
     overflow_threshold: float = OVERFLOW_SECONDS
 
 
-@app.post("/predict", response_model=PredictResponse)
+@app.post("/trashflowmodel/predict", response_model=PredictResponse)
 async def predict(session_id: str, file: UploadFile = File(...)):
     contents = await file.read()
 
@@ -271,14 +271,14 @@ async def predict(session_id: str, file: UploadFile = File(...)):
     )
 
 
-@app.post("/reset/{session_id}")
+@app.post("/trashflowmodel/reset/{session_id}")
 def reset_session(session_id: str):
     with _sessions_lock:
         _sessions.pop(session_id, None)
     return {"session_id": session_id, "reset": True}
 
 
-@app.get("/session/{session_id}")
+@app.get("/trashflowmodel/session/{session_id}")
 def get_session_status(session_id: str):
     with _sessions_lock:
         if session_id not in _sessions:
@@ -291,6 +291,6 @@ def get_session_status(session_id: str):
         }
 
 
-@app.get("/health")
+@app.get("/trashflowmodel/health")
 def health():
     return {"status": "ok", "device": DEVICE, "classes": CLASSES}
