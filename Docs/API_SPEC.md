@@ -94,7 +94,7 @@
 
 | Enum            | 허용 값                                                                      |
 | --------------- | ------------------------------------------------------------------------- |
-| `CameraId`      | `ELEV-01` | `ELEV-02` | `REST-4F-01`                                      |
+| `CameraId`      | `ELEV-01` | `ELEV-02` | `REST-4F-01` (현재 코드 기준. 확정된 목표는 `ELEV-TOP`/`ELEV-SIDE` — 설치 위치가 12층 엘리베이터 앞 1곳뿐이라 번호 불필요, `.agentfiles/architecture.md` 참고, 아직 코드 미반영) |
 | `EventCategory` | `misclassification` | `overflow`                                       |
 | `DetectedClass` | `general` | `paper` | `plastic` | `coffeeCup` | `mixed` | `uncertain`     |
 | `ActionTaken`   | `lightAndSound` | `soundOnly` | `lightOnly` | `notificationOnly` | `none` |

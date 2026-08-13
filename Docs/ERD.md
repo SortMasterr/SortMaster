@@ -12,7 +12,7 @@ erDiagram
     EVENT |o--|| MEDIA_FILE : "참조(선택)"
 
     CAMERA {
-        string cameraId PK "ELEV-01/ELEV-02/REST-4F-01 (Enum, DB 컬렉션 아님)"
+        string cameraId PK "ELEV-01/ELEV-02/REST-4F-01 (Enum, DB 컬렉션 아님, 현재 코드 기준 — 목표는 ELEV-TOP/ELEV-SIDE)"
         string status "ONLINE/OFFLINE, 런타임 상태(영속화 여부 TBD)"
     }
 
@@ -45,7 +45,7 @@ erDiagram
   - `misclassification`: 동일 `cameraId`+`detectedClass` 5초 Cooldown
   - `overflow`: 동일 `cameraId` 기준 Cooldown(초 단위 TBD, 현재는 5초로 가정) — 분류 단계 없이 감지 즉시 생성
 - **MEDIA_FILE**: MongoDB GridFS(`fs.files`+`fs.chunks`) 표준 구조. `misclassification`/`overflow` 둘 다 GIF로 저장(`services/mediaService.py`가 OpenCV 프레임을 Pillow로 인코딩, `repositories/mediaRepository.py`가 업로드), 필드명은 `imageFileId`로 공용. 녹화 길이는 고정 10초가 아니라 `services/recordingService.py`가 시작~종료 신호 사이 실제 구간을 캡처(신호 유실 대비 최대 30초 안전 캡). 탐지 서비스가 아직 없어 실제 트리거 전이라 `imageFileId`는 대부분 `null`.
-- **CAMERA**: 별도 컬렉션 없음. `CameraId` Enum + 설정값으로만 존재하는 개념적 엔티티. 3대 고정(`ELEV-01`, `ELEV-02`, `REST-4F-01`).
+- **CAMERA**: 별도 컬렉션 없음. `CameraId` Enum + 설정값으로만 존재하는 개념적 엔티티. 현재 코드는 3개 고정(`ELEV-01`, `ELEV-02`, `REST-4F-01`) — 확정된 목표는 `ELEV-TOP`/`ELEV-SIDE`(설치 위치 1곳, 아직 코드 미반영, `.agentfiles/architecture.md` 참고).
 - **통계(`GET /api/statistics`)**: 저장 없이 매 요청마다 `EVENT`에서 온디맨드 집계 — 별도 엔티티 아님. `overflow` 포함 여부는 TBD.
 - **SystemState.mode**(`MANAGE`/`COLLECT`): 전역 상태로만 언급되고 영속화 계층(DB/파일) 명시 없어 ERD에서 제외.
 - 탐지 모델(YOLO26/Qwen3-VL-8B) 자체는 DB에 영속화되는 대상이 아니라 GPU 서버 내 추론 컴포넌트라 ERD 범위 밖.
