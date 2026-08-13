@@ -1,4 +1,4 @@
-# 팀 공용 학습 환경 — JupyterLab으로 여러 명이 같이 접속해서 YOLOv8 재학습/
+# 팀 공용 학습 환경 — JupyterLab으로 여러 명이 같이 접속해서 YOLO26 재학습/
 # Qwen3-VL-8B LoRA·QLoRA 파인튜닝 진행. 라벨링/학습 코드가 준비되면 /workspace(볼륨
 # 마운트된 training/ 디렉터리)에 채울 것.
 # 베이스 이미지 CUDA 12.4는 GPU 서버 드라이버(595.84, CUDA 13.2)와 호환 확인됨(하위 호환).

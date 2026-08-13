@@ -22,7 +22,7 @@ v0.1(MVP/Mock). Base URL `http://localhost:8047`(배포 시 GPU 서버 주소). 
 
 | ID | Method/Path | 설명 | Params | 상태코드 | 부수효과 |
 |---|---|---|---|---|---|
-| EP-01 | GET /api/stream/{cameraId} | MJPEG 스트림 | Path: cameraId(CameraId) | 200/503 | 카메라 1대=1지점=1cameraId(role 파라미터 없음). 카메라 미설정/연결 실패 시 503. 개발=`.env`의 `CAMERA_SOURCE_<ID>`(예: `CAMERA_SOURCE_ELEV01`) 웹캠, 배포=카메라별 독립 RTSP |
+| EP-01 | GET /api/stream/{cameraId} | MJPEG 스트림 | Path: cameraId(CameraId) | 200/503 | 카메라 1대=지점 1개=1cameraId(role 파라미터 없음, 구조 불변). 위+옆 카메라 지점 도입으로 `CameraId`가 `ELEV-TOP`/`ELEV-SIDE`로 확정(설치 위치 번호 처리는 미정, 아직 코드 미반영 — `.agentfiles/architecture.md`의 TBD 참고). 카메라 미설정/연결 실패 시 503. 개발=`.env`의 `CAMERA_SOURCE_<ID>`(예: `CAMERA_SOURCE_ELEV01`, 현재 코드 기준) 웹캠, 배포=카메라별 독립 RTSP |
 | EP-03 | GET /api/events | 이벤트 목록 | Query: from?, to?(ISO8601) | 200 | 없음. 페이지네이션 미구현(TBD) |
 | EP-04 | GET /api/events/{id} | 이벤트 상세 | Path: id | 200 | 없음. not found 시 404 vs null TBD |
 | EP-05 | GET /api/statistics | 클래스별 집계, 온디맨드(캐시없음) | Query: from?, to? | 200 | 없음. Chart.js는 WS로 낙관적 증가, 새로고침 시 재동기화 |
