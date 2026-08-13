@@ -10,6 +10,11 @@ services:
       - .env
     depends_on:
       - mongo
+    # 카메라가 GPU 서버와 다른 사설망(팀원 로컬 PC)에 있을 때, 노트북→GPU서버 역방향
+    # SSH 터널(-R)로 끌어온 RTSP를 컨테이너 안에서 host.docker.internal로 접근하기 위함.
+    # .env의 CAMERA_SOURCE_<CameraId>에서 host.docker.internal 사용 시에만 의미 있음.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   mongo:
     image: mongo:7.0
@@ -41,6 +46,11 @@ services:
       - "${JUPYTER_PORT:-8899}:8888"
     env_file:
       - .env
+    environment:
+      # 베이스 이미지(pytorch/pytorch)가 자체적으로 NVIDIA_VISIBLE_DEVICES=all을 박아두고
+      # 있어서, 아래 deploy.devices.device_ids 예약만으로는 무시되고 카드 4장이 전부
+      # 컨테이너 안에 노출되는 문제가 있었음 — 여기서 명시적으로 덮어써야 실제로 격리됨.
+      - NVIDIA_VISIBLE_DEVICES=${GPU_DEVICE_ID:-0}
     volumes:
       - ./training:/workspace
     deploy:
