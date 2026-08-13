@@ -9,7 +9,7 @@ v0.1(MVP/Mock). Base URL `http://localhost:8047`(배포 시 GPU 서버 주소). 
 | Enum | 값 |
 |---|---|
 | CameraId | (현재 코드 기준, 마이그레이션 전) ELEV-01 / ELEV-02 / REST-4F-01 — 확정된 목표는 `ELEV-TOP`/`ELEV-SIDE`(설치 위치 1곳뿐이라 번호 없음, `.agentfiles/architecture.md` 참고, 아직 코드 미반영) |
-| EventCategory | misclassification(투기, 위 카메라의 YOLO26 감지+Qwen3-VL-8B 비동기 분류 결과가 투척 위치와 불일치) / overflow(넘침, 옆 카메라 감지→위 카메라 위치 특정, 분류 없이 녹화만) |
+| EventCategory | misclassification(투기, 위 카메라 단독 — 엣지 YOLO26이 추적한 투척 위치(`thrownBinId`)와 중앙 Qwen3-VL-8B 비동기 분류 결과(`detectedClass`)가 불일치할 때 엣지가 판정) / overflow(넘침, 옆 카메라 단독 — 위치 특정 없이 감지 즉시 알림+녹화만) |
 | DetectedClass | general / paper / plastic / coffeeCup / mixed / uncertain — misclassification 이벤트에서만 사용 |
 | ActionTaken | lightAndSound / soundOnly / lightOnly / notificationOnly / none |
 | Mode | MANAGE(기본값) / COLLECT |
@@ -30,9 +30,9 @@ v0.1(MVP/Mock). Base URL `http://localhost:8047`(배포 시 GPU 서버 주소). 
 
 ### EP-02. POST /api/events — 이벤트 생성
 
-Request(EventCreate): cameraId(CameraId), eventCategory(EventCategory), detectedClass(DetectedClass, misclassification일 때만 필수), isMisclassified(bool, misclassification일 때만), confidenceScore(float 0~1, misclassification일 때만), imageFileId(str|null, 선택 — 녹화 파이프라인이 GridFS 업로드 후 채워서 전달, 생략 시 null) — overflow는 cameraId+eventCategory(+imageFileId)만
+Request(EventCreate): cameraId(CameraId), eventCategory(EventCategory), detectedClass(DetectedClass, misclassification일 때만 필수), thrownBinId(str|null, misclassification일 때만 — 엣지 YOLO26이 추적한 실제 투척 위치(통), **신규 필드, 아직 스키마 미반영**), isMisclassified(bool, misclassification일 때만 — 엣지가 thrownBinId·detectedClass 비교해서 판정한 결과를 그대로 전달), confidenceScore(float 0~1, misclassification일 때만), imageFileId(str|null, 선택 — 녹화 파이프라인이 GridFS 업로드 후 채워서 전달, 생략 시 null) — overflow는 cameraId+eventCategory(+imageFileId)만
 
-Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory, detectedClass(null 가능), isMisclassified(null 가능), confidenceScore(null 가능), actionTaken(ActionTaken), imageFileId(str|null, GridFS 파일 ID, 녹화 파이프라인 연동 전엔 null), notes(str|null)
+Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory, detectedClass(null 가능), thrownBinId(null 가능, 신규), isMisclassified(null 가능), confidenceScore(null 가능), actionTaken(ActionTaken), imageFileId(str|null, GridFS 파일 ID, 녹화 파이프라인 연동 전엔 null), notes(str|null)
 - misclassification: isMisclassified=false 또는 5초 Cooldown 중이면 null 반환
 - overflow: 감지 즉시 이벤트 생성(분류 단계 없음), 영상 녹화만 수행
 

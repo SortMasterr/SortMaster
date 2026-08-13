@@ -98,9 +98,10 @@ docker compose up --build
 - **탐지**: 아직 미착수. 탐지 모델은 YOLO26(상시감시+투척판단)+Qwen3-VL-8B
   (정밀분류, LoRA/QLoRA 파인튜닝)으로 확정됐지만 코드에 통합 전(상세는
   `.agentfiles/architecture.md`, `.agentfiles/apiSpec.md` 참고). 트리거 조건은 손 감지
-  조합이 아니라 **쓰레기 감지 자체**로 변경됨 — 옆 카메라 넘침 감지+위 카메라 위치 특정으로
-  `overflow` 판정, YOLO26 추적+Qwen3-VL-8B 비동기 분류 일치 여부로 `misclassification`
-  판정(상세는 `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고). 이벤트는
+  조합이 아니라 **쓰레기 감지 자체**로 변경됨 — 옆 카메라 단독으로 넘침 감지 시 위치 특정
+  없이 바로 `overflow` 판정, 위 카메라는 엣지(젯슨) YOLO26 추적+중앙(GPU) Qwen3-VL-8B
+  비동기 분류 결과를 엣지에서 종합해 `misclassification` 판정(엣지-중앙 하이브리드로 확정,
+  상세는 `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고). 이벤트는
   `misclassification`(투기)/`overflow`(넘침) 두 카테고리로 나뉨(스키마에 반영 완료,
   `schemas/event.py`의 `EventCategory`). 실제 트리거는 아직 없어서
   `debug/detection/simulateEventPipeline.py`로 시작/종료 신호를 흉내내 파이프라인만
@@ -118,8 +119,9 @@ docker compose up --build
 - **RPA(전구/경고음)**: 아직 미착수. 모드 전환 API(`/api/mode`)는 있지만 실제
   RPA 트리거·Mute로 이어지는 코드는 없음.
 - **DB**: MongoDB Docker(호스트 포트 `27020`, 컨테이너 내부는 `27017`)에 백엔드가
-  motor로 연결됨. 이벤트 메타데이터는 `events` 컬렉션, GIF 클립은 GridFS(`fs.files`+
-  `fs.chunks`)에 저장.
+  motor로 연결됨. 이벤트 메타데이터는 `events` 컬렉션, GIF 클립은 GridFS에 저장 —
+  버킷을 카메라별로 `topMedia`(위 카메라)/`sideMedia`(옆 카메라) 2개로 분리(관리 편의
+  목적, 상세는 `Docs/ERD.md` 참고).
 
 ### 배포 전략
 
@@ -127,9 +129,10 @@ docker compose up --build
 - **배포**: 동일 Docker 이미지를 그대로 학원 GPU 서버(Linux, **NVIDIA L40S 4장 중
   할당받은 1장**)로 이전
 - 다른 팀들과 서버를 공유하기 때문에 4장 중 **1장만 할당**받아 사용. MVP 단계는
-  백엔드(FastAPI)+모델 학습+DB 저장+탐지 추론을 **할당받은 GPU 1장 안에 전부
-  통합 배포**(별도 상시 서버 불필요). GPU 패스스루는
-  `nvidia-docker`(NVIDIA Container Toolkit) 필요.
+  백엔드(FastAPI)+모델 학습+DB 저장+**Qwen3-VL-8B 분류 추론**을 **할당받은 GPU 1장 안에
+  전부 통합 배포**(별도 상시 서버 불필요). **YOLO26 상시 추론은 GPU가 아니라 엣지(젯슨
+  Orin Nano Super)가 담당**(엣지-중앙 하이브리드로 확정, `.agentfiles/architecture.md`
+  참고). GPU 패스스루는 `nvidia-docker`(NVIDIA Container Toolkit) 필요.
 - 로컬(웹캠)과 GPU 서버 배포(RTSP 수신/샘플 영상) 간 영상 소스는 `.env`의
   `CAMERA_SOURCE` 값만 다르게 관리(코드 변경 없음).
 

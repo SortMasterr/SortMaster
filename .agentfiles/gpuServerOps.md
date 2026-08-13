@@ -81,10 +81,14 @@ ssh -p 2222 -R 8554:localhost:8554 soma@116.42.115.24
 4. `.env`: backend도 같은 서버면 `MONGO_HOST=mongo`/`DB_PORT=27017`(내부망), 외부 접속이면
    `MONGO_HOST=<서버IP>`/`DB_PORT=27020`
 
-## 젯슨 나노 Python 버전 제약
+## 메인보드(Jetson Orin Nano Super) 참고
 
-원조 Jetson Nano(4GB) 마지막 지원 JetPack은 **4.6.x**(Ubuntu 18.04, Python **3.6**) — JetPack
-5/6(Orin 전용)은 대상 아님. `WebApps/backend`의 Python 3.11 고정은 젯슨 쪽엔 미적용(README에
-"다른 코드베이스"로 명시). RTSP 송신은 GStreamer라 무관하지만, GPIO 신호 수신 코드는 3.6 문법 필요
-— backend의 `str | None`/`@dataclass`/`asyncio.run()` 등은 3.6에서 안 되니 복붙 주의. 패키지 버전도
-backend `checkEnv.py`와 별도로 3.6+ARM64 호환 버전을 따로 고정할 것.
+Jetson Nano 4GB(JetPack 4.6.x, Python 3.6 제약)는 발주 무산으로 더 이상 해당 없음 — **Jetson
+Orin Nano Super Developer Kit**(icbanq 무료 렌탈, 8GB 유니파이드 메모리, 67 TOPS, JetPack 6.x/
+Ubuntu 22.04/**Python 3.10**)로 확정. `WebApps/backend`(Python 3.11)와 문법 호환성 문제 없음
+— 이전에 남겨뒀던 3.6 문법 제약(`str | None` 등 금지)은 더 이상 적용 안 됨.
+
+엣지에서 YOLO26을 직접 돌리는 하이브리드 구조(트리거 시에만 영상을 중앙 LLM으로 전송)로
+확정됨(`architecture.md`의 "탐지 파이프라인" 참고) — GPU 서버(`training`)에서 학습한 `.pt`
+가중치를 젯슨에 배포해서 상시 추론, GPU 서버는 Qwen3-VL-8B 분류만 전담. `.pt` 배포 절차
+(SCP 등)는 아직 미정, 확정되면 여기에 추가할 것.
