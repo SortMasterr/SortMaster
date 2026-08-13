@@ -51,10 +51,9 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
 - 메인보드 → RTSP → 중앙(GPU 1장)에서 탐지+분류 수행 (엣지 추론 아님)
 - 탐지 모델 확정: YOLOv8-Nano(상시감시+투척판단) + **Qwen3-VL-8B(정밀분류, YOLOv8-Medium 대체)** — 상세는 위 "탐지 파이프라인" 참고
 - **컨테이너 3개**: `backend` / `mongo` / `training`(GPU). `training`은 라벨링·학습(YOLO 재학습+LLM 파인튜닝) 때만 기동 → `best.pt` 등 산출물 나오면 내리고 평소엔 `backend`+`mongo`만 상시 구동
-- `training` 컨테이너는 JupyterLab을 띄워서 팀원이 브라우저로 같이 접속해 학습 코드
-  작성(`.env`의 `JUPYTER_PORT`/`JUPYTER_TOKEN`). 진짜 멀티유저 격리는 아니고 커널 하나를
-  공유하는 구조라 동시 실행은 지양. GPU 서버에 실제 배포 시엔 `.env`의 `GPU_DEVICE_ID`로
-  팀에 할당된 카드만 지정해서 씀(`docker-compose.yml`의 `device_ids` 참고)
+- `training` 컨테이너는 JupyterLab을 띄워서 팀원이 브라우저로 같이 접속해 학습 코드 작성
+  (`.env`의 `JUPYTER_PORT`/`JUPYTER_TOKEN`, 진짜 멀티유저 격리는 아니라 동시 실행 지양).
+  GPU 서버 운영 실무(계정/rootless Docker/포트/SSH 터널 등)는 `gpuServerOps.md` 참고
 
 ## 배포 전략
 
@@ -64,14 +63,9 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
   탐지/추론 컨테이너만 사용**, DB/백엔드는 GPU 미사용(CPU/RAM만) — VRAM은
   탐지 모델 몫으로 남겨둠 (`docker run --gpus`는 추론 컨테이너에만 적용)
 - 서버 CPU/RAM이 팀별로 분리되는지(GPU만 분리되는지)는 서버 관리자 확인 필요(TBD)
-- GPU 패스스루: nvidia-docker 필요. `docker-compose.yml`의 `training` 서비스는
-  `.env`의 `GPU_DEVICE_ID`(nvidia-smi 기준 카드 인덱스, 예: `2`)로 할당받은 카드
-  1장만 지정해서 씀(`count: all`로 두면 서버의 다른 GPU까지 전부 잡아서 타 팀과 충돌남)
-- **GPU 서버는 다인 공유 환경**(팀 5명뿐 아니라 다른 수강생들도 같은 호스트에서 rootful
-  Docker 데몬을 공유) — 컨테이너 이름/호스트 포트가 겹칠 수 있어 각자 계정에
-  **rootless Docker**(`dockerd-rootless-setuptool.sh install` 또는
-  `curl -fsSL https://get.docker.com/rootless | sh`, 필요 시 `--force`/
-  `FORCE_ROOTLESS_INSTALL=1`)를 설치해 완전히 격리된 데몬을 쓰는 걸 권장
+- GPU 패스스루: nvidia-docker 필요
+- **GPU 서버는 다인 공유 환경**(팀 5명뿐 아니라 다른 수강생들도 같은 호스트 공유) — 계정 격리,
+  rootless Docker, GPU 카드 지정, 포트포워딩(SSH 터널) 등 실무 절차는 `gpuServerOps.md` 참고
 - 영상 소스는 `.env`의 `CAMERA_SOURCE_<CameraId>`(예: `CAMERA_SOURCE_ELEV01`)만 환경별로 교체, 코드 불변
 
 ## 웹캠 시뮬레이션 (메인보드 입고 전) — 구현됨
@@ -95,6 +89,10 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
 
 1. 웹캠→RTSP 송신: GStreamer(JetPack 포함) 예정. 1단계 웹캠 뷰어(Py 3.11)는 노트북 테스트 완료
 2. 중앙 신호 수신→GPIO 트리거: 설계 전. `RPAs/alertController.py`는 현재 중앙에서 Mock 처리 중, 젯슨 쪽으로 이전 가능성. 전달 방식(MQTT/HTTP/WS) TBD
+
+> **주의**: 원조 Jetson Nano(4GB)는 JetPack 4.6.x(Ubuntu 18.04, Python **3.6**)가 마지막 지원
+> 버전 — `WebApps/backend`의 Python 3.11 문법(`str | None`, `@dataclass`, `asyncio.run()` 등)은
+> 젯슨 쪽 코드에 그대로 못 씀. 상세는 `gpuServerOps.md` 참고
 
 ## RPA 정책
 
@@ -131,12 +129,10 @@ Detect → Create Event → Save Event → Check mode
   - 로컬(`my-mongo`): `MONGO_HOST=localhost`
 - `infra/checkEnv.py`, `debug/db/testDbConnection.py`, `debug/db/testCrud.py` 세 스크립트가 `.env` 키 공유 — 값 다르면 결과 엇갈림
 - 디버그 스크립트는 Atlas → 로컬/자체 Docker로 전환(`mongodb+srv://` → `mongodb://`+포트)
-- **팀 공유 서버 계정**: `.30`의 Mongo는 팀원별 계정(`user01`~`user05`, `sortMaster` DB에
-  `readWrite` 권한만)으로 인증. root(관리자) 계정은 팀장만 보유. 계정 생성은
-  `docker exec -it sortmaster-mongo mongosh`로 접속해 수동으로 `db.createUser()` 실행
-  (무인증 상태에서 계정부터 만든 뒤 `docker-compose.yml`의 mongo `command: ["mongod",
-  "--auth"]` 주석을 해제하고 재시작해야 인증이 걸림 — 순서 반대로 하면 아무도 로그인 못 함).
-  각 팀원은 자기 `.env`의 `DB_USER`/`DB_PASSWORD`를 배정받은 계정으로 채우면 됨
+- **팀 공유 서버 계정**: 공유 Mongo는 팀원별 계정(`user01`~`user05`, `sortMaster` DB에
+  `readWrite` 권한만)으로 인증, root(관리자) 계정은 팀장만 보유. 계정 생성 절차는
+  `gpuServerOps.md` 참고. 각 팀원은 자기 `.env`의 `DB_USER`/`DB_PASSWORD`를 배정받은
+  계정으로 채우면 됨
 
 ## TBD
 
