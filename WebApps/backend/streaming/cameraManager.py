@@ -28,7 +28,9 @@ class CameraManager:
         if isinstance(self.source, str) and self.source.startswith("rtsp://"):
             # RTSP 영상 데이터는 기본적으로 UDP로 전송되는데, 방화벽에 UDP 포트를
             # 별도로 안 열어도 되도록 TCP로 강제(제어 채널과 같은 포트로 처리됨).
-            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+            # threads;1: ffmpeg 멀티스레드 프레임 디코딩에서 나는
+            # "Assertion fctx->async_lock failed" 크래시 회피용.
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|threads;1"
 
         capture = cv2.VideoCapture(self.source)
         capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
