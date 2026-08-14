@@ -9,20 +9,16 @@ document.addEventListener("DOMContentLoaded", async () => {
             className: "tagPaper",
         },
         plastic: {
-            name: "병/캔/플라스틱",
+            name: "플라스틱",
+            className: "tagPlastic",
+        },
+        can: {
+            name: "캔",
             className: "tagPlastic",
         },
         coffeeCup: {
             name: "커피 컵",
             className: "tagPaper",
-        },
-        mixed: {
-            name: "혼합 쓰레기",
-            className: "tagPlastic",
-        },
-        uncertain: {
-            name: "판별 불가",
-            className: "generalWaste",
         },
     };
 

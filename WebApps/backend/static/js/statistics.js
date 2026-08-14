@@ -9,9 +9,8 @@ document.addEventListener(
             general: "일반 쓰레기",
             paper: "종이",
             plastic: "플라스틱",
+            can: "캔",
             coffeeCup: "커피 컵",
-            mixed: "혼합 쓰레기",
-            uncertain: "판별 불가",
         };
 
         const cameraNameById = {

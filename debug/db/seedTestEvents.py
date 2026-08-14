@@ -47,9 +47,7 @@ events = client[mongoDbName]["events"]
 # ELEV-SIDE: 쓰레기통 넘침 여부만 판정 → overflow 전담(architecture.md 참고)
 # REST-4F-01은 아직 설치 확정 전(고도화 단계 스트레치 목표)이라 시드 데이터에서 제외
 #
-# 현재 코드 기준 값(schemas/event.py) — mixed/uncertain은 architecture.md/ERD.md에서
-# 이미 폐기 결정됐지만 코드에 아직 미반영이라 지금 DB로 조회 가능하게 하려면 이 값들을 써야 함
-detectedClasses = ["general", "paper", "plastic", "coffeeCup"]
+detectedClasses = ["general", "paper", "plastic", "can", "coffeeCup"]
 actionTakens = ["lightAndSound", "none"]
 
 now = datetime.now(timezone.utc)

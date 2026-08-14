@@ -11,7 +11,7 @@ v0.1(MVP/Mock). Base URL `http://localhost:8047`(배포 시 로컬 배포 서버
 | CameraId | ELEV-TOP / ELEV-SIDE / REST-4F-01 — 설치 위치 1곳뿐이라 번호 없음(`.agentfiles/architecture.md` 참고). ELEV-TOP=쓰레기 종류 분류+쓰레기통 감지+투척 감지 3기능 모델, ELEV-SIDE=쓰레기통 넘침 여부만 판정 |
 | EventCategory | misclassification(투기, 위 카메라 단독 — **MVP는 엣지 YOLO26 단독**으로 투척 통(`binId`)과 쓰레기 종류(`detectedClass`)를 감지+분류+비교까지 전부 처리, 불일치 시 엣지가 판정. LLM/GPU 호출 없음 — Qwen3-VL-8B는 고도화 단계 학습 보조용으로 후순위) / overflow(넘침, 옆 카메라 단독 — 물리 통 4개의 상태를 `BIN_STATES`로 지속 추적하다 `NORMAL`→`FULL` 전환 시점에만 생성) |
 | BinType | general / plasticCan / coffeeCup / paper — 물리 쓰레기통 4개 고정. `plasticCan` 통은 `DetectedClass`의 `plastic`/`can` 둘 다 받음(매핑 필요, `Docs/ERD.md` 참고) |
-| DetectedClass | general / paper / plastic / can(신규, 아직 코드 미반영) / coffeeCup — 총 5종, misclassification 이벤트에서만 사용. `mixed`/`uncertain`은 제외 확정(아직 코드엔 남아있음, `Docs/ERD.md` 참고) |
+| DetectedClass | general / paper / plastic / can / coffeeCup — 총 5종, misclassification 이벤트에서만 사용. `mixed`/`uncertain`은 제외됨 |
 | ActionTaken | lightAndSound / soundOnly / lightOnly / notificationOnly / none |
 | Mode | MANAGE(기본값) / COLLECT |
 | CameraStatus | ONLINE / OFFLINE |
@@ -28,6 +28,8 @@ v0.1(MVP/Mock). Base URL `http://localhost:8047`(배포 시 로컬 배포 서버
 | EP-04 | GET /api/events/{id} | 이벤트 상세 | Path: id | 200 | 없음. not found 시 404 vs null TBD |
 | EP-05 | GET /api/statistics | 클래스별 집계, 온디맨드(캐시없음) | Query: from?, to? | 200 | 없음. Chart.js는 WS로 낙관적 증가, 새로고침 시 재동기화 |
 | EP-06 | POST /api/mode | 모드 전환 | Body: mode(Mode) | 200/422 | 성공 시 전체 WS 클라이언트에 MODE_CHANGED 브로드캐스트 |
+| EP-08 | POST /api/detection/start | 녹화 시작(탐지 시작 신호) | Body: cameraId(CameraId) | 200/503 | `recordingService.start` 호출, recordingId 반환. 카메라 미설정/연결 실패 시 503 |
+| EP-09 | POST /api/detection/stop | 녹화 종료+GIF 업로드+이벤트 저장(탐지 종료+분류 결과 신호) | Body: recordingId(str), cameraId(CameraId), detectedClass(DetectedClass), isMisclassified(bool), confidenceScore(float 0~1) | 200/400/404 | EP-02(POST /api/events)와 동일한 Cooldown/부수효과 적용. recordingId 없으면 404, 캡처된 프레임 없으면 400 |
 
 ### EP-02. POST /api/events — 이벤트 생성
 
@@ -38,6 +40,15 @@ Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory
 - overflow: `BIN_STATES.currentState`가 `NORMAL`→`FULL`로 전환되는 순간에만 생성(시간 기반 Cooldown 아님, `Docs/ERD.md` 참고), 분류 단계 없이 영상 녹화만 수행
 
 부수효과: mode=MANAGE → RPA트리거+WS 브로드캐스트(카테고리별 eventType) / mode=COLLECT → 통계만 갱신. misclassification은 동일 cameraId+detectedClass 5초 내 재호출 무시(Cooldown), overflow는 `detectionId` 유니크 제약으로 중복만 방지(시간 Cooldown 없음)
+
+### EP-08/EP-09. POST /api/detection/start, stop — 탐지 파이프라인 임시 스텁
+
+`services/detectionService.py`: 실제 YOLO26 모델(젯슨 엣지) 완성 전까지, 시작/종료 신호를
+API로 직접 받아 `recordingService`(녹화)→`mediaService`(GIF 인코딩+GridFS 업로드)→
+`eventService.createEvent`(EP-02와 동일 로직, Cooldown 포함)를 그대로 호출하는 자리만
+잡아둔 것. 항상 `eventCategory=misclassification`으로 저장(overflow는 이 경로로 안 만듦).
+엣지→백엔드 신호 전달 방식(MQTT/HTTP/WS, `architecture.md` 기준 TBD)이 확정되면 진입점만
+그쪽으로 바꾸고 `detectionService` 내부 로직은 재사용 예정.
 
 ### EP-07. WS /ws/events — 실시간 스트림
 

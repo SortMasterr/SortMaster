@@ -147,7 +147,7 @@ erDiagram
   기준으로 나뉨)은 그대로 유지되지만, `plasticCan` 통 하나에 `plastic`/`can` 클래스 둘 다
   대응되는 **다대일 관계**라 `isMisclassified` 판정에 매핑(`{plastic: plasticCan, can:
   plasticCan, paper: paper, coffeeCup: coffeeCup, general: general}`)이 필요 —
-  `schemas/event.py`의 `DetectedClass`에 `can` 값 추가 필요(아직 코드 미반영)
+  `schemas/event.py`의 `DetectedClass`에 `can` 값 추가 완료
 - **`DetectedClass`에서 `mixed`/`uncertain` 제외 확정** → 라벨링 기준을 정하려다가, 팀
   자체 라벨링 시엔 어차피 모든 대상을 5종(general/paper/plastic/can/coffeeCup) 중
   하나로 분류할 수 있다고 판단해서 아예 클래스에서 뺌. `DetectedClass`가 `binType`(4종)에

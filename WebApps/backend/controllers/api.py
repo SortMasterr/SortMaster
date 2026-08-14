@@ -9,6 +9,11 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 
+from schemas.detection import (
+    DetectionStart,
+    DetectionStartResponse,
+    DetectionStop,
+)
 from schemas.event import (
     CameraId,
     Event,
@@ -21,6 +26,7 @@ from schemas.mode import (
     ModeUpdate,
 )
 from schemas.statistics import Statistics
+from services.detectionService import detectionService
 from services.eventService import eventService
 from services.modeService import modeService
 from services.webSocketManager import (
@@ -92,51 +98,102 @@ async def createEvent(
         )
     )
 
-    currentMode = (
-        modeService.getMode().mode
-    )
+    await _broadcastIfManageMode(createdEvent)
+
+    return createdEvent
+
+
+async def _broadcastIfManageMode(
+    event: Event | None,
+) -> None:
+    currentMode = modeService.getMode().mode
+
+    if event is None or currentMode != Mode.manage:
+        return
 
     if (
-        createdEvent is not None
-        and currentMode == Mode.manage
+        event.eventCategory
+        == EventCategory.MISCLASSIFICATION
     ):
-        if (
-            createdEvent.eventCategory
-            == EventCategory.MISCLASSIFICATION
-        ):
-            payload = {
-                "eventType": (
-                    "MISCLASSIFICATION_DETECTED"
-                ),
-                "cameraId": (
-                    createdEvent.cameraId.value
-                ),
-                "timestamp": (
-                    createdEvent.timestamp
-                    .isoformat()
-                ),
-                "isMisclassified": (
-                    createdEvent
-                    .isMisclassified
-                ),
-            }
-        else:
-            payload = {
-                "eventType": (
-                    "BIN_OVERFLOW_DETECTED"
-                ),
-                "cameraId": (
-                    createdEvent.cameraId.value
-                ),
-                "timestamp": (
-                    createdEvent.timestamp
-                    .isoformat()
-                ),
-            }
+        payload = {
+            "eventType": (
+                "MISCLASSIFICATION_DETECTED"
+            ),
+            "cameraId": event.cameraId.value,
+            "timestamp": (
+                event.timestamp.isoformat()
+            ),
+            "isMisclassified": (
+                event.isMisclassified
+            ),
+        }
+    else:
+        payload = {
+            "eventType": (
+                "BIN_OVERFLOW_DETECTED"
+            ),
+            "cameraId": event.cameraId.value,
+            "timestamp": (
+                event.timestamp.isoformat()
+            ),
+        }
 
-        await webSocketManager.broadcast(
-            payload
+    await webSocketManager.broadcast(payload)
+
+
+@router.post(
+    "/detection/start",
+    response_model=DetectionStartResponse,
+)
+async def startDetection(
+    detectionStart: DetectionStart,
+) -> DetectionStartResponse:
+    try:
+        recordingId = (
+            await detectionService.startDetection(
+                detectionStart.cameraId
+            )
         )
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=503,
+            detail=str(error),
+        ) from error
+
+    return DetectionStartResponse(
+        recordingId=recordingId
+    )
+
+
+@router.post(
+    "/detection/stop",
+    response_model=Event | None,
+)
+async def stopDetection(
+    detectionStop: DetectionStop,
+) -> Event | None:
+    try:
+        createdEvent = (
+            await detectionService.stopDetection(
+                recordingId=detectionStop.recordingId,
+                cameraId=detectionStop.cameraId,
+                detectedClass=detectionStop.detectedClass,
+                isMisclassified=detectionStop.isMisclassified,
+                confidenceScore=detectionStop.confidenceScore,
+            )
+        )
+    except KeyError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error),
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+    await _broadcastIfManageMode(createdEvent)
 
     return createdEvent
 

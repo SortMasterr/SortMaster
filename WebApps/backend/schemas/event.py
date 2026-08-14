@@ -19,9 +19,8 @@ class DetectedClass(str, Enum):
     GENERAL = "general"
     PAPER = "paper"
     PLASTIC = "plastic"
+    CAN = "can"
     COFFEE_CUP = "coffeeCup"
-    MIXED = "mixed"
-    UNCERTAIN = "uncertain"
 
 
 class ActionTaken(str, Enum):
