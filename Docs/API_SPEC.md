@@ -106,7 +106,7 @@
 
 | Enum            | 허용 값                                                                      |
 | --------------- | ------------------------------------------------------------------------- |
-| `CameraId`      | `ELEV-01` | `ELEV-02` | `REST-4F-01` (현재 코드 기준. 확정된 목표는 `ELEV-TOP`/`ELEV-SIDE` — 설치 위치가 12층 엘리베이터 앞 1곳뿐이라 번호 불필요, `.agentfiles/architecture.md` 참고, 아직 코드 미반영) |
+| `CameraId`      | `ELEV-TOP` | `ELEV-SIDE` | `REST-4F-01` — 설치 위치가 12층 엘리베이터 앞 1곳뿐이라 번호 불필요(`.agentfiles/architecture.md` 참고). `ELEV-TOP`=쓰레기 종류 분류+쓰레기통 감지+투척 감지 3기능, `ELEV-SIDE`=쓰레기통 넘침 여부만 판정 |
 | `EventCategory` | `misclassification` | `overflow`                                       |
 | `DetectedClass` | (현재 코드 기준) `general` \| `paper` \| `plastic` \| `coffeeCup` \| `mixed` \| `uncertain` — 확정된 목표는 `general`/`paper`/`plastic`/`can`(신규)/`coffeeCup` 5종, `mixed`/`uncertain`은 제외(`.agentfiles/architecture.md` 참고, 아직 코드 미반영) |
 | `ActionTaken`   | `lightAndSound` | `soundOnly` | `lightOnly` | `notificationOnly` | `none` |
@@ -148,11 +148,11 @@
 ### 요청 예시
 
 ```http
-GET /api/stream/ELEV-01
+GET /api/stream/ELEV-TOP
 ```
 
 ```http
-GET /api/stream/ELEV-02
+GET /api/stream/ELEV-SIDE
 ```
 
 ### 정상 응답
@@ -175,7 +175,7 @@ multipart/x-mixed-replace; boundary=frame
 
 * `cameraId`는 `CameraId` Enum으로 검증한다.
 * `cameraId`마다 별도 카메라 관리자를 사용한다(카메라 1대당 독립 젯슨 나노 1대 구성).
-* 현재 개발용 카메라 소스는 `.env`의 `CAMERA_SOURCE_<ID>`(예: `CAMERA_SOURCE_ELEV01`)를 사용한다.
+* 현재 개발용 카메라 소스는 `.env`의 `CAMERA_SOURCE_<ID>`(예: `CAMERA_SOURCE_ELEVTOP`)를 사용한다.
 * 소스가 설정되지 않은 `cameraId`는 HTTP 503이 발생할 수 있다.
 * 실제 CameraId별 독립 RTSP 소스 연결은 향후 확장 범위다.
 
@@ -209,7 +209,7 @@ multipart/x-mixed-replace; boundary=frame
 
 ```json
 {
-  "cameraId": "ELEV-01",
+  "cameraId": "ELEV-TOP",
   "eventCategory": "misclassification",
   "detectedClass": "mixed",
   "isMisclassified": true,
@@ -222,7 +222,7 @@ multipart/x-mixed-replace; boundary=frame
 
 ```json
 {
-  "cameraId": "ELEV-02",
+  "cameraId": "ELEV-SIDE",
   "eventCategory": "overflow",
   "imageFileId": "68f2c1a4b9d3e2f1a0c5d6e8"
 }
@@ -233,7 +233,7 @@ multipart/x-mixed-replace; boundary=frame
 ```bash
 curl -X POST "http://localhost:8047/api/events" \
   -H "Content-Type: application/json" \
-  -d "{\"cameraId\":\"ELEV-01\",\"eventCategory\":\"misclassification\",\"detectedClass\":\"mixed\",\"isMisclassified\":true,\"confidenceScore\":0.85}"
+  -d "{\"cameraId\":\"ELEV-TOP\",\"eventCategory\":\"misclassification\",\"detectedClass\":\"mixed\",\"isMisclassified\":true,\"confidenceScore\":0.85}"
 ```
 
 ### 이벤트가 생성되는 경우
@@ -254,7 +254,7 @@ curl -X POST "http://localhost:8047/api/events" \
 {
   "eventId": "a3b70dae-3a1b-48b6-a8d1-a06afcb934d1",
   "timestamp": "2026-08-11T06:47:50.261977Z",
-  "cameraId": "ELEV-01",
+  "cameraId": "ELEV-TOP",
   "eventCategory": "misclassification",
   "detectedClass": "mixed",
   "isMisclassified": true,
@@ -298,7 +298,7 @@ misclassification:
 ```json
 {
   "eventType": "MISCLASSIFICATION_DETECTED",
-  "cameraId": "ELEV-01",
+  "cameraId": "ELEV-TOP",
   "timestamp": "2026-08-11T06:47:50.261977+00:00",
   "isMisclassified": true
 }
@@ -308,7 +308,7 @@ overflow:
 ```json
 {
   "eventType": "BIN_OVERFLOW_DETECTED",
-  "cameraId": "ELEV-02",
+  "cameraId": "ELEV-SIDE",
   "timestamp": "2026-08-11T06:47:50.261977+00:00"
 }
 ```
@@ -413,7 +413,7 @@ GET /api/events/a3b70dae-3a1b-48b6-a8d1-a06afcb934d1
 {
   "eventId": "a3b70dae-3a1b-48b6-a8d1-a06afcb934d1",
   "timestamp": "2026-08-11T01:05:53.810490Z",
-  "cameraId": "ELEV-01",
+  "cameraId": "ELEV-TOP",
   "eventCategory": "misclassification",
   "detectedClass": "plastic",
   "isMisclassified": true,
@@ -658,7 +658,7 @@ wss://서버주소/ws/events
 ```json
 {
   "eventType": "MISCLASSIFICATION_DETECTED",
-  "cameraId": "ELEV-01",
+  "cameraId": "ELEV-TOP",
   "timestamp": "2026-08-11T05:25:28.109933+00:00",
   "isMisclassified": true
 }
@@ -901,7 +901,7 @@ overflow
 
 ```json
 {
-  "cameraId": "ELEV-01",
+  "cameraId": "ELEV-SIDE",
   "eventCategory": "overflow"
 }
 ```
@@ -911,7 +911,7 @@ WebSocket 메시지:
 ```json
 {
   "eventType": "BIN_OVERFLOW_DETECTED",
-  "cameraId": "ELEV-01",
+  "cameraId": "ELEV-SIDE",
   "timestamp": "2026-08-11T06:47:50.261977+00:00"
 }
 ```
@@ -993,7 +993,6 @@ camelCase를 유지한다.
 * 이미지와 영상의 GridFS 저장 여부
 * AI 탐지 신뢰도 Threshold
 * 정상 분류 이벤트도 저장할지 여부
-* CameraId별 `top`/`side` 영상 소스 매핑 방식
 
 ---
 

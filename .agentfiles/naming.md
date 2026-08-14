@@ -12,7 +12,7 @@
 
 - 클래스명(PascalCase), 프레임워크 강제 이름(`model_config` 등)
 - `README.md`/`.env`/`.gitignore` 등 관례적 파일명
-- Enum 멤버 식별자(`CameraId.ELEV_01`), 값은 `"ELEV-01"` 고정
+- Enum 멤버 식별자(`CameraId.ELEVTOP`), 값은 `"ELEV-TOP"` 고정
 - 환경변수 키(`.env`의 `MONGO_HOST` 등)는 SCREAMING_SNAKE_CASE 유지
 - Docker 이미지/컨테이너 이름은 케밥케이스(`sortmaster-backend`) — Docker 이미지 이름은 대문자 자체가 불가능(소문자+`.`/`_`/`-`만 허용)하고, Docker 생태계 관례와도 일치
 

@@ -8,7 +8,7 @@ v0.1(MVP/Mock). Base URL `http://localhost:8047`(배포 시 로컬 배포 서버
 
 | Enum | 값 |
 |---|---|
-| CameraId | (현재 코드 기준, 마이그레이션 전) ELEV-01 / ELEV-02 / REST-4F-01 — 확정된 목표는 `ELEV-TOP`/`ELEV-SIDE`(설치 위치 1곳뿐이라 번호 없음, `.agentfiles/architecture.md` 참고, 아직 코드 미반영) |
+| CameraId | ELEV-TOP / ELEV-SIDE / REST-4F-01 — 설치 위치 1곳뿐이라 번호 없음(`.agentfiles/architecture.md` 참고). ELEV-TOP=쓰레기 종류 분류+쓰레기통 감지+투척 감지 3기능 모델, ELEV-SIDE=쓰레기통 넘침 여부만 판정 |
 | EventCategory | misclassification(투기, 위 카메라 단독 — **MVP는 엣지 YOLO26 단독**으로 투척 통(`binId`)과 쓰레기 종류(`detectedClass`)를 감지+분류+비교까지 전부 처리, 불일치 시 엣지가 판정. LLM/GPU 호출 없음 — Qwen3-VL-8B는 고도화 단계 학습 보조용으로 후순위) / overflow(넘침, 옆 카메라 단독 — 물리 통 4개의 상태를 `BIN_STATES`로 지속 추적하다 `NORMAL`→`FULL` 전환 시점에만 생성) |
 | BinType | general / plasticCan / coffeeCup / paper — 물리 쓰레기통 4개 고정. `plasticCan` 통은 `DetectedClass`의 `plastic`/`can` 둘 다 받음(매핑 필요, `Docs/ERD.md` 참고) |
 | DetectedClass | general / paper / plastic / can(신규, 아직 코드 미반영) / coffeeCup — 총 5종, misclassification 이벤트에서만 사용. `mixed`/`uncertain`은 제외 확정(아직 코드엔 남아있음, `Docs/ERD.md` 참고) |
@@ -23,7 +23,7 @@ v0.1(MVP/Mock). Base URL `http://localhost:8047`(배포 시 로컬 배포 서버
 
 | ID | Method/Path | 설명 | Params | 상태코드 | 부수효과 |
 |---|---|---|---|---|---|
-| EP-01 | GET /api/stream/{cameraId} | MJPEG 스트림 | Path: cameraId(CameraId) | 200/503 | 카메라 1대=지점 1개=1cameraId(role 파라미터 없음, 구조 불변). 위+옆 카메라 지점 도입으로 `CameraId`가 `ELEV-TOP`/`ELEV-SIDE`로 확정(설치 위치가 12층 엘리베이터 앞 1곳뿐이라 번호 불필요, 아직 코드 미반영 — `.agentfiles/architecture.md` 참고). 카메라 미설정/연결 실패 시 503. 개발=`.env`의 `CAMERA_SOURCE_<ID>`(예: `CAMERA_SOURCE_ELEV01`, 현재 코드 기준) 웹캠, 배포=카메라별 독립 RTSP |
+| EP-01 | GET /api/stream/{cameraId} | MJPEG 스트림 | Path: cameraId(CameraId) | 200/503 | 카메라 1대=지점 1개=1cameraId(role 파라미터 없음, 구조 불변). `CameraId`는 `ELEV-TOP`/`ELEV-SIDE`(설치 위치가 12층 엘리베이터 앞 1곳뿐이라 번호 불필요 — `.agentfiles/architecture.md` 참고). 카메라 미설정/연결 실패 시 503. 개발=`.env`의 `CAMERA_SOURCE_<ID>`(예: `CAMERA_SOURCE_ELEVTOP`) 웹캠, 배포=카메라별 독립 RTSP |
 | EP-03 | GET /api/events | 이벤트 목록 | Query: from?, to?(ISO8601) | 200 | 없음. 페이지네이션 미구현(TBD) |
 | EP-04 | GET /api/events/{id} | 이벤트 상세 | Path: id | 200 | 없음. not found 시 404 vs null TBD |
 | EP-05 | GET /api/statistics | 클래스별 집계, 온디맨드(캐시없음) | Query: from?, to? | 200 | 없음. Chart.js는 WS로 낙관적 증가, 새로고침 시 재동기화 |
@@ -59,7 +59,7 @@ TemplateResponse만 반환, views.py/api.py 혼용 금지.
 
 | ID | Path | 템플릿 | 설명 |
 |---|---|---|---|
-| PG-01 | GET / | index.html | 카메라 지점 2개(위+옆, 목표 `ELEV-TOP`/`ELEV-SIDE`. 현재 코드는 ELEV-01/ELEV-02) 스트리밍(분할 그리드)+모니터링 현황. mode를 컨텍스트로 전달(새로고침 시 상태유지) |
+| PG-01 | GET / | index.html | 카메라 지점 2개(위+옆, `ELEV-TOP`/`ELEV-SIDE`) 스트리밍(분할 그리드)+모니터링 현황. mode를 컨텍스트로 전달(새로고침 시 상태유지) |
 | PG-02 | GET /events | history.html | EP-03 결과 표 렌더링(이전기록) |
 | PG-03 | GET /events/{id} | (미정) | EP-04 결과 렌더링 — 템플릿 아직 없음, 구현 전 |
 | PG-04 | GET /statistics | dashboard.html | EP-05 결과 Chart.js 렌더링 |

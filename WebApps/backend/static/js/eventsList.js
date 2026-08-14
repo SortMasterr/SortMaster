@@ -27,8 +27,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     };
 
     const cameraInfoById = {
-        "ELEV-01": "엘리베이터 1호기",
-        "ELEV-02": "엘리베이터 2호기",
+        "ELEV-TOP": "엘리베이터 위 카메라",
+        "ELEV-SIDE": "엘리베이터 옆 카메라",
         "REST-4F-01": "4층 휴게실",
     };
 

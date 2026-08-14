@@ -15,7 +15,7 @@ async def getIndexPage(request: Request):
             "currentMode": "MANAGE",
             # MVP는 지점 2곳(각각 독립 젯슨 나노+카메라 1대). 4층(REST-4F-01)은
             # 고도화 단계에 추가 예정이라 아직 기본 목록에서 제외.
-            "cameraIds": ["ELEV-01", "ELEV-02"],
+            "cameraIds": ["ELEV-TOP", "ELEV-SIDE"],
         },
     )
 

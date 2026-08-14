@@ -21,7 +21,7 @@ erDiagram
     EVENT |o--|| MEDIA_FILE : "참조(선택)"
 
     CAMERA {
-        string cameraId PK "현재 코드 ELEV-01/ELEV-02/REST-4F-01, 확정 목표 ELEV-TOP/ELEV-SIDE(설치 위치 12층 엘리베이터 앞 1곳뿐, 아직 코드 미반영). ELEV-TOP=투기 판정 담당, ELEV-SIDE=넘침 감지 담당"
+        string cameraId PK "ELEV-TOP/ELEV-SIDE/REST-4F-01(설치 위치는 12층 엘리베이터 앞 1곳뿐). ELEV-TOP=투기 판정 담당, ELEV-SIDE=넘침 감지 담당"
         string status "ONLINE/OFFLINE, 런타임 상태(영속화 여부 TBD). 현재 프론트(index.js/sidebar.js) 어디서도 실제 참조 안 함 — aspirational 필드"
     }
 
@@ -92,7 +92,7 @@ erDiagram
   시작~종료 신호 사이 실제 구간을 캡처(신호 유실 대비 최대 30초 안전 캡) — `misclassification`은
   투척 완료 후 약 3초 텀을 두고 종료 신호가 옴(`architecture.md`). 탐지 서비스가 아직 없어
   실제 트리거 전이라 `imageFileId`는 대부분 `null`.
-- **CAMERA**: 별도 컬렉션 없음. `CameraId` Enum + 설정값으로만 존재하는 개념적 엔티티. 현재 코드는 3개 고정(`ELEV-01`, `ELEV-02`, `REST-4F-01`) — 확정된 목표는 `ELEV-TOP`/`ELEV-SIDE`(설치 위치 1곳, 아직 코드 미반영, `.agentfiles/architecture.md` 참고).
+- **CAMERA**: 별도 컬렉션 없음. `CameraId` Enum + 설정값으로만 존재하는 개념적 엔티티. 현재 코드는 3개 고정(`ELEV-TOP`, `ELEV-SIDE`, `REST-4F-01`) — `.agentfiles/architecture.md` 참고.
 - **통계(`GET /api/statistics`)**: 저장 없이 매 요청마다 `EVENT`에서 온디맨드 집계 — 별도 엔티티 아님. `overflow`는 `detectedClass`별 집계에 안 섞고(애초에 `detectedClass`가 없음), `overflowCount` 같은 별도 필드로 분리 집계(확정 — 성격이 다른 카테고리를 같은 막대그래프에 억지로 합치면 오히려 헷갈림).
 - **SystemState.mode**(`MANAGE`/`COLLECT`): 전역 상태로만 언급되고 영속화 계층(DB/파일) 명시 없어 ERD에서 제외.
 - 탐지 모델(YOLO26=엣지 추론, Qwen3-VL-8B=고도화 단계 GPU 서버 학습 보조) 자체는 DB에 영속화되는 대상이 아니라 ERD 범위 밖.

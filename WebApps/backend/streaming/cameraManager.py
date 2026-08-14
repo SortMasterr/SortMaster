@@ -98,15 +98,15 @@ def _resolveCameraSource(envKey: str, default: str | None = None):
 
 
 def _envKeyForCameraId(cameraId: str) -> str:
-    # "ELEV-01" -> "CAMERA_SOURCE_ELEV01", "REST-4F-01" -> "CAMERA_SOURCE_REST4F01"
+    # "ELEV-TOP" -> "CAMERA_SOURCE_ELEVTOP", "REST-4F-01" -> "CAMERA_SOURCE_REST4F01"
     return "CAMERA_SOURCE_" + cameraId.replace("-", "").upper()
 
 
 # 지점(CameraId)당 카메라 1대, 지점마다 독립된 젯슨 나노 1개(architecture.md 참고).
 # CAMERA_SOURCE_<ID>가 .env에 없으면 해당 지점은 미설정 상태로 남고,
 # 스트림 요청 시 503으로 처리됨(일부 지점만 연결된 개발 환경 대응).
-# ELEV-01만 기본값 "0"으로 둬서, 로컬 웹캠 1대짜리 개발 환경에서 바로 동작하게 함.
-_defaultSources = {CameraId.ELEV01.value: "0"}
+# ELEV-TOP만 기본값 "0"으로 둬서, 로컬 웹캠 1대짜리 개발 환경에서 바로 동작하게 함.
+_defaultSources = {CameraId.ELEVTOP.value: "0"}
 
 cameraManagers = {
     cameraId.value: CameraManager(

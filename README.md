@@ -49,8 +49,8 @@ python ..\..\infra\checkEnv.py
 :: 패키지 자동 설치 + Python/Docker/MongoDB 체크. 전부 OK가 아니면 여기서 먼저 해결
 
 :: .env는 Notion에 공유된 팀 값을 그대로 받아 프로젝트 루트(WebApps/backend 상위)에 저장
-:: 필요 시 .env 값 수정 (CAMERA_SOURCE_ELEV01, CAMERA_SOURCE_ELEV02, MONGO_HOST 등)
-:: CAMERA_SOURCE_<CameraId> — 카메라 1대당 지점 1개. ELEV-01만 기본값 0(로컬 웹캠 1대로 바로 됨), 나머지는 미설정 시 해당 지점만 503
+:: 필요 시 .env 값 수정 (CAMERA_SOURCE_ELEVTOP, CAMERA_SOURCE_ELEVSIDE, MONGO_HOST 등)
+:: CAMERA_SOURCE_<CameraId> — 카메라 1대당 지점 1개. ELEV-TOP만 기본값 0(로컬 웹캠 1대로 바로 됨), 나머지는 미설정 시 해당 지점만 503
 
 uvicorn main:app --reload --port 8047
 ```
@@ -86,15 +86,16 @@ docker compose up --build
 
 ## 현재 상태 (Mock 단계)
 
-- **영상 소스**: 구현됨(단, 카메라 1대=1지점 시절 구현 — 아래 참고). `streaming/cameraManager.py` — 카메라 1대당 독립 젯슨 나노 1대
-  구성으로, `.env`의 `CAMERA_SOURCE_<CameraId>`(예: `CAMERA_SOURCE_ELEV01`,
-  `CAMERA_SOURCE_ELEV02`)마다 별도 `CameraManager`를 관리하고 `GET /api/stream/{cameraId}`로
-  MJPEG 송출(role 파라미터 없음). `ELEV-01`만 기본값 `0`이라 웹캠 1대짜리 로컬 개발
+- **영상 소스**: 구현됨. `streaming/cameraManager.py` — 카메라 1대당 독립 젯슨 나노 1대
+  구성으로, `.env`의 `CAMERA_SOURCE_<CameraId>`(예: `CAMERA_SOURCE_ELEVTOP`,
+  `CAMERA_SOURCE_ELEVSIDE`)마다 별도 `CameraManager`를 관리하고 `GET /api/stream/{cameraId}`로
+  MJPEG 송출(role 파라미터 없음). `ELEV-TOP`만 기본값 `0`이라 웹캠 1대짜리 로컬 개발
   환경에서 바로 동작. 나머지 지점은 미설정 시 해당 `cameraId`만 503(다른 지점엔 영향 없음).
   메인보드 입고 후엔 `CAMERA_SOURCE_<CameraId>`를 RTSP URL로 교체(코드 불변).
   젯슨 나노 입고 전 RTSP 경로를 미리 테스트하려면 `debug/streaming/startRtspSim.py`
   참고(이 PC 웹캠 여러 대를 지점별로 할당해 RTSP 송신 흉내, 백엔드와 무관한 로컬 테스트 전용 도구).
-  **⚠️ 위+옆 카메라 지점 도입으로 `CameraId`가 `ELEV-TOP`/`ELEV-SIDE`로 확정됨(구조 변경은 아님, 아직 코드 미반영). 참고로 "엘리베이터 2대" 설치 계획은 착오였고 실제로는 12층 엘리베이터 앞 쓰레기통 1개뿐이라 지점 번호가 필요 없음 — `.agentfiles/architecture.md` 참고**
+  `CameraId`는 `ELEV-TOP`/`ELEV-SIDE`로 확정 및 코드 반영 완료 — 설치 위치는 12층
+  엘리베이터 앞 쓰레기통 1개뿐이라 지점 번호가 필요 없음 — `.agentfiles/architecture.md` 참고
 - **탐지**: 아직 미착수. **MVP는 YOLO26 단독**(상시감시+투척판단+쓰레기 종류 분류까지
   전부 엣지에서)으로 확정됐지만 코드에 통합 전(상세는 `.agentfiles/architecture.md`,
   `.agentfiles/apiSpec.md` 참고). Qwen3-VL-8B(LLM)는 MVP 실시간 경로엔 안 쓰고 고도화

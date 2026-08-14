@@ -35,7 +35,7 @@ events = db["events"]  # 컬렉션 이름 (없으면 자동 생성, 실제 백�
 doc = {
     "eventId": "test-0001",
     "timestamp": datetime.now(timezone.utc).isoformat(),
-    "cameraId": "ELEV-01",
+    "cameraId": "ELEV-TOP",
     "detectedClass": "plastic",
     "isMisclassified": True,
     "confidenceScore": 0.87,

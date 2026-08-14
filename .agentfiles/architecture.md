@@ -102,19 +102,14 @@ Qwen3-VL-8B는 MVP 실시간 추론 경로에 없음 — **학습/데이터 준�
 - GPU 패스스루: nvidia-docker 필요
 - **GPU 서버는 다인 공유 환경**(팀 5명뿐 아니라 다른 수강생들도 같은 호스트 공유) — 계정 격리,
   rootless Docker, GPU 카드 지정, 포트포워딩(SSH 터널) 등 실무 절차는 `gpuServerOps.md` 참고
-- 영상 소스는 `.env`의 `CAMERA_SOURCE_<CameraId>`(예: `CAMERA_SOURCE_ELEV01`)만 환경별로 교체, 코드 불변
+- 영상 소스는 `.env`의 `CAMERA_SOURCE_<CameraId>`(예: `CAMERA_SOURCE_ELEVTOP`)만 환경별로 교체, 코드 불변
 
-## 웹캠 시뮬레이션 (메인보드 입고 전) — 구현됨(신규 `CameraId` 반영 전)
-
-> ⚠️ "카메라 1대=지점 1개=1`CameraId`" 구조 자체는 안 바뀜(위 "설치 환경" 참고) — 실제
-> 코드는 아직 옛 가정("엘리베이터 2대", `ELEV-01`/`ELEV-02`) 기준 `CameraId`를 씀. 확정된
-> `ELEV-TOP`/`ELEV-SIDE`로 `schemas/event.py`의 `CameraId` Enum과 `.env` 키 교체 필요
-> (아직 코드 미반영).
+## 웹캠 시뮬레이션 (메인보드 입고 전) — 구현됨
 
 - `streaming/cameraManager.py`: `CameraId`(`schemas/event.py`)마다 별도 `CameraManager` 인스턴스로 관리
-  (`GET /api/stream/{cameraId}`, role 파라미터 없음 — 카메라 1대=지점 1개=1`CameraId`). 현재 코드의 `.env`
-  키는 옛 가정 기준 `CAMERA_SOURCE_ELEV01`/`CAMERA_SOURCE_ELEV02`/`CAMERA_SOURCE_REST4F01`(하이픈 제거+대문자).
-  `ELEV-01`만 기본값 `0`이라 로컬 웹캠 1대짜리 개발 환경에서 바로 동작. 나머지는 미설정 시
+  (`GET /api/stream/{cameraId}`, role 파라미터 없음 — 카메라 1대=지점 1개=1`CameraId`). `.env`
+  키는 `CAMERA_SOURCE_ELEVTOP`/`CAMERA_SOURCE_ELEVSIDE`/`CAMERA_SOURCE_REST4F01`(하이픈 제거+대문자).
+  `ELEV-TOP`만 기본값 `0`이라 로컬 웹캠 1대짜리 개발 환경에서 바로 동작. 나머지는 미설정 시
   해당 `cameraId` 요청만 503(다른 지점엔 영향 없음)
 - 입고 후 CameraId별 독립 RTSP로 교체(소스 문자열만 RTSP URL로 교체, 로직 불변)
 - `cv2.VideoCapture().read()` 동기 블로킹 → `asyncio.to_thread()`로 감쌈(적용 완료)

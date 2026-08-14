@@ -19,15 +19,15 @@ python startRtspSim.py
 1. **FFmpeg** — 없으면 `winget install --id Gyan.FFmpeg -e`로 자동 설치
 2. **MediaMTX** — 없으면 GitHub 최신 릴리스를 자동 다운로드(`%LOCALAPPDATA%\mediamtx\`)
 3. **카메라 장치** — `ffmpeg -f dshow -list_devices`로 자동 감지해서 목록 출력. 감지된
-   카메라마다 어느 지점(`ELEV-01`/`ELEV-02`/`REST-4F-01`)인지 번호로 선택(카메라가 1대뿐이면
+   카메라마다 어느 지점(`ELEV-TOP`/`ELEV-SIDE`/`REST-4F-01`)인지 번호로 선택(카메라가 1대뿐이면
    1개만 할당해도 됨, Enter만 누르면 할당 종료)
 4. MediaMTX + 할당한 카메라 수만큼 FFmpeg 송신 자동 실행
 
 완료되면 `.env`에 추가할 줄을 화면에 출력해준다(할당한 지점 수만큼):
 
 ```
-CAMERA_SOURCE_ELEV01=rtsp://localhost:8554/ELEV-01
-CAMERA_SOURCE_ELEV02=rtsp://localhost:8554/ELEV-02
+CAMERA_SOURCE_ELEVTOP=rtsp://localhost:8554/ELEV-TOP
+CAMERA_SOURCE_ELEVSIDE=rtsp://localhost:8554/ELEV-SIDE
 ```
 
 종료는 스크립트를 실행한 창에서 `Ctrl+C`(MediaMTX/FFmpeg 프로세스까지 같이 종료됨).

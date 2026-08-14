@@ -5,8 +5,8 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class CameraId(str, Enum):
-    ELEV01 = "ELEV-01"
-    ELEV02 = "ELEV-02"
+    ELEVTOP = "ELEV-TOP"
+    ELEVSIDE = "ELEV-SIDE"
     REST4F01 = "REST-4F-01"
 
 

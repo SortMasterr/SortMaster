@@ -1,7 +1,7 @@
 """
 젯슨 나노 도착 전, 이 PC의 웹캠들로 RTSP 송신을 흉내내는 로컬 테스트 도구.
 지점(CameraId)당 독립 젯슨 나노 1대+카메라 1대 구성(architecture.md 참고) —
-카메라 여러 대를 각각 다른 지점(ELEV-01, ELEV-02 등)에 할당해서 동시에 RTSP로 송신.
+카메라 여러 대를 각각 다른 지점(ELEV-TOP, ELEV-SIDE 등)에 할당해서 동시에 RTSP로 송신.
 infra/checkEnv.py처럼 필요한 것(FFmpeg/MediaMTX)을 자동으로 확인+설치하고,
 카메라 장치도 자동으로 찾아서 MediaMTX + FFmpeg 송신을 바로 띄운다.
 
@@ -154,7 +154,7 @@ def listDshowCameras(ffmpegPath: str) -> list[tuple[str, str]]:
 
 
 # schemas/event.py의 CameraId 값과 동일하게 유지 — 지점당 독립 젯슨 나노+카메라 1대.
-cameraIdChoices = ["ELEV-01", "ELEV-02", "REST-4F-01"]
+cameraIdChoices = ["ELEV-TOP", "ELEV-SIDE", "REST-4F-01"]
 
 
 def chooseCameraAssignments(

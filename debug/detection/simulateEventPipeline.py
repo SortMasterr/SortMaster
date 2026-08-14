@@ -13,7 +13,7 @@
 실행(반드시 프로젝트 루트에서, backend venv 활성화 후):
     python debug/detection/simulateEventPipeline.py
 
-MongoDB(.env의 MONGO_HOST/DB_PORT 등)와 카메라(.env의 CAMERA_SOURCE_ELEV01, 미설정 시
+MongoDB(.env의 MONGO_HOST/DB_PORT 등)와 카메라(.env의 CAMERA_SOURCE_ELEVTOP, 미설정 시
 기본값 0=로컬 웹캠)가 준비되어 있어야 함.
 """
 import asyncio
@@ -54,7 +54,7 @@ async def main() -> None:
         recordingService,
     )
 
-    cameraId = CameraId.ELEV01
+    cameraId = CameraId.ELEVTOP
 
     print(
         f"[시뮬레이션] '{cameraId.value}' 이벤트 시작 신호 → 녹화 시작"

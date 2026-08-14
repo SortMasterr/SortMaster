@@ -75,7 +75,7 @@ ssh -p 2222 -R 27020:localhost:27020 -R 8554:localhost:8554 soma@116.42.115.24
 ```
 `-R`로 받은 스트림은 컨테이너 안에서 호스트의 `localhost`에 직접 못 닿으므로, `backend` 서비스에
 `extra_hosts: ["host.docker.internal:host-gateway"]`(적용됨)를 쓰고 `.env`에
-`CAMERA_SOURCE_ELEV01=rtsp://host.docker.internal:8554/ELEV-01`처럼 지정. 사설 IP(`192.168.0.x`)
+`CAMERA_SOURCE_ELEVTOP=rtsp://host.docker.internal:8554/ELEV-TOP`처럼 지정. 사설 IP(`192.168.0.x`)
 카메라 소스는 GPU 서버가 그 네트워크에 속하지 않아 직접 라우팅이 안 되므로 반드시 이 방식 필요.
 
 ## 팀 공유 MongoDB 계정 (GPU 서버로 이전 시) — 현재 보류
