@@ -30,6 +30,50 @@ services:
     # "DB 접속" 절 참고 — 계정 없이 먼저 --auth부터 켜면 아무도 로그인 못 하니 순서 반드시 지킬 것):
     command: ["mongod", "--auth"]
 
+  # Qwen3-VL-8B 서빙(vLLM, OpenAI 호환 API) — MVP는 안 씀(YOLO26 단독으로 감지+분류+판정
+  # 완결, architecture.md의 "탐지 파이프라인" 참고). 고도화 단계에서 학습 보조용(불확실한
+  # 분류 안정화/환경별 통 모양 인식 데이터 생성)으로만 쓸 예정이라, training처럼 필요할 때만
+  # 기동하도록 profile로 뺌:
+  #   docker compose --profile llm up llm
+  llm:
+    image: vllm/vllm-openai:v0.27.1-cu129-ubuntu2404
+    container_name: sortmaster-llm
+    profiles: ["llm"]
+    restart: unless-stopped
+    ports:
+      - "${LLM_PORT:-8100}:8000"
+    env_file:
+      - .env
+    environment:
+      # training과 동일한 이유(베이스 이미지가 NVIDIA_VISIBLE_DEVICES=all을 박아둠) —
+      # 명시적으로 덮어써야 실제로 카드 격리됨.
+      - NVIDIA_VISIBLE_DEVICES=${GPU_DEVICE_ID:-0}
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+    volumes:
+      # 모델 가중치(수 GB~수십 GB) 재다운로드 방지용 캐시
+      - llm-model-cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              # training과 같은 카드 공유(architecture.md: "학습 작업과 실시간 서비스가
+              # 같은 카드를 쓰므로 트래픽 적은 시간대 학습 권장"). .env의 GPU_DEVICE_ID로
+              # 팀 배정 카드 지정.
+              device_ids: ["${GPU_DEVICE_ID:-0}"]
+              capabilities: [gpu]
+    command:
+      - --model
+      # FP8 사전양자화 버전 기본값 — L40S(Ada Lovelace)가 FP8 네이티브 지원이라 VRAM을
+      # 아낄 수 있음(architecture.md의 "4/8bit 양자화" 목표와 부합). 파인튜닝 어댑터
+      # 나오면 .env의 LLM_MODEL_NAME으로 교체
+      - ${LLM_MODEL_NAME:-Qwen/Qwen3-VL-8B-Instruct-FP8}
+      # training과 VRAM을 나눠 써야 해서 vLLM 기본값(0.9)보다 낮게 잡음 — 실측 후 조정 필요
+      - --gpu-memory-utilization
+      - "0.5"
+      - --max-model-len
+      - "8192"
+
   # 라벨링/학습(YOLO26 재학습 + Qwen3-VL-8B LoRA·QLoRA) 때만 기동:
   #   docker compose --profile training up training
   # best.pt 등 산출물 나오면 내리기:
@@ -66,3 +110,4 @@ services:
 
 volumes:
   mongo-data:
+  llm-model-cache:

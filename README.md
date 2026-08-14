@@ -66,7 +66,7 @@ docker compose up --build
 ```
 
 - `backend`(포트 8047) + `mongo`(호스트 포트 27020) 상시 기동. 로컬 웹캠을 백엔드가 직접 여는 코드는 아직 없어서 지금은 컨테이너에 카메라 디바이스 패스스루 불필요
-- 여기서 뜨는 `mongo`는 로컬 전용 별도 인스턴스 — 팀 공유 서버(`192.168.0.30`)와는 다른 DB. 팀 공유 서버를 쓰려면 `.env`의 `MONGO_HOST`를 그쪽으로 두고 compose의 `mongo` 서비스는 안 띄워도 됨(`docker compose up backend`)
+- 여기서 뜨는 `mongo`는 로컬 전용 별도 인스턴스 — 팀 배포 서버(`192.168.0.40`)와는 다른 DB. 팀 배포 서버를 쓰려면 `.env`의 `MONGO_HOST`를 그쪽으로 두고 compose의 `mongo` 서비스는 안 띄워도 됨(`docker compose up backend`)
 - 라벨링/학습(YOLO26 재학습 + Qwen3-VL-8B LoRA·QLoRA)은 평소엔 내려두고 필요할 때만:
   ```bash
   docker compose --profile training up --build training
@@ -95,13 +95,14 @@ docker compose up --build
   젯슨 나노 입고 전 RTSP 경로를 미리 테스트하려면 `debug/streaming/startRtspSim.py`
   참고(이 PC 웹캠 여러 대를 지점별로 할당해 RTSP 송신 흉내, 백엔드와 무관한 로컬 테스트 전용 도구).
   **⚠️ 위+옆 카메라 지점 도입으로 `CameraId`가 `ELEV-TOP`/`ELEV-SIDE`로 확정됨(구조 변경은 아님, 아직 코드 미반영). 참고로 "엘리베이터 2대" 설치 계획은 착오였고 실제로는 12층 엘리베이터 앞 쓰레기통 1개뿐이라 지점 번호가 필요 없음 — `.agentfiles/architecture.md` 참고**
-- **탐지**: 아직 미착수. 탐지 모델은 YOLO26(상시감시+투척판단)+Qwen3-VL-8B
-  (정밀분류, LoRA/QLoRA 파인튜닝)으로 확정됐지만 코드에 통합 전(상세는
-  `.agentfiles/architecture.md`, `.agentfiles/apiSpec.md` 참고). 트리거 조건은 손 감지
-  조합이 아니라 **쓰레기 감지 자체**로 변경됨 — 옆 카메라 단독으로 넘침 감지 시 위치 특정
-  없이 바로 `overflow` 판정, 위 카메라는 엣지(젯슨) YOLO26 추적+중앙(GPU) Qwen3-VL-8B
-  비동기 분류 결과를 엣지에서 종합해 `misclassification` 판정(엣지-중앙 하이브리드로 확정,
-  상세는 `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고). 이벤트는
+- **탐지**: 아직 미착수. **MVP는 YOLO26 단독**(상시감시+투척판단+쓰레기 종류 분류까지
+  전부 엣지에서)으로 확정됐지만 코드에 통합 전(상세는 `.agentfiles/architecture.md`,
+  `.agentfiles/apiSpec.md` 참고). Qwen3-VL-8B(LLM)는 MVP 실시간 경로엔 안 쓰고 고도화
+  단계 학습 보조용(불확실한 분류 안정화/환경별 통 모양 인식 데이터 생성)으로 후순위.
+  트리거 조건은 손 감지 조합이 아니라 **쓰레기 감지 자체**로 변경됨 — 옆 카메라 단독으로
+  넘침 감지 시 위치 특정 없이 바로 `overflow` 판정, 위 카메라는 엣지(젯슨) YOLO26이 감지+
+  추적+분류를 전부 끝내고 `misclassification` 판정까지 완결(GPU/LLM 호출 없음, 상세는
+  `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고). 이벤트는
   `misclassification`(투기)/`overflow`(넘침) 두 카테고리로 나뉨(스키마에 반영 완료,
   `schemas/event.py`의 `EventCategory`). 실제 트리거는 아직 없어서
   `debug/detection/simulateEventPipeline.py`로 시작/종료 신호를 흉내내 파이프라인만
@@ -125,14 +126,19 @@ docker compose up --build
 
 ### 배포 전략
 
+> **MVP 배포 위치 재조정(확정)** — 과거 "백엔드+DB+LLM 추론+학습을 GPU 서버에 전부 통합
+> 배포" 결정을 뒤집음. **백엔드+DB는 로컬(`192.168.0.40`, 마지막 옥텟 유동적)**에서 구동하고,
+> **GPU 서버는 YOLO26 학습만** MVP 범위(GPU 서버는 타 팀과 공유하는 자원이라 부담 경감
+> 목적). **MVP는 LLM(Qwen3-VL-8B)을 아예 안 씀** — YOLO26이 쓰레기 종류 분류까지 전담하게
+> 되면서 LLM은 고도화 단계 학습 보조용으로 후순위. 상세는 `.agentfiles/architecture.md` 참고.
+
 - **개발**: Windows 노트북에서 Docker로 진행(로컬 웹캠 테스트)
-- **배포**: 동일 Docker 이미지를 그대로 학원 GPU 서버(Linux, **NVIDIA L40S 4장 중
-  할당받은 1장**)로 이전
-- 다른 팀들과 서버를 공유하기 때문에 4장 중 **1장만 할당**받아 사용. MVP 단계는
-  백엔드(FastAPI)+모델 학습+DB 저장+**Qwen3-VL-8B 분류 추론**을 **할당받은 GPU 1장 안에
-  전부 통합 배포**(별도 상시 서버 불필요). **YOLO26 상시 추론은 GPU가 아니라 엣지(젯슨
-  Orin Nano Super)가 담당**(엣지-중앙 하이브리드로 확정, `.agentfiles/architecture.md`
-  참고). GPU 패스스루는 `nvidia-docker`(NVIDIA Container Toolkit) 필요.
+- **배포**: `backend`+`mongo`는 로컬 `192.168.0.40`에서 `docker compose up backend mongo`로
+  구동. `training`(학습)만 학원 GPU 서버(Linux, **NVIDIA L40S 4장 중 할당받은 1장**)로
+  이전해서 `docker compose --profile training up`로 구동(`llm`은 고도화 단계 전까지 안 씀)
+- 다른 팀들과 서버를 공유하기 때문에 4장 중 **1장만 할당**받아 사용. **YOLO26 상시 추론은
+  GPU가 아니라 엣지(젯슨 Orin Nano Super)가 담당**(MVP는 GPU/LLM 호출 자체가 없음,
+  `.agentfiles/architecture.md` 참고). GPU 패스스루는 `nvidia-docker`(NVIDIA Container Toolkit) 필요.
 - 로컬(웹캠)과 GPU 서버 배포(RTSP 수신/샘플 영상) 간 영상 소스는 `.env`의
   `CAMERA_SOURCE` 값만 다르게 관리(코드 변경 없음).
 
@@ -151,8 +157,9 @@ docker compose up --build
 1. ~~`streaming/cameraManager.py`~~ **완료** — 카메라 1대당 독립 지점(`CameraId`), `/api/stream/{cameraId}`
    MJPEG 송출 구현됨. 메인보드 입고 후엔 `CAMERA_SOURCE_<CameraId>`를
    RTSP URL로 교체만 하면 됨(코드 변경 불필요). 저장/DB 연동은 아래 항목들이 선행돼야 함
-2. `services/detectionService.py` — 아직 미작성. YOLO26(상시감시+투척판단)+
-   Qwen3-VL-8B(정밀분류) 파이프라인으로 구현 예정. 완성되면 이벤트 시작/종료 시점마다
+2. `services/detectionService.py` — 아직 미작성. **MVP는 YOLO26 단독**(상시감시+투척판단+
+   쓰레기 종류 분류까지) 파이프라인으로 구현 예정(Qwen3-VL-8B는 고도화 단계 전용, 코드에
+   안 들어감). 완성되면 이벤트 시작/종료 시점마다
    아래 3~5번 파이프라인(`recordingService.start`/`stop` → `mediaService.saveClipAsGif`
    → `eventService.createEvent`)을 그대로 호출하면 됨(순서는
    `debug/detection/simulateEventPipeline.py` 참고)
@@ -169,10 +176,9 @@ docker compose up --build
 
 ## TBD (팀 논의 필요)
 
-- 복합재질(`mixed`)/애매 쓰레기(`uncertain`) 클래스 세부 정의
-- 오탐 confidence threshold (현재 `.env`에 임시값 0.7)
+- 오탐 confidence threshold (현재 `.env`에 임시값 0.7) — `mixed`/`uncertain` 클래스는 제외로
+  확정됐지만(`.agentfiles/architecture.md` 참고), 신뢰도 임계값 자체는 별개로 여전히 TBD
 - MongoDB 버전, Docker/Compose 버전 (개발 환경 표 참고)
 - 통계 대시보드 세부 지표
 - 안면인식(투기자 식별) 포함 여부 — 기본 제외
 - 젯슨 나노 ↔ 중앙 서버 알림 신호 전달 방식(MQTT/HTTP/WebSocket)
-- 학습용 원본 이미지 저장 방식 (MongoDB GridFS 재사용 vs GPU 서버 로컬 디스크 파일 축적)

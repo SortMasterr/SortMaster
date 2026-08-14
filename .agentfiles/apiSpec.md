@@ -1,6 +1,6 @@
 # apiSpec.md
 
-v0.1(MVP/Mock). Base URL `http://localhost:8047`(배포 시 GPU 서버 주소). JSON camelCase. 인증 없음(내부망).
+v0.1(MVP/Mock). Base URL `http://localhost:8047`(배포 시 로컬 배포 서버 `192.168.0.40:8047` — 백엔드는 GPU 서버가 아니라 로컬에서 구동, `architecture.md` 참고). JSON camelCase. 인증 없음(내부망).
 
 새 엔드포인트 추가 시 이 문서 형식(EP-번호, 표) 그대로 유지.
 
@@ -9,8 +9,9 @@ v0.1(MVP/Mock). Base URL `http://localhost:8047`(배포 시 GPU 서버 주소). 
 | Enum | 값 |
 |---|---|
 | CameraId | (현재 코드 기준, 마이그레이션 전) ELEV-01 / ELEV-02 / REST-4F-01 — 확정된 목표는 `ELEV-TOP`/`ELEV-SIDE`(설치 위치 1곳뿐이라 번호 없음, `.agentfiles/architecture.md` 참고, 아직 코드 미반영) |
-| EventCategory | misclassification(투기, 위 카메라 단독 — 엣지 YOLO26이 추적한 투척 위치(`thrownBinId`)와 중앙 Qwen3-VL-8B 비동기 분류 결과(`detectedClass`)가 불일치할 때 엣지가 판정) / overflow(넘침, 옆 카메라 단독 — 위치 특정 없이 감지 즉시 알림+녹화만) |
-| DetectedClass | general / paper / plastic / coffeeCup / mixed / uncertain — misclassification 이벤트에서만 사용 |
+| EventCategory | misclassification(투기, 위 카메라 단독 — **MVP는 엣지 YOLO26 단독**으로 투척 통(`binId`)과 쓰레기 종류(`detectedClass`)를 감지+분류+비교까지 전부 처리, 불일치 시 엣지가 판정. LLM/GPU 호출 없음 — Qwen3-VL-8B는 고도화 단계 학습 보조용으로 후순위) / overflow(넘침, 옆 카메라 단독 — 물리 통 4개의 상태를 `BIN_STATES`로 지속 추적하다 `NORMAL`→`FULL` 전환 시점에만 생성) |
+| BinType | general / plasticCan / coffeeCup / paper — 물리 쓰레기통 4개 고정. `plasticCan` 통은 `DetectedClass`의 `plastic`/`can` 둘 다 받음(매핑 필요, `Docs/ERD.md` 참고) |
+| DetectedClass | general / paper / plastic / can(신규, 아직 코드 미반영) / coffeeCup — 총 5종, misclassification 이벤트에서만 사용. `mixed`/`uncertain`은 제외 확정(아직 코드엔 남아있음, `Docs/ERD.md` 참고) |
 | ActionTaken | lightAndSound / soundOnly / lightOnly / notificationOnly / none |
 | Mode | MANAGE(기본값) / COLLECT |
 | CameraStatus | ONLINE / OFFLINE |
@@ -30,13 +31,13 @@ v0.1(MVP/Mock). Base URL `http://localhost:8047`(배포 시 GPU 서버 주소). 
 
 ### EP-02. POST /api/events — 이벤트 생성
 
-Request(EventCreate): cameraId(CameraId), eventCategory(EventCategory), detectedClass(DetectedClass, misclassification일 때만 필수), thrownBinId(str|null, misclassification일 때만 — 엣지 YOLO26이 추적한 실제 투척 위치(통), **신규 필드, 아직 스키마 미반영**), isMisclassified(bool, misclassification일 때만 — 엣지가 thrownBinId·detectedClass 비교해서 판정한 결과를 그대로 전달), confidenceScore(float 0~1, misclassification일 때만), imageFileId(str|null, 선택 — 녹화 파이프라인이 GridFS 업로드 후 채워서 전달, 생략 시 null) — overflow는 cameraId+eventCategory(+imageFileId)만
+Request(EventCreate): cameraId(CameraId), eventCategory(EventCategory), detectionId(str, **신규 필드, 아직 스키마 미반영** — 탐지 파이프라인이 부여하는 중복 저장 방지 키, DB 유니크), trackingId(int|null, misclassification만 — YOLO26 추적 ID, 신규), detectedClass(DetectedClass, misclassification일 때만 필수), binId(str|null, misclassification·overflow 공통 — 물리 통 4개 중 하나. 과거 `thrownBinId`에서 개명, 신규), isMisclassified(bool, misclassification일 때만 — 엣지가 binType·detectedClass 비교해서 판정한 결과를 그대로 전달), confidenceScore(float 0~1, misclassification일 때만), overflowDuration/overflowThreshold(float|null, overflow만, 신규), modelVersion(str, 신규), imageFileId(str|null, 선택 — 녹화 파이프라인이 GridFS 업로드 후 채워서 전달, 생략 시 null)
 
-Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory, detectedClass(null 가능), thrownBinId(null 가능, 신규), isMisclassified(null 가능), confidenceScore(null 가능), actionTaken(ActionTaken), imageFileId(str|null, GridFS 파일 ID, 녹화 파이프라인 연동 전엔 null), notes(str|null)
+Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory, detectionId, trackingId(null 가능), detectedClass(null 가능), binId(null 가능), isMisclassified(null 가능), confidenceScore(null 가능), overflowDuration/overflowThreshold(null 가능), actionTaken(ActionTaken), imageFileId(str|null, GridFS 파일 ID, 녹화 파이프라인 연동 전엔 null), modelVersion, notes(str|null)
 - misclassification: isMisclassified=false 또는 5초 Cooldown 중이면 null 반환
-- overflow: 감지 즉시 이벤트 생성(분류 단계 없음), 영상 녹화만 수행
+- overflow: `BIN_STATES.currentState`가 `NORMAL`→`FULL`로 전환되는 순간에만 생성(시간 기반 Cooldown 아님, `Docs/ERD.md` 참고), 분류 단계 없이 영상 녹화만 수행
 
-부수효과: mode=MANAGE → RPA트리거+WS 브로드캐스트(카테고리별 eventType) / mode=COLLECT → 통계만 갱신. 동일 cameraId+detectedClass(또는 overflow는 cameraId) 5초 내 재호출 무시(Cooldown)
+부수효과: mode=MANAGE → RPA트리거+WS 브로드캐스트(카테고리별 eventType) / mode=COLLECT → 통계만 갱신. misclassification은 동일 cameraId+detectedClass 5초 내 재호출 무시(Cooldown), overflow는 `detectionId` 유니크 제약으로 중복만 방지(시간 Cooldown 없음)
 
 ### EP-07. WS /ws/events — 실시간 스트림
 
@@ -71,6 +72,6 @@ sidebar.html은 라우트 아님 — 각 페이지에 공통 포함되는 사이
 - EP-07 detectedClass 필드 추가 여부
 - EP-03/EP-05 페이지네이션(limit/offset) 여부
 - 인증/권한 (P3, 현재 없음)
-- overflow 이벤트의 Cooldown 기준(현재는 misclassification과 동일 5초로 가정, 재검토 필요)
 - PG-03 템플릿(이벤트 상세 페이지) 미구현
+- `BIN_STATES` 조회용 엔드포인트 필요 여부(현재 통별 실시간 상태를 노출하는 API 없음, `Docs/ERD.md` 참고)
 - 통계(EP-05)에 overflow 건수도 포함할지, misclassification과 분리 집계할지

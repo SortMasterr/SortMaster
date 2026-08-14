@@ -3,7 +3,8 @@
 > **버전**: v0.1 MVP / MongoDB(motor) 연동
 > **기준일**: 2026-08-12
 > **Base URL**: `http://localhost:8047`
-> **배포 환경**: GPU 서버(L40S) 주소로 대체 예정
+> **배포 환경**: 로컬 배포 서버 `192.168.0.40:8047`로 대체 예정(백엔드는 GPU 서버가 아니라
+> 로컬에서 구동 — `.agentfiles/architecture.md` 참고)
 > **Swagger UI**: `http://localhost:8047/docs`
 > **OpenAPI JSON**: `http://localhost:8047/openapi.json`
 >
@@ -50,29 +51,34 @@
 
 > 아래 파이프라인은 설계가 진행 중인 향후 구현 범위이며, 현재 v0.1 Mock API에는 AI 탐지 모델이 연결되어 있지 않다.
 
-* **상시 감시 모델**
+* **탐지 모델(MVP)**
 
-  * YOLO26 사용 예정(변경 전 YOLOv8-Nano), **엣지(젯슨)에서 상시 추론**(GPU 서버는 학습만 담당)
+  * YOLO26 사용(변경 전 YOLOv8-Nano), **엣지(젯슨)에서 상시 추론** — 감지+투척 위치 추적+
+    쓰레기 종류 분류까지 전부 엣지에서 완결. **GPU 서버 호출 자체가 없음**(MVP 확정,
+    아래 "처리 위치" 참고)
   * 손 감지 조건 폐지 — 쓰레기 감지 자체가 트리거
   * 옆 카메라가 넘침 상태 감지 → 위치 특정 없이 바로 알림+DB 저장(위 카메라 연동 폐지)
-  * 위 카메라: 엣지 YOLO26이 쓰레기 감지 → 비동기로 GPU 서버에 영상 전송 → 중앙 Qwen3-VL-8B가
-    분류 → 결과를 엣지로 회신 → 엣지가 YOLO26 투척 위치 추적 결과와 비교해 투기 이벤트 판정
-    (상세는 `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고)
+  * 위 카메라: 엣지 YOLO26이 쓰레기 감지 → 그 자리에서 쓰레기 종류까지 분류 → 투척 위치
+    추적 결과와 비교해 투기 이벤트 판정(전부 엣지에서 완결, 상세는
+    `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고)
 
-> ⚠️ 아래 요청/응답 예시(EventCreate/Event JSON)는 아직 신규 필드 `thrownBinId`(엣지가 추적한
-> 실제 투척 위치, 대시보드의 "배출 위치" 컬럼에 대응)를 반영하기 전임 — 최신 필드 목록은
-> `.agentfiles/apiSpec.md`의 EP-02 참고.
+> ⚠️ 아래 요청/응답 예시(EventCreate/Event JSON)는 아직 신규 필드 `binId`(엣지가 추적한
+> 실제 투척 위치, 과거 `thrownBinId`에서 개명, 대시보드의 "배출 위치" 컬럼에 대응) 등을
+> 반영하기 전임. `DetectedClass`도 `mixed`/`uncertain`이 제외되고 `can`이 추가되는 걸로
+> 확정됐지만 아래 예시엔 옛 값(`mixed` 등)이 남아있음 — 최신 필드/Enum 목록은
+> `.agentfiles/apiSpec.md`의 EP-02/공통 Enum 참고.
 
-* **정밀 분석 모델**
+* **LLM(Qwen3-VL-8B) — 고도화 단계 전용**
 
-  * 투기 이벤트 후보 발생 시 실행
-  * 고화질 영상 녹화 및 정밀 클래스 분류
-  * 적용 모델과 녹화 시간은 아키텍처 문서를 기준으로 확정
+  * MVP 실시간 경로엔 없음 — YOLO26이 쓰레기 종류 분류까지 전담하게 되면서 후순위로 밀림
+  * 고도화 단계에서 ①불확실한 분류 안정화(학습 시 검증) ②환경별 통 모양 인식 학습 데이터
+    생성, 두 가지 학습 보조 용도로만 사용 예정(`.agentfiles/architecture.md`의 "LLM 활용" 참고)
 
 * **처리 위치**
 
-  * 탐지 및 정밀 분석은 중앙 GPU 서버에서 처리 예정
-  * 젯슨 나노는 영상 캡처, RTSP 송신 및 GPIO 알림 수신 담당 예정
+  * MVP는 탐지·분류·판정 전부 **엣지(젯슨)에서 처리**, GPU 서버는 YOLO26 학습(`training`)만 담당
+  * 백엔드+DB는 로컬(`192.168.0.40`)에서 구동, GPU 서버가 아님
+  * 젯슨 나노는 영상 캡처, RTSP 송신, GPIO 알림 수신에 더해 **YOLO26 추론까지** 담당
 
 자세한 설계는 `.agentfiles/architecture.md`를 참고한다.
 
@@ -102,7 +108,7 @@
 | --------------- | ------------------------------------------------------------------------- |
 | `CameraId`      | `ELEV-01` | `ELEV-02` | `REST-4F-01` (현재 코드 기준. 확정된 목표는 `ELEV-TOP`/`ELEV-SIDE` — 설치 위치가 12층 엘리베이터 앞 1곳뿐이라 번호 불필요, `.agentfiles/architecture.md` 참고, 아직 코드 미반영) |
 | `EventCategory` | `misclassification` | `overflow`                                       |
-| `DetectedClass` | `general` | `paper` | `plastic` | `coffeeCup` | `mixed` | `uncertain`     |
+| `DetectedClass` | (현재 코드 기준) `general` \| `paper` \| `plastic` \| `coffeeCup` \| `mixed` \| `uncertain` — 확정된 목표는 `general`/`paper`/`plastic`/`can`(신규)/`coffeeCup` 5종, `mixed`/`uncertain`은 제외(`.agentfiles/architecture.md` 참고, 아직 코드 미반영) |
 | `ActionTaken`   | `lightAndSound` | `soundOnly` | `lightOnly` | `notificationOnly` | `none` |
 | `Mode`          | `MANAGE` | `COLLECT`                                                      |
 

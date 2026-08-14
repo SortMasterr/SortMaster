@@ -7,3 +7,5 @@
 API 상세 명세는 `.agentfiles/apiSpec.md` 참고 (API 관련 작업 시에만 열어볼 것, 자동 로드 안 함)
 
 DB 스키마/ERD는 `Docs/ERD.md` 참고 (DB 관련 작업 시에만 열어볼 것, 자동 로드 안 함)
+
+과거 결정 이력("왜 이렇게 정했는지")은 `.agentfiles/decisionLog.md` 참고 (이유가 궁금할 때만 열어볼 것, 자동 로드 안 함)
