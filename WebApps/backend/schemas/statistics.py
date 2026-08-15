@@ -6,3 +6,6 @@ from schemas.event import DetectedClass
 class Statistics(BaseModel):
     labels: list[DetectedClass]
     counts: list[int]
+    totalEventCount: int
+    misclassificationCount: int
+    overflowCount: int

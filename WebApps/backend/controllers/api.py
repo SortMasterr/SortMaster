@@ -177,9 +177,14 @@ async def stopDetection(
             await detectionService.stopDetection(
                 recordingId=detectionStop.recordingId,
                 cameraId=detectionStop.cameraId,
+                detectionId=detectionStop.detectionId,
+                trackingId=detectionStop.trackingId,
                 detectedClass=detectionStop.detectedClass,
+                binId=detectionStop.binId,
+                binType=detectionStop.binType,
                 isMisclassified=detectionStop.isMisclassified,
                 confidenceScore=detectionStop.confidenceScore,
+                modelVersion=detectionStop.modelVersion,
             )
         )
     except KeyError as error:

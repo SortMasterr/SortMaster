@@ -27,6 +27,8 @@ from motor.motor_asyncio import (
     AsyncIOMotorGridFSBucket,
 )
 
+from schemas.event import CameraId
+
 load_dotenv()
 
 mongoHost = os.getenv("MONGO_HOST", "localhost")
@@ -61,5 +63,16 @@ def getMongoDb() -> AsyncIOMotorDatabase:
     return _client[mongoDbName]
 
 
-def getGridFsBucket() -> AsyncIOMotorGridFSBucket:
-    return AsyncIOMotorGridFSBucket(getMongoDb())
+def getGridFsBucket(
+    cameraId: CameraId,
+) -> AsyncIOMotorGridFSBucket:
+    bucketName = (
+        "topMedia"
+        if cameraId == CameraId.ELEVTOP
+        else "sideMedia"
+    )
+
+    return AsyncIOMotorGridFSBucket(
+        getMongoDb(),
+        bucket_name=bucketName,
+    )

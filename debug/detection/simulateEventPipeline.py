@@ -20,6 +20,7 @@ import asyncio
 import os
 import sys
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from dotenv import load_dotenv
 
@@ -43,6 +44,7 @@ async def main() -> None:
     # 만든 루프 "안에서" 지연 실행해야 함 — 파일 최상단에서 import하면 아직 루프가 없는
     # 상태에서 바인딩돼 "Future attached to a different loop" 에러가 남.
     from schemas.event import (
+        BinType,
         CameraId,
         DetectedClass,
         EventCategory,
@@ -88,10 +90,15 @@ async def main() -> None:
     eventCreate = EventCreate(
         cameraId=cameraId,
         eventCategory=EventCategory.MISCLASSIFICATION,
+        detectionId=str(uuid4()),
+        trackingId=1,
         detectedClass=DetectedClass.PLASTIC,
+        binId="BIN-PAPER",
+        binType=BinType.PAPER,
         isMisclassified=True,
         confidenceScore=0.93,
         imageFileId=imageFileId,
+        modelVersion="yolo26-dev",
     )
     event = await eventService.createEvent(eventCreate)
 

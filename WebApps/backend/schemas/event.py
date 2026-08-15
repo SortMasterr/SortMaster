@@ -23,6 +23,13 @@ class DetectedClass(str, Enum):
     COFFEE_CUP = "coffeeCup"
 
 
+class BinType(str, Enum):
+    GENERAL = "general"
+    PLASTIC_CAN = "plasticCan"
+    COFFEE_CUP = "coffeeCup"
+    PAPER = "paper"
+
+
 class ActionTaken(str, Enum):
     LIGHT_AND_SOUND = "lightAndSound"
     SOUND_ONLY = "soundOnly"
@@ -34,7 +41,11 @@ class ActionTaken(str, Enum):
 class EventCreate(BaseModel):
     cameraId: CameraId
     eventCategory: EventCategory
+    detectionId: str = Field(min_length=1)
+    trackingId: int | None = Field(default=None, ge=0)
     detectedClass: DetectedClass | None = None
+    binId: str = Field(min_length=1)
+    binType: BinType
     isMisclassified: bool | None = None
     confidenceScore: float | None = Field(
         default=None,
@@ -43,6 +54,9 @@ class EventCreate(BaseModel):
     )
     # 녹화 파이프라인이 GIF를 GridFS에 업로드한 뒤 채워서 전달(선택). 외부 수동 호출 시 생략 가능.
     imageFileId: str | None = None
+    overflowDuration: float | None = Field(default=None, ge=0.0)
+    overflowThreshold: float | None = Field(default=None, ge=0.0)
+    modelVersion: str = Field(min_length=1)
 
     @model_validator(mode="after")
     def checkMisclassificationFields(self):
@@ -55,6 +69,29 @@ class EventCreate(BaseModel):
                 "misclassification 이벤트는 detectedClass/isMisclassified/"
                 "confidenceScore가 모두 필요합니다."
             )
+
+        if (
+            self.eventCategory == EventCategory.MISCLASSIFICATION
+            and self.cameraId != CameraId.ELEVTOP
+        ):
+            raise ValueError(
+                "misclassification 이벤트는 ELEV-TOP 카메라에서만 생성할 수 있습니다."
+            )
+
+        if self.eventCategory == EventCategory.OVERFLOW:
+            if self.cameraId != CameraId.ELEVSIDE:
+                raise ValueError(
+                    "overflow 이벤트는 ELEV-SIDE 카메라에서만 생성할 수 있습니다."
+                )
+
+            if (
+                self.detectedClass is not None
+                or self.isMisclassified is not None
+                or self.confidenceScore is not None
+            ):
+                raise ValueError(
+                    "overflow 이벤트에는 분류 결과 필드를 사용할 수 없습니다."
+                )
 
         return self
 

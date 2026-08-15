@@ -67,7 +67,9 @@ class MediaService:
         )
 
         return await self.repository.saveBytes(
-            filename, gifBytes
+            filename,
+            gifBytes,
+            cameraId,
         )
 
 

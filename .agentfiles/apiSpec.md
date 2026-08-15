@@ -1,6 +1,6 @@
 # apiSpec.md
 
-v0.1(MVP/Mock). Base URL `http://localhost:8047`(배포 시 로컬 배포 서버 `192.168.0.40:8047` — 백엔드는 GPU 서버가 아니라 로컬에서 구동, `architecture.md` 참고). JSON camelCase. 인증 없음(내부망).
+v0.1(MVP). Base URL `http://localhost:8047`(배포 시 로컬 배포 서버 `192.168.0.40:8047` — 백엔드는 GPU 서버가 아니라 로컬에서 구동, `architecture.md` 참고). JSON camelCase. 인증 없음(내부망).
 
 새 엔드포인트 추가 시 이 문서 형식(EP-번호, 표) 그대로 유지.
 
@@ -33,7 +33,7 @@ v0.1(MVP/Mock). Base URL `http://localhost:8047`(배포 시 로컬 배포 서버
 
 ### EP-02. POST /api/events — 이벤트 생성
 
-Request(EventCreate): cameraId(CameraId), eventCategory(EventCategory), detectionId(str, **신규 필드, 아직 스키마 미반영** — 탐지 파이프라인이 부여하는 중복 저장 방지 키, DB 유니크), trackingId(int|null, misclassification만 — YOLO26 추적 ID, 신규), detectedClass(DetectedClass, misclassification일 때만 필수), binId(str|null, misclassification·overflow 공통 — 물리 통 4개 중 하나. 과거 `thrownBinId`에서 개명, 신규), isMisclassified(bool, misclassification일 때만 — 엣지가 binType·detectedClass 비교해서 판정한 결과를 그대로 전달), confidenceScore(float 0~1, misclassification일 때만), overflowDuration/overflowThreshold(float|null, overflow만, 신규), modelVersion(str, 신규), imageFileId(str|null, 선택 — 녹화 파이프라인이 GridFS 업로드 후 채워서 전달, 생략 시 null)
+Request(EventCreate): cameraId(CameraId), eventCategory(EventCategory), detectionId(str, **구현 완료** — 탐지 파이프라인이 부여하는 중복 저장 방지 키, DB 유니크), trackingId(int|null, misclassification만 — YOLO26 추적 ID), detectedClass(DetectedClass, misclassification일 때만 필수), binId(str, misclassification·overflow 공통 — 물리 통 4개 중 하나), binType(BinType), isMisclassified(bool, misclassification일 때만), confidenceScore(float 0~1, misclassification일 때만), overflowDuration/overflowThreshold(float|null, overflow만), modelVersion(str), imageFileId(str|null, 선택)
 
 Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory, detectionId, trackingId(null 가능), detectedClass(null 가능), binId(null 가능), isMisclassified(null 가능), confidenceScore(null 가능), overflowDuration/overflowThreshold(null 가능), actionTaken(ActionTaken), imageFileId(str|null, GridFS 파일 ID, 녹화 파이프라인 연동 전엔 null), modelVersion, notes(str|null)
 - misclassification: isMisclassified=false 또는 5초 Cooldown 중이면 null 반환
@@ -85,4 +85,4 @@ sidebar.html은 라우트 아님 — 각 페이지에 공통 포함되는 사이
 - 인증/권한 (P3, 현재 없음)
 - PG-03 템플릿(이벤트 상세 페이지) 미구현
 - `BIN_STATES` 조회용 엔드포인트 필요 여부(현재 통별 실시간 상태를 노출하는 API 없음, `Docs/ERD.md` 참고)
-- 통계(EP-05)에 overflow 건수도 포함할지, misclassification과 분리 집계할지
+- `BIN_STATES` 상태 변경 API 및 조회 API 형태(CTO 검토 필요)

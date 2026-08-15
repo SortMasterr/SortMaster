@@ -156,9 +156,9 @@ Orin Nano Super(8GB, 67 TOPS)라 YOLO26 엣지 추론 여력은 충분. GPU 서�
   방식 폐기 — 상세는 `Docs/ERD.md` 참고). misclassification은 동일 카메라+클래스 5초
   Cooldown 그대로 유지
 - **`EVENT`에 `detectionId`(DB 유니크, 중복 저장 방지)/`trackingId`(YOLO26 추적 ID, 디버깅용)/
-  `modelVersion`/`binId`(어느 통인지, misclassification·overflow 공통) 필드 확정** — 상세는
-  `Docs/ERD.md` 참고, 아직 `schemas/event.py` 등 코드 미반영
-- 이미지/영상은 MongoDB GridFS, **버킷을 카메라별로 2개 분리**(`topMedia`=위 카메라/투기,
+  `modelVersion`/`binId`/`binType` 필드 반영 완료** — `schemas/event.py`,
+  `repositories/eventRepository.py`, `services/eventService.py`에 구현. 상세는 `Docs/ERD.md` 참고
+- 이미지/영상은 MongoDB GridFS, **버킷을 카메라별로 2개 분리 구현 완료**(`topMedia`=위 카메라/투기,
   `sideMedia`=옆 카메라/넘침) — 물리 DB 분리 아니고 같은 DB 안 GridFS 버킷만 나눈 것(연결/인증
   추가 불필요). 순수 저장 구조 관리 편의 목적, 보관정책 차이는 없음(`EVENT` 컬렉션 자체는
   카메라별로 안 나누고 하나로 유지 — 상세는 `Docs/ERD.md` 참고)

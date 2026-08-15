@@ -1,4 +1,5 @@
 from repositories.mongoClient import getGridFsBucket
+from schemas.event import CameraId
 
 
 class MediaRepository:
@@ -6,8 +7,9 @@ class MediaRepository:
         self,
         filename: str,
         data: bytes,
+        cameraId: CameraId,
     ) -> str:
-        bucket = getGridFsBucket()
+        bucket = getGridFsBucket(cameraId)
 
         fileId = await bucket.upload_from_stream(
             filename, data

@@ -77,9 +77,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     function convertEventToRow(eventData) {
-        const typeInfo =
-            typeInfoByClass[eventData.detectedClass] ?? {
-                name: eventData.detectedClass,
+        const isOverflow =
+            eventData.eventCategory === "overflow";
+
+        const typeInfo = isOverflow
+            ? {
+                name: "쓰레기통 넘침",
+                className: "tagOverflow",
+            }
+            : typeInfoByClass[eventData.detectedClass] ?? {
+                name: eventData.detectedClass ?? "미분류",
                 className: "generalWaste",
             };
 
@@ -98,19 +105,23 @@ document.addEventListener("DOMContentLoaded", async () => {
             typeClass: typeInfo.className,
 
             /*
-             * 현재 API에는 실제 배출함 위치 필드가 없으므로
-             * cameraId를 표시합니다.
+             * binId는 ERD에서 확정됐지만 현재 API 스키마에는
+             * 아직 반영 전입니다. Mock 데이터에서는 화면 검증을
+             * 위해 제공하고, 실제 API에 없으면 '-'로 표시합니다.
              */
-            loc: eventData.cameraId,
+            loc: eventData.binId ?? "-",
 
-            result:
-                eventData.isMisclassified
+            result: isOverflow
+                ? "넘침 감지"
+                : eventData.isMisclassified
                     ? "오분류"
                     : "정상",
 
             alarm,
             confidenceScore:
                 eventData.confidenceScore,
+            eventCategory:
+                eventData.eventCategory,
             actionTaken:
                 eventData.actionTaken,
             notes:
@@ -204,6 +215,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     function applyFilters() {
+        const fromValue =
+            getElement("fFrom")?.value ?? "";
+
+        const toValue =
+            getElement("fTo")?.value ?? "";
+
         const selectedType =
             getElement("fType")?.value ?? "";
 
@@ -215,6 +232,26 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         const filteredRows =
             data.filter((row) => {
+                if (fromValue) {
+                    const fromDate = new Date(
+                        `${fromValue}T00:00:00`
+                    );
+
+                    if (row.time < fromDate) {
+                        return false;
+                    }
+                }
+
+                if (toValue) {
+                    const toDate = new Date(
+                        `${toValue}T23:59:59.999`
+                    );
+
+                    if (row.time > toDate) {
+                        return false;
+                    }
+                }
+
                 if (
                     selectedType &&
                     row.type !== selectedType
@@ -579,8 +616,14 @@ document.addEventListener("DOMContentLoaded", async () => {
                 );
             }).length;
 
+        const confidenceRows = data.filter(
+            (row) => Number.isFinite(
+                row.confidenceScore
+            )
+        );
+
         const confidenceTotal =
-            data.reduce(
+            confidenceRows.reduce(
                 (total, row) =>
                     total +
                     row.confidenceScore,
@@ -588,10 +631,10 @@ document.addEventListener("DOMContentLoaded", async () => {
             );
 
         const averageAccuracy =
-            data.length > 0
+            confidenceRows.length > 0
                 ? (
                     confidenceTotal /
-                    data.length
+                    confidenceRows.length
                 ) * 100
                 : 0;
 

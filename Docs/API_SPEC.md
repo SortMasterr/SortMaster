@@ -62,11 +62,9 @@
     추적 결과와 비교해 투기 이벤트 판정(전부 엣지에서 완결, 상세는
     `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고)
 
-> ⚠️ 아래 요청/응답 예시(EventCreate/Event JSON)는 아직 신규 필드 `binId`(엣지가 추적한
-> 실제 투척 위치, 과거 `thrownBinId`에서 개명, 대시보드의 "배출 위치" 컬럼에 대응) 등을
-> 반영하기 전임. `DetectedClass`도 `mixed`/`uncertain`이 제외되고 `can`이 추가되는 걸로
-> 확정됐지만 아래 예시엔 옛 값(`mixed` 등)이 남아있음 — 최신 필드/Enum 목록은
-> `.agentfiles/apiSpec.md`의 EP-02/공통 Enum 참고.
+> `EventCreate`/`Event`에 `detectionId`, `trackingId`, `binId`, `binType`, `modelVersion`,
+> overflow 전용 필드가 반영되었다. `detectionId`는 MongoDB 유니크 인덱스로 중복 저장을
+> 방지한다. `BIN_STATES` 컬렉션과 상태 변경 API는 아직 미구현이다.
 
 * **LLM(Qwen3-VL-8B) — 고도화 단계 전용**
 
@@ -108,7 +106,8 @@
 | --------------- | ------------------------------------------------------------------------- |
 | `CameraId`      | `ELEV-TOP` | `ELEV-SIDE` | `REST-4F-01` — 설치 위치가 12층 엘리베이터 앞 1곳뿐이라 번호 불필요(`.agentfiles/architecture.md` 참고). `ELEV-TOP`=쓰레기 종류 분류+쓰레기통 감지+투척 감지 3기능, `ELEV-SIDE`=쓰레기통 넘침 여부만 판정 |
 | `EventCategory` | `misclassification` | `overflow`                                       |
-| `DetectedClass` | (현재 코드 기준) `general` \| `paper` \| `plastic` \| `coffeeCup` \| `mixed` \| `uncertain` — 확정된 목표는 `general`/`paper`/`plastic`/`can`(신규)/`coffeeCup` 5종, `mixed`/`uncertain`은 제외(`.agentfiles/architecture.md` 참고, 아직 코드 미반영) |
+| `DetectedClass` | `general` \| `paper` \| `plastic` \| `can` \| `coffeeCup` |
+| `BinType`       | `general` \| `plasticCan` \| `coffeeCup` \| `paper` |
 | `ActionTaken`   | `lightAndSound` | `soundOnly` | `lightOnly` | `notificationOnly` | `none` |
 | `Mode`          | `MANAGE` | `COLLECT`                                                      |
 
@@ -197,10 +196,17 @@ multipart/x-mixed-replace; boundary=frame
 | ----------------- | ------------- | ---------------------- | ----------------- | ----------------------------------- |
 | `cameraId`        | CameraId      | ✅                       | Enum 값            | 이벤트가 발생한 카메라                        |
 | `eventCategory`   | EventCategory | ✅                       | Enum 값            | `misclassification` 또는 `overflow`   |
+| `detectionId`     | string        | ✅                       | 감지별 UUID, DB unique | 네트워크 재전송 중복 방지 키              |
+| `trackingId`      | integer       | 선택                     | 0 이상             | YOLO 추적 ID, misclassification 전용    |
 | `detectedClass`   | DetectedClass | `misclassification`만 ✅ | Enum 값            | 탐지된 쓰레기 클래스, overflow는 생략(`null`)   |
+| `binId`           | string        | ✅                       | 비어 있지 않음       | 판정 대상 물리 쓰레기통 ID                 |
+| `binType`         | BinType       | ✅                       | Enum 값            | 물리 쓰레기통 종류                         |
 | `isMisclassified` | boolean       | `misclassification`만 ✅ | `true` 또는 `false` | 오분류 여부, overflow는 생략(`null`)        |
 | `confidenceScore` | float         | `misclassification`만 ✅ | 0.0 이상 1.0 이하     | AI 판단 신뢰도, overflow는 생략(`null`)     |
 | `imageFileId`     | string        | 선택                     | GridFS 파일 ID      | 녹화 파이프라인이 업로드한 GIF 파일 ID, 생략 시 `null` |
+| `overflowDuration` | float        | overflow 선택            | 0 이상             | FULL 지속시간 스냅샷                       |
+| `overflowThreshold` | float       | overflow 선택            | 0 이상             | FULL 판정 기준시간                         |
+| `modelVersion`    | string        | ✅                       | 비어 있지 않음       | 판정 모델 버전                             |
 
 `eventCategory=misclassification`인데 `detectedClass`/`isMisclassified`/`confidenceScore` 중
 하나라도 빠지면 HTTP 422(Pydantic `model_validator` 검증).
@@ -211,10 +217,15 @@ multipart/x-mixed-replace; boundary=frame
 {
   "cameraId": "ELEV-TOP",
   "eventCategory": "misclassification",
-  "detectedClass": "mixed",
+  "detectionId": "a6339b38-a4a0-46a2-90b1-55cd73ba85be",
+  "trackingId": 17,
+  "detectedClass": "plastic",
+  "binId": "BIN-PAPER",
+  "binType": "paper",
   "isMisclassified": true,
   "confidenceScore": 0.85,
-  "imageFileId": "68f2c1a4b9d3e2f1a0c5d6e7"
+  "imageFileId": "68f2c1a4b9d3e2f1a0c5d6e7",
+  "modelVersion": "yolo26-mvp-1"
 }
 ```
 
@@ -224,7 +235,13 @@ multipart/x-mixed-replace; boundary=frame
 {
   "cameraId": "ELEV-SIDE",
   "eventCategory": "overflow",
-  "imageFileId": "68f2c1a4b9d3e2f1a0c5d6e8"
+  "detectionId": "5e67c365-c44b-4a13-b55f-a814a520fa5e",
+  "binId": "BIN-GENERAL",
+  "binType": "general",
+  "overflowDuration": 5.2,
+  "overflowThreshold": 5.0,
+  "imageFileId": "68f2c1a4b9d3e2f1a0c5d6e8",
+  "modelVersion": "yolo26-mvp-1"
 }
 ```
 
@@ -233,20 +250,20 @@ multipart/x-mixed-replace; boundary=frame
 ```bash
 curl -X POST "http://localhost:8047/api/events" \
   -H "Content-Type: application/json" \
-  -d "{\"cameraId\":\"ELEV-TOP\",\"eventCategory\":\"misclassification\",\"detectedClass\":\"mixed\",\"isMisclassified\":true,\"confidenceScore\":0.85}"
+  -d "{\"cameraId\":\"ELEV-TOP\",\"eventCategory\":\"misclassification\",\"detectionId\":\"a6339b38-a4a0-46a2-90b1-55cd73ba85be\",\"trackingId\":17,\"detectedClass\":\"plastic\",\"binId\":\"BIN-PAPER\",\"binType\":\"paper\",\"isMisclassified\":true,\"confidenceScore\":0.85,\"modelVersion\":\"yolo26-mvp-1\"}"
 ```
 
 ### 이벤트가 생성되는 경우
 
 * `misclassification`: `isMisclassified`가 `true`이고, 동일한 `cameraId`+`detectedClass` 조합으로 생성된 직전 이벤트로부터 5초 이상 경과
-* `overflow`: 분류 단계 없이, 동일한 `cameraId` 기준 직전 이벤트로부터 5초 이상 경과하면 즉시 생성
+* `overflow`: 엣지의 `NORMAL`→`FULL` 전환 판정 결과를 저장하며 `detectionId` 중복만 차단
 
 ### 이벤트가 생성되지 않는 경우
 
 다음 조건에서는 HTTP 200과 함께 `null`을 반환한다.
 
 * `misclassification`이고 `isMisclassified=false`
-* 쿨다운 적용 중(misclassification은 `cameraId`+`detectedClass` 기준, overflow는 `cameraId` 기준 5초)
+* misclassification 쿨다운 적용 중(`cameraId`+`detectedClass` 기준 5초)
 
 ### 정상 응답 — `Event`
 
@@ -256,11 +273,18 @@ curl -X POST "http://localhost:8047/api/events" \
   "timestamp": "2026-08-11T06:47:50.261977Z",
   "cameraId": "ELEV-TOP",
   "eventCategory": "misclassification",
-  "detectedClass": "mixed",
+  "detectionId": "a6339b38-a4a0-46a2-90b1-55cd73ba85be",
+  "trackingId": 17,
+  "detectedClass": "plastic",
+  "binId": "BIN-PAPER",
+  "binType": "paper",
   "isMisclassified": true,
   "confidenceScore": 0.85,
   "actionTaken": "lightAndSound",
   "imageFileId": "68f2c1a4b9d3e2f1a0c5d6e7",
+  "overflowDuration": null,
+  "overflowThreshold": null,
+  "modelVersion": "yolo26-mvp-1",
   "notes": null
 }
 ```
@@ -273,11 +297,18 @@ curl -X POST "http://localhost:8047/api/events" \
 | `timestamp`       | ISO 8601 datetime | ❌       | 서버의 UTC 기준 이벤트 생성 시각                            |
 | `cameraId`        | CameraId          | ❌       | 카메라 ID                                          |
 | `eventCategory`   | EventCategory     | ❌       | `misclassification` 또는 `overflow`               |
+| `detectionId`     | string            | ❌       | 중복 저장 방지용 감지 UUID                             |
+| `trackingId`      | integer           | ✅       | YOLO 추적 ID                                      |
 | `detectedClass`   | DetectedClass     | ✅       | 탐지 클래스, overflow는 `null`                        |
+| `binId`           | string            | ❌       | 물리 쓰레기통 ID                                    |
+| `binType`         | BinType           | ❌       | 물리 쓰레기통 종류                                   |
 | `isMisclassified` | boolean           | ✅       | 오분류 여부, overflow는 `null`                        |
 | `confidenceScore` | float             | ✅       | 신뢰도, overflow는 `null`                           |
 | `actionTaken`     | ActionTaken       | ❌       | 모드에 따른 경고 처리 결과                                 |
 | `imageFileId`     | string            | ✅       | GridFS 파일 ID(GIF), 녹화 파이프라인 연동 전이거나 생략 시 `null` |
+| `overflowDuration` | float            | ✅       | overflow 지속시간                                  |
+| `overflowThreshold` | float           | ✅       | overflow 판정 기준시간                              |
+| `modelVersion`    | string            | ❌       | 판정 모델 버전                                      |
 | `notes`           | string            | ✅       | 추가 설명, 현재 생성 이벤트는 `null`                        |
 
 ### 모드별 처리
@@ -473,18 +504,19 @@ GET /api/statistics?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
     "general",
     "paper",
     "plastic",
-    "coffeeCup",
-    "mixed",
-    "uncertain"
+    "can",
+    "coffeeCup"
   ],
   "counts": [
     0,
     1,
     1,
     0,
-    0,
     0
-  ]
+  ],
+  "totalEventCount": 2,
+  "misclassificationCount": 1,
+  "overflowCount": 1
 }
 ```
 
@@ -494,6 +526,9 @@ GET /api/statistics?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
 | -------- | --------------- | ----------------------- |
 | `labels` | DetectedClass[] | 지원하는 탐지 클래스 전체 목록       |
 | `counts` | integer[]       | 같은 인덱스의 클래스에 해당하는 이벤트 수 |
+| `totalEventCount` | integer | 전체 저장 이벤트 수 |
+| `misclassificationCount` | integer | 오분류 이벤트 수 |
+| `overflowCount` | integer | 넘침 이벤트 수 |
 
 ### 인덱스 대응
 
@@ -503,8 +538,7 @@ GET /api/statistics?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
 | `paper`     | 종이         |
 | `plastic`   | 플라스틱, 병, 캔 |
 | `coffeeCup` | 커피 컵       |
-| `mixed`     | 복합재질       |
-| `uncertain` | 분류 불확실     |
+| `can`       | 캔           |
 
 ### 동작
 
@@ -943,7 +977,7 @@ In-memory 저장소를 Motor 기반 MongoDB 저장소로 교체 완료했다(`re
 | 로컬 Host Port | `27020`                      |
 | 컨테이너 Port    | `27017`                      |
 | Python 드라이버  | `motor`                      |
-| 파일 저장        | GridFS(`fs.files`+`fs.chunks`), GIF |
+| 파일 저장        | GridFS(`topMedia`/`sideMedia` 버킷), GIF |
 | 저장 대상        | 이벤트(`events` 컬렉션), 이벤트 클립(GridFS) |
 
 모드 상태(`services/modeService.py`)는 여전히 메모리로만 관리되어 서버 재시작 시
@@ -982,17 +1016,13 @@ camelCase를 유지한다.
   * `limit`/`offset`
   * `page`/`pageSize`
   * Cursor 방식
-* 통계 API에 전체 건수와 오분류 건수를 함께 포함할지 여부
-* 통계 API에서 `overflow`를 별도 집계할지 여부
-* `overflow` Cooldown 기준(현재 misclassification과 동일 5초로 구현, 재검토 필요)
+* `BIN_STATES` 상태 변경 API 및 조회 API 형태
 * 카메라 상태 조회 API 추가 여부
 * 모드 조회용 `GET /api/mode` 추가 여부
 * 실제 RPA 통신 방식
 * 인증 및 권한
 * 이벤트 상세 페이지 구현 여부
-* 이미지와 영상의 GridFS 저장 여부
 * AI 탐지 신뢰도 Threshold
-* 정상 분류 이벤트도 저장할지 여부
 
 ---
 
@@ -1010,10 +1040,11 @@ camelCase를 유지한다.
 | PG-01   | 모니터링 페이지              | 구현됨             |
 | PG-02   | 이전기록 페이지              | 구현됨             |
 | PG-03   | 통계 대시보드               | 구현됨             |
-| DB-01   | MongoDB 이벤트 저장        | 미구현             |
-| DB-02   | GridFS 이미지·영상 저장      | 미구현             |
+| DB-01   | MongoDB 이벤트 저장 및 중복 방지 | 구현됨          |
+| DB-02   | 카메라별 GridFS 영상 저장     | 구현됨             |
 | AI-01   | YOLO 탐지 연동            | 미구현             |
-| EVT-01  | Overflow 이벤트          | 미구현             |
+| EVT-01  | Overflow 이벤트 저장·통계    | 구현됨             |
+| BIN-01  | BIN_STATES 상태 관리       | 미구현             |
 | RPA-01  | 실제 전구·경고음 연동          | 미구현             |
 | AUTH-01 | 인증 및 권한               | 미구현             |
 

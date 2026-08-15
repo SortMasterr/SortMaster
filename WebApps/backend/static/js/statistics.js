@@ -127,34 +127,20 @@ document.addEventListener(
                 `${width}%`;
         }
 
-        function renderSummary(
-            events,
-            countByClass
-        ) {
-            const totalDisposals =
-                Object.values(
-                    countByClass
-                ).reduce(
-                    (total, count) =>
-                        total + count,
-                    0
-                );
-
-            const totalMisclassified =
-                events.filter(
-                    (eventData) =>
-                        eventData
-                            .isMisclassified
-                ).length;
-
+        function renderSummary(statistics) {
             updateText(
                 "totalDisposals",
-                totalDisposals
+                statistics.totalEventCount ?? 0
             );
 
             updateText(
                 "totalMisclassified",
-                totalMisclassified
+                statistics.misclassificationCount ?? 0
+            );
+
+            updateText(
+                "totalOverflow",
+                statistics.overflowCount ?? 0
             );
         }
 
@@ -165,7 +151,8 @@ document.addEventListener(
                 countByClass.general ?? 0;
 
             const plasticCount =
-                countByClass.plastic ?? 0;
+                (countByClass.plastic ?? 0) +
+                (countByClass.can ?? 0);
 
             const paperCount =
                 countByClass.paper ?? 0;
@@ -232,6 +219,9 @@ document.addEventListener(
         function createEventRow(
             eventData
         ) {
+            const isOverflow =
+                eventData.eventCategory === "overflow";
+
             const isMisclassified =
                 eventData.isMisclassified;
 
@@ -239,13 +229,15 @@ document.addEventListener(
                 eventData.actionTaken !==
                 "none";
 
-            const resultColor =
-                isMisclassified
+            const resultColor = isOverflow
+                ? "#d97706"
+                : isMisclassified
                     ? "#dc2626"
                     : "#16a34a";
 
-            let resultText =
-                isMisclassified
+            let resultText = isOverflow
+                ? "넘침 감지"
+                : isMisclassified
                     ? "오배출"
                     : "정상 분류";
 
@@ -261,8 +253,9 @@ document.addEventListener(
                     eventData.cameraId
                 ] ?? eventData.cameraId;
 
-            const typeName =
-                typeNameByClass[
+            const typeName = isOverflow
+                ? "쓰레기통 넘침"
+                : typeNameByClass[
                     eventData.detectedClass
                 ] ??
                 eventData.detectedClass;
@@ -422,10 +415,7 @@ document.addEventListener(
                         statistics
                     );
 
-                renderSummary(
-                    events,
-                    countByClass
-                );
+                renderSummary(statistics);
 
                 renderClassStatistics(
                     countByClass

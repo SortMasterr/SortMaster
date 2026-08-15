@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from schemas.event import (
     CameraId,
+    BinType,
     DetectedClass,
     Event,
     EventCategory,
@@ -29,9 +30,14 @@ class DetectionService:
         self,
         recordingId: str,
         cameraId: CameraId,
+        detectionId: str,
+        trackingId: int | None,
         detectedClass: DetectedClass,
+        binId: str,
+        binType: BinType,
         isMisclassified: bool,
         confidenceScore: float,
+        modelVersion: str,
     ) -> Event | None:
         frames, _durationSeconds = await recordingService.stop(
             recordingId
@@ -46,10 +52,15 @@ class DetectionService:
         eventCreate = EventCreate(
             cameraId=cameraId,
             eventCategory=EventCategory.MISCLASSIFICATION,
+            detectionId=detectionId,
+            trackingId=trackingId,
             detectedClass=detectedClass,
+            binId=binId,
+            binType=binType,
             isMisclassified=isMisclassified,
             confidenceScore=confidenceScore,
             imageFileId=imageFileId,
+            modelVersion=modelVersion,
         )
 
         return await eventService.createEvent(eventCreate)

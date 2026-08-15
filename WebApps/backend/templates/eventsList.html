@@ -19,7 +19,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
 
     <!-- 이전기록 페이지 CSS -->
-    <link rel="stylesheet" href="/static/css/eventsList.css?v=9">
+    <link rel="stylesheet" href="/static/css/eventsList.css?v=10">
 
     <!-- 공통 사이드바 CSS -->
     <link rel="stylesheet" href="/static/css/sidebar.css?v=9">
@@ -47,20 +47,21 @@
             <div class="contentBody" id="contentBody">
                 <div class="pageHead">
                     <div>
-                        <h1>분류 이전기록</h1>
+                        <h1>감지 이벤트 이전기록</h1>
 
                         <p>
-                            정상 분류와 오분류(알림 발생) 건을 포함한
-                            배출 기록 내역입니다.
+                            오분류 및 쓰레기통 넘침 판정 시점에 저장된
+                            이벤트 기록입니다.
                         </p>
                     </div>
+
                 </div>
 
                 <!-- 카드 현황판 -->
                 <div class="stats">
                     <div class="statCard">
                         <div class="statLabel">
-                            총 분류 횟수
+                            총 저장 이벤트
                         </div>
 
                         <div class="statValue" id="statTotal">
@@ -70,7 +71,7 @@
 
                     <div class="statCard">
                         <div class="statLabel">
-                            오늘 분류 건수
+                            오늘 이벤트
                         </div>
 
                         <div class="statValue" id="statToday">
@@ -80,7 +81,7 @@
 
                     <div class="statCard cGreen">
                         <div class="statLabel">
-                            평균 정확도
+                            평균 탐지 신뢰도
                         </div>
 
                         <div class="statValue" id="statAccuracy">
@@ -90,7 +91,7 @@
 
                     <div class="statCard cAmber">
                         <div class="statLabel">
-                            알림 미작동 (점검 필요)
+                            알림 미발생
                         </div>
 
                         <div class="statValue" id="statAlarmOff">
@@ -121,10 +122,6 @@
                         <select id="fType">
                             <option value="">전체</option>
 
-                            <option value="병/캔/플라스틱">
-                                병/캔/플라스틱
-                            </option>
-
                             <option value="일반쓰레기">
                                 일반쓰레기
                             </option>
@@ -132,6 +129,11 @@
                             <option value="종이">
                                 종이
                             </option>
+
+                            <option value="플라스틱">플라스틱</option>
+                            <option value="캔">캔</option>
+                            <option value="커피 컵">커피 컵</option>
+                            <option value="쓰레기통 넘침">쓰레기통 넘침</option>
                         </select>
                     </div>
 
@@ -140,8 +142,8 @@
 
                         <select id="fResult">
                             <option value="">전체</option>
-                            <option value="정상">정상</option>
                             <option value="오분류">오분류</option>
+                            <option value="넘침 감지">넘침 감지</option>
                         </select>
                     </div>
 
@@ -264,7 +266,7 @@
 
     <!-- 공통 JavaScript를 먼저 불러옵니다. -->
     <script src="/static/js/sidebar.js?v=9"></script>
-    <script src="/static/js/eventsList.js?v=9"></script>
+    <script src="/static/js/eventsList.js?v=10"></script>
 </body>
 
 </html>

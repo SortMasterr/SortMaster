@@ -1,6 +1,6 @@
 # ERD — CCTV 기반 분리수거 오분류 탐지·자동 경고 시스템
 
-> 버전: MVP 기준. `repositories/eventRepository.py`가 motor(비동기 MongoDB 드라이버) 기반으로 구현됨(in-memory Mock 제거 완료) — `WebApps/backend/schemas/event.py`의 Pydantic 모델을 근거로 작성. **`BIN_STATES`/`detectionId`/`trackingId`/`modelVersion` 등은 이번에 새로 확정된 설계로, 아직 코드(`schemas/event.py` 등)에 반영 전임.**
+> 버전: MVP 기준. `repositories/eventRepository.py`가 motor(비동기 MongoDB 드라이버) 기반으로 구현됨(in-memory Mock 제거 완료) — `WebApps/backend/schemas/event.py`의 Pydantic 모델을 근거로 작성. **`detectionId`/`trackingId`/`binId`/`binType`/`modelVersion`과 카메라별 GridFS 버킷은 코드 반영 완료. `BIN_STATES`만 아직 코드 반영 전임.**
 > 실제 영속화되는 것은 MongoDB `events`/`binStates`(신규) 컬렉션 + GridFS뿐. `CAMERA`/`SystemState`는 현재 DB 컬렉션이 아니라 Enum·런타임 상태라 참고용으로만 표시.
 > 손 감지 조합 판정은 폐지되고 쓰레기 감지 자체가 트리거로 바뀜 — 옆 카메라(`ELEV-SIDE`)는
 > 물리 쓰레기통 4개(일반/플라스틱·캔/커피컵/종이)의 상태를 `BIN_STATES`로 지속 추적하다가

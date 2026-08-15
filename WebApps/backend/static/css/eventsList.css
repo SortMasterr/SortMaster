@@ -440,6 +440,15 @@ td.time {
     background: #d97706;
 }
 
+.tagOverflow {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.tagOverflow .tagDot {
+    background: #dc2626;
+}
+
 /* 분류 결과 */
 .status {
     display: inline-flex;

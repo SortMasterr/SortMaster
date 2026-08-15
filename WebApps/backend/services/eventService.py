@@ -60,6 +60,13 @@ class EventService:
             )
         )
 
+        countsByCategory = (
+            await self.repository.countByEventCategory(
+                fromDate=fromDate,
+                toDate=toDate,
+            )
+        )
+
         detectedClasses = list(
             DetectedClass
         )
@@ -73,12 +80,26 @@ class EventService:
                 for detectedClass
                 in detectedClasses
             ],
+            totalEventCount=sum(countsByCategory.values()),
+            misclassificationCount=countsByCategory[
+                EventCategory.MISCLASSIFICATION
+            ],
+            overflowCount=countsByCategory[
+                EventCategory.OVERFLOW
+            ],
         )
 
     async def createEvent(
         self,
         eventCreate: EventCreate,
     ) -> Event | None:
+        existingEvent = await self.repository.findByDetectionId(
+            eventCreate.detectionId
+        )
+
+        if existingEvent is not None:
+            return existingEvent
+
         if (
             eventCreate.eventCategory
             == EventCategory.MISCLASSIFICATION
@@ -90,28 +111,18 @@ class EventService:
             timezone.utc
         )
 
-        cooldownKey = self._buildCooldownKey(
-            eventCreate
-        )
+        cooldownKey = None
 
-        lastEventTime = (
-            self.lastEventTimes.get(
-                cooldownKey
-            )
-        )
+        if eventCreate.eventCategory == EventCategory.MISCLASSIFICATION:
+            cooldownKey = self._buildCooldownKey(eventCreate)
+            lastEventTime = self.lastEventTimes.get(cooldownKey)
 
-        if (
-            lastEventTime is not None
-            and (
-                currentTime - lastEventTime
-                < timedelta(
-                    seconds=(
-                        self.cooldownSeconds
-                    )
-                )
-            )
-        ):
-            return None
+            if (
+                lastEventTime is not None
+                and currentTime - lastEventTime
+                < timedelta(seconds=self.cooldownSeconds)
+            ):
+                return None
 
         currentMode = (
             modeService.getMode().mode
@@ -131,9 +142,13 @@ class EventService:
             eventCategory=(
                 eventCreate.eventCategory
             ),
+            detectionId=eventCreate.detectionId,
+            trackingId=eventCreate.trackingId,
             detectedClass=(
                 eventCreate.detectedClass
             ),
+            binId=eventCreate.binId,
+            binType=eventCreate.binType,
             isMisclassified=(
                 eventCreate.isMisclassified
             ),
@@ -144,6 +159,9 @@ class EventService:
             imageFileId=(
                 eventCreate.imageFileId
             ),
+            overflowDuration=eventCreate.overflowDuration,
+            overflowThreshold=eventCreate.overflowThreshold,
+            modelVersion=eventCreate.modelVersion,
             notes=None,
         )
 
@@ -153,9 +171,8 @@ class EventService:
             )
         )
 
-        self.lastEventTimes[
-            cooldownKey
-        ] = currentTime
+        if cooldownKey is not None:
+            self.lastEventTimes[cooldownKey] = currentTime
 
         return savedEvent
 
