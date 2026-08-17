@@ -177,6 +177,7 @@ async def stopDetection(
             await detectionService.stopDetection(
                 recordingId=detectionStop.recordingId,
                 cameraId=detectionStop.cameraId,
+                eventCategory=detectionStop.eventCategory,
                 detectionId=detectionStop.detectionId,
                 trackingId=detectionStop.trackingId,
                 detectedClass=detectionStop.detectedClass,
@@ -184,6 +185,8 @@ async def stopDetection(
                 binType=detectionStop.binType,
                 isMisclassified=detectionStop.isMisclassified,
                 confidenceScore=detectionStop.confidenceScore,
+                overflowDuration=detectionStop.overflowDuration,
+                overflowThreshold=detectionStop.overflowThreshold,
                 modelVersion=detectionStop.modelVersion,
             )
         )

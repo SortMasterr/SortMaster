@@ -1,14 +1,8 @@
 """
-탐지 서비스(services/detectionService.py) 도착 전, "이벤트 시작"/"이벤트 종료" 두 신호를
-흉내내서 녹화→GIF 인코딩→GridFS 업로드→이벤트 저장까지 전체 파이프라인을 로컬에서 검증하는
+외부 모델 대신 "이벤트 시작"/"이벤트 종료" 두 신호를 흉내내서 detectionService의
+녹화→GIF 인코딩→GridFS 업로드→이벤트 저장 전체 파이프라인을 로컬에서 검증하는
 디버그 스크립트. debug/streaming/startRtspSim.py와 같은 성격(백엔드 코드 변경 없이 로컬
-검증 전용)이지만, 이번엔 백엔드 서비스 모듈을 직접 import해서 실제 흐름 그대로 호출한다.
-
-향후 detectionService.py가 생기면, 여기서 하는 것과 동일하게:
-  이벤트 시작 감지 → recordingService.start(cameraId)
-  이벤트 종료 감지 → recordingService.stop(recordingId) → mediaService.saveClipAsGif(...)
-                    → eventService.createEvent(...)
-순서로 직접 호출하면 된다(고정 10초가 아니라 시작~종료 실제 구간만큼 녹화됨).
+검증 전용)이며 실제 HTTP API가 호출하는 서비스와 동일한 진입점을 사용한다.
 
 실행(반드시 프로젝트 루트에서, backend venv 활성화 후):
     python debug/detection/simulateEventPipeline.py
@@ -19,7 +13,6 @@ MongoDB(.env의 MONGO_HOST/DB_PORT 등)와 카메라(.env의 CAMERA_SOURCE_ELEVT
 import asyncio
 import os
 import sys
-from datetime import datetime, timezone
 from uuid import uuid4
 
 from dotenv import load_dotenv
@@ -48,12 +41,9 @@ async def main() -> None:
         CameraId,
         DetectedClass,
         EventCategory,
-        EventCreate,
     )
-    from services.eventService import eventService
-    from services.mediaService import mediaService
-    from services.recordingService import (
-        recordingService,
+    from services.detectionService import (
+        detectionService,
     )
 
     cameraId = CameraId.ELEVTOP
@@ -61,7 +51,7 @@ async def main() -> None:
     print(
         f"[시뮬레이션] '{cameraId.value}' 이벤트 시작 신호 → 녹화 시작"
     )
-    recordingId = await recordingService.start(cameraId)
+    recordingId = await detectionService.startDetection(cameraId)
 
     print(
         f"[시뮬레이션] {watchSeconds}초 동안 관찰 중"
@@ -70,24 +60,8 @@ async def main() -> None:
     await asyncio.sleep(watchSeconds)
 
     print("[시뮬레이션] 이벤트 종료 신호 → 녹화 종료")
-    frames, durationSeconds = await recordingService.stop(
-        recordingId
-    )
-    print(
-        f"[시뮬레이션] 캡처된 프레임 수: {len(frames)}, "
-        f"실제 녹화 구간: {durationSeconds:.1f}초"
-    )
-
-    timestamp = datetime.now(timezone.utc)
-    imageFileId = await mediaService.saveClipAsGif(
-        frames, cameraId, timestamp
-    )
-    print(
-        f"[시뮬레이션] GIF GridFS 업로드 완료: "
-        f"imageFileId={imageFileId}"
-    )
-
-    eventCreate = EventCreate(
+    event = await detectionService.stopDetection(
+        recordingId=recordingId,
         cameraId=cameraId,
         eventCategory=EventCategory.MISCLASSIFICATION,
         detectionId=str(uuid4()),
@@ -97,10 +71,10 @@ async def main() -> None:
         binType=BinType.PAPER,
         isMisclassified=True,
         confidenceScore=0.93,
-        imageFileId=imageFileId,
+        overflowDuration=None,
+        overflowThreshold=None,
         modelVersion="yolo26-dev",
     )
-    event = await eventService.createEvent(eventCreate)
 
     if event is None:
         print(

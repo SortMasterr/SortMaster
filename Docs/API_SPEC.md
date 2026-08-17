@@ -642,6 +642,77 @@ GET /api/statistics?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
 
 ---
 
+## EP-08. `POST /api/detection/start`
+
+엣지 모델이 탐지를 시작한 시점에 호출해 해당 카메라의 이벤트 녹화를 시작한다. 모델
+런타임(PyTorch/TensorRT)과 분리된 HTTP 연결부이며 모델 자체를 백엔드에서 실행하지 않는다.
+
+### Request Body
+
+```json
+{
+  "cameraId": "ELEV-SIDE"
+}
+```
+
+### 정상 응답
+
+```json
+{
+  "recordingId": "7fde5b24-0a55-4f0f-b0fb-a443380496ad"
+}
+```
+
+카메라가 설정되지 않았거나 연결할 수 없으면 HTTP 503을 반환한다.
+
+---
+
+## EP-09. `POST /api/detection/stop`
+
+탐지 종료 시점에 EP-08의 녹화를 종료하고, 캡처 프레임을 GIF로 인코딩해 GridFS에 업로드한
+뒤 EP-02와 동일한 이벤트 저장 로직을 실행한다. `misclassification`과 `overflow`를 모두
+지원한다. 기존 호출 호환성을 위해 `eventCategory`를 생략하면 `misclassification`으로 처리한다.
+
+### 공통 필드
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `recordingId` | string | ✅ | EP-08에서 받은 녹화 ID |
+| `cameraId` | CameraId | ✅ | misclassification=`ELEV-TOP`, overflow=`ELEV-SIDE` |
+| `eventCategory` | EventCategory | 선택 | 생략 시 `misclassification` |
+| `detectionId` | string | ✅ | 엣지가 생성한 중복 방지 UUID |
+| `trackingId` | integer | 선택 | misclassification 추적 ID |
+| `binId` | string | ✅ | 판정 대상 물리 쓰레기통 ID |
+| `binType` | BinType | ✅ | 판정 대상 쓰레기통 종류 |
+| `modelVersion` | string | ✅ | 판정 모델 버전 |
+
+### misclassification 추가 필드
+
+`detectedClass`, `isMisclassified`, `confidenceScore`가 모두 필수다.
+
+### overflow 추가 필드
+
+분류 필드는 보내지 않는다. `overflowDuration`, `overflowThreshold`를 선택적으로 보낼 수 있다.
+
+```json
+{
+  "recordingId": "7fde5b24-0a55-4f0f-b0fb-a443380496ad",
+  "cameraId": "ELEV-SIDE",
+  "eventCategory": "overflow",
+  "detectionId": "5e67c365-c44b-4a13-b55f-a814a520fa5e",
+  "binId": "BIN-GENERAL",
+  "binType": "general",
+  "overflowDuration": 5.2,
+  "overflowThreshold": 5.0,
+  "modelVersion": "overflow-mvp-1"
+}
+```
+
+`recordingId`가 없으면 404, 캡처 프레임이 없으면 400, 카테고리별 필드 또는 카메라 역할이
+잘못되면 422를 반환한다. 이벤트 생성 후 모드와 카테고리에 맞는 WebSocket 메시지를 전송한다.
+
+---
+
 ## EP-07. `WS /ws/events`
 
 관리자 웹 클라이언트가 실시간 모드 변경 및 오분류 이벤트를 수신하는 WebSocket 엔드포인트다.
@@ -1037,6 +1108,8 @@ camelCase를 유지한다.
 | EP-05   | 클래스별 통계 조회            | 구현됨             |
 | EP-06   | 관리/수거 모드 전환           | 구현됨             |
 | EP-07   | WebSocket 모드 및 오분류 알림 | 구현됨             |
+| EP-08   | 탐지 시작 및 이벤트 녹화 시작 | 구현됨             |
+| EP-09   | 탐지 종료·GIF·이벤트 저장     | 구현됨(misclassification/overflow) |
 | PG-01   | 모니터링 페이지              | 구현됨             |
 | PG-02   | 이전기록 페이지              | 구현됨             |
 | PG-03   | 통계 대시보드               | 구현됨             |

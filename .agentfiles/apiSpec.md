@@ -29,7 +29,7 @@ v0.1(MVP). Base URL `http://localhost:8047`(배포 시 로컬 배포 서버 `192
 | EP-05 | GET /api/statistics | 클래스별 집계, 온디맨드(캐시없음) | Query: from?, to? | 200 | 없음. Chart.js는 WS로 낙관적 증가, 새로고침 시 재동기화 |
 | EP-06 | POST /api/mode | 모드 전환 | Body: mode(Mode) | 200/422 | 성공 시 전체 WS 클라이언트에 MODE_CHANGED 브로드캐스트 |
 | EP-08 | POST /api/detection/start | 녹화 시작(탐지 시작 신호) | Body: cameraId(CameraId) | 200/503 | `recordingService.start` 호출, recordingId 반환. 카메라 미설정/연결 실패 시 503 |
-| EP-09 | POST /api/detection/stop | 녹화 종료+GIF 업로드+이벤트 저장(탐지 종료+분류 결과 신호) | Body: recordingId(str), cameraId(CameraId), detectedClass(DetectedClass), isMisclassified(bool), confidenceScore(float 0~1) | 200/400/404 | EP-02(POST /api/events)와 동일한 Cooldown/부수효과 적용. recordingId 없으면 404, 캡처된 프레임 없으면 400 |
+| EP-09 | POST /api/detection/stop | 녹화 종료+GIF 업로드+이벤트 저장(탐지 종료 결과 신호) | Body: recordingId, cameraId, eventCategory(생략 시 misclassification), detectionId, binId, binType, modelVersion + 카테고리별 필드 | 200/400/404/422 | misclassification/overflow 공통. EP-02와 동일한 저장·Cooldown·WS 부수효과 적용. recordingId 없으면 404, 캡처된 프레임 없으면 400 |
 
 ### EP-02. POST /api/events — 이벤트 생성
 
@@ -45,8 +45,12 @@ Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory
 
 `services/detectionService.py`: 실제 YOLO26 모델(젯슨 엣지) 완성 전까지, 시작/종료 신호를
 API로 직접 받아 `recordingService`(녹화)→`mediaService`(GIF 인코딩+GridFS 업로드)→
-`eventService.createEvent`(EP-02와 동일 로직, Cooldown 포함)를 그대로 호출하는 자리만
-잡아둔 것. 항상 `eventCategory=misclassification`으로 저장(overflow는 이 경로로 안 만듦).
+`eventService.createEvent`(EP-02와 동일 로직, Cooldown 포함)를 그대로 호출하는 HTTP 연결부.
+EP-09는 `eventCategory`에 따라 misclassification/overflow를 모두 처리하며, 기존 호출과의
+호환성을 위해 `eventCategory`를 생략하면 misclassification으로 처리한다. misclassification은
+`detectedClass`/`isMisclassified`/`confidenceScore`가 필수이고, overflow는 해당 필드를 보내지
+않으며 `overflowDuration`/`overflowThreshold`를 선택적으로 보낸다. 두 카테고리 모두
+`detectionId`/`binId`/`binType`/`modelVersion`이 필요하다.
 엣지→백엔드 신호 전달 방식(MQTT/HTTP/WS, `architecture.md` 기준 TBD)이 확정되면 진입점만
 그쪽으로 바꾸고 `detectionService` 내부 로직은 재사용 예정.
 
