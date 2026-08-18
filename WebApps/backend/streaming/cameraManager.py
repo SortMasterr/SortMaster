@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 
 import cv2
 from dotenv import load_dotenv
@@ -7,6 +8,15 @@ from dotenv import load_dotenv
 from schemas.event import CameraId
 
 load_dotenv()
+
+# RTSP 소스는 CAP_PROP_BUFFERSIZE=1을 무시하고 ffmpeg 내부 큐에 프레임을 계속 쌓아두는
+# 경우가 있어(디버그: debug/streaming/testRtspDelay.py로 확인 — 1초만 안 읽어도
+# 40개 이상 쌓임), readFrame()에서 grab()으로 오래된 프레임을 건너뛰고 라이브 edge의
+# 최신 프레임만 꺼낸다. grab()이 이 시간(초)보다 빨리 끝나면 "이미 쌓여있던 프레임"으로
+# 보고 계속 건너뛰고, 이 시간을 넘기면(=실시간으로 다음 프레임을 기다림) 최신 프레임에
+# 도달한 것으로 보고 멈춘다.
+_bufferDrainThresholdSeconds = 0.05
+_maxBufferDrain = 200
 
 
 class CameraManager:
@@ -74,8 +84,21 @@ class CameraManager:
             return None
 
         async with self.lock:
+            for _ in range(_maxBufferDrain):
+                start = time.monotonic()
+                grabbed = await asyncio.to_thread(
+                    self.capture.grab
+                )
+                elapsed = time.monotonic() - start
+
+                if not grabbed:
+                    return None
+
+                if elapsed > _bufferDrainThresholdSeconds:
+                    break
+
             ok, frame = await asyncio.to_thread(
-                self.capture.read
+                self.capture.retrieve
             )
 
         return frame if ok else None
