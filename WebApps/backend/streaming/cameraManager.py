@@ -40,7 +40,13 @@ class CameraManager:
             # 별도로 안 열어도 되도록 TCP로 강제(제어 채널과 같은 포트로 처리됨).
             # threads;1: ffmpeg 멀티스레드 프레임 디코딩에서 나는
             # "Assertion fctx->async_lock failed" 크래시 회피용.
-            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|threads;1"
+            # stimeout/rw_timeout: ffmpeg RTSP 백엔드는 기본적으로 읽기 타임아웃이 없어서,
+            # 네트워크가 응답을 안 주면 grab()이 에러 없이 무한 대기함 — 연결 자체는 열렸는데
+            # 프레임이 하나도 안 오는 상황(디버깅 시 원인 파악용)을 5초 후 명시적 에러로
+            # 바꾸기 위함(단순 hang과 진짜 실패를 로그로 구분 가능해짐).
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+                "rtsp_transport;tcp|threads;1|stimeout;5000000|rw_timeout;5000000"
+            )
 
         capture = cv2.VideoCapture(self.source)
         capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
