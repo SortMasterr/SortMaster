@@ -1,7 +1,7 @@
 # API 명세서 — CCTV 기반 분리수거 오분류 탐지·자동 경고 시스템
 
 > **버전**: v0.1 MVP / MongoDB(motor) 연동
-> **기준일**: 2026-08-12
+> **기준일**: 2026-08-18
 > **Base URL**: `http://localhost:8047`
 > **배포 환경**: 로컬 배포 서버 `192.168.0.40:8047`로 대체 예정(백엔드는 GPU 서버가 아니라
 > 로컬에서 구동 — `.agentfiles/architecture.md` 참고)
@@ -30,7 +30,7 @@
 * 요청 스키마 및 Enum 검증
 * 이벤트 미존재 시 HTTP 404 처리
 * MongoDB(motor) 연동 — 이벤트 저장소가 In-memory Mock에서 완전히 전환됨
-* `overflow` 이벤트(스키마·쿨다운·WS `BIN_OVERFLOW_DETECTED` 포함) 구현
+* `overflow` 이벤트(스키마·저장·별도 통계·WS `BIN_OVERFLOW_DETECTED` 포함) 구현
 * 이벤트 트리거 녹화 → GIF 인코딩 → GridFS 업로드 파이프라인(`recordingService`/
   `mediaService`/`mediaRepository`) — 실제 탐지 서비스가 아직 없어 `debug/detection/
   simulateEventPipeline.py`로 시작/종료 신호를 흉내내 검증
@@ -44,6 +44,8 @@
 * 카메라 연결 해제 및 시스템 오류 WebSocket 이벤트 미구현
 * 이벤트 상세 페이지 미구현
 * 인증 및 권한 미구현
+* `BIN_STATES` 스키마·저장소·상태 변경/조회 API 미구현 — 현재 백엔드는 overflow의
+  `NORMAL`→`FULL` 전환 여부를 검증하지 않고 유효한 요청을 이벤트로 바로 저장
 
 ---
 
@@ -57,7 +59,8 @@
     쓰레기 종류 분류까지 전부 엣지에서 완결. **GPU 서버 호출 자체가 없음**(MVP 확정,
     아래 "처리 위치" 참고)
   * 손 감지 조건 폐지 — 쓰레기 감지 자체가 트리거
-  * 옆 카메라가 넘침 상태 감지 → 위치 특정 없이 바로 알림+DB 저장(위 카메라 연동 폐지)
+  * 옆 카메라가 넘침 상태와 대상 물리 통(`binId`)을 감지 → 위 카메라 연동 없이 바로
+    알림+DB 저장
   * 위 카메라: 엣지 YOLO26이 쓰레기 감지 → 그 자리에서 쓰레기 종류까지 분류 → 투척 위치
     추적 결과와 비교해 투기 이벤트 판정(전부 엣지에서 완결, 상세는
     `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고)
@@ -116,8 +119,8 @@
 | 항목              | 설명                                                           |
 | --------------- | ------------------------------------------------------------ |
 | 기본 Mode         | 서버 시작 시 `MANAGE`                                             |
-| `MANAGE`        | 오분류 이벤트 저장, `actionTaken=lightAndSound`, WebSocket 오분류 알림 전송 |
-| `COLLECT`       | 오분류 이벤트 저장, `actionTaken=none`, WebSocket 오분류 알림 미전송         |
+| `MANAGE`        | 이벤트 저장, `actionTaken=lightAndSound`, 카테고리별 WebSocket 알림 전송 |
+| `COLLECT`       | 이벤트 저장, `actionTaken=none`, 이벤트 WebSocket 알림 미전송         |
 | `lightAndSound` | 현재 실제 하드웨어 작동이 아니라 처리 결과를 나타내는 Mock 값                        |
 | `none`          | 별도의 경고 동작을 수행하지 않음                                           |
 
@@ -176,7 +179,8 @@ multipart/x-mixed-replace; boundary=frame
 * `cameraId`마다 별도 카메라 관리자를 사용한다(카메라 1대당 독립 젯슨 나노 1대 구성).
 * 현재 개발용 카메라 소스는 `.env`의 `CAMERA_SOURCE_<ID>`(예: `CAMERA_SOURCE_ELEVTOP`)를 사용한다.
 * 소스가 설정되지 않은 `cameraId`는 HTTP 503이 발생할 수 있다.
-* 실제 CameraId별 독립 RTSP 소스 연결은 향후 확장 범위다.
+* 소스 값으로 웹캠 번호와 RTSP URL을 모두 처리한다. 배포 시 CameraId별 RTSP URL을 `.env`에
+  설정하며, 실제 장비 연결·운영 검증은 향후 범위다.
 
 ---
 
@@ -196,10 +200,10 @@ multipart/x-mixed-replace; boundary=frame
 | ----------------- | ------------- | ---------------------- | ----------------- | ----------------------------------- |
 | `cameraId`        | CameraId      | ✅                       | Enum 값            | 이벤트가 발생한 카메라                        |
 | `eventCategory`   | EventCategory | ✅                       | Enum 값            | `misclassification` 또는 `overflow`   |
-| `detectionId`     | string        | ✅                       | 감지별 UUID, DB unique | 네트워크 재전송 중복 방지 키              |
+| `detectionId`     | string        | ✅                       | 비어 있지 않음, DB unique | 네트워크 재전송 중복 방지 키. UUID 사용이 규약이지만 현재 스키마는 UUID 형식 자체를 검증하지 않음 |
 | `trackingId`      | integer       | 선택                     | 0 이상             | YOLO 추적 ID, misclassification 전용    |
 | `detectedClass`   | DetectedClass | `misclassification`만 ✅ | Enum 값            | 탐지된 쓰레기 클래스, overflow는 생략(`null`)   |
-| `binId`           | string        | ✅                       | 비어 있지 않음       | 판정 대상 물리 쓰레기통 ID                 |
+| `binId`           | string        | ✅                       | 비어 있지 않음       | 판정 대상 물리 쓰레기통 ID. 현재 허용 ID 목록 또는 `binType`과의 일치 여부는 검증하지 않음 |
 | `binType`         | BinType       | ✅                       | Enum 값            | 물리 쓰레기통 종류                         |
 | `isMisclassified` | boolean       | `misclassification`만 ✅ | `true` 또는 `false` | 오분류 여부, overflow는 생략(`null`)        |
 | `confidenceScore` | float         | `misclassification`만 ✅ | 0.0 이상 1.0 이하     | AI 판단 신뢰도, overflow는 생략(`null`)     |
@@ -210,6 +214,14 @@ multipart/x-mixed-replace; boundary=frame
 
 `eventCategory=misclassification`인데 `detectedClass`/`isMisclassified`/`confidenceScore` 중
 하나라도 빠지면 HTTP 422(Pydantic `model_validator` 검증).
+
+현재 카테고리별 검증은 다음과 같다.
+
+* `misclassification`은 `ELEV-TOP`만, `overflow`는 `ELEV-SIDE`만 허용한다.
+* `overflow`에 `detectedClass`/`isMisclassified`/`confidenceScore` 중 하나라도 있으면 422다.
+* `trackingId`는 문서상 misclassification 용도지만 현재 스키마는 overflow에 포함되어도
+  거부하지 않는다. 반대로 `overflowDuration`/`overflowThreshold`도 misclassification 요청에
+  포함되는 것을 현재 스키마가 거부하지 않는다.
 
 ### 요청 예시 — misclassification
 
@@ -256,7 +268,8 @@ curl -X POST "http://localhost:8047/api/events" \
 ### 이벤트가 생성되는 경우
 
 * `misclassification`: `isMisclassified`가 `true`이고, 동일한 `cameraId`+`detectedClass` 조합으로 생성된 직전 이벤트로부터 5초 이상 경과
-* `overflow`: 엣지의 `NORMAL`→`FULL` 전환 판정 결과를 저장하며 `detectionId` 중복만 차단
+* `overflow`: 유효한 요청이면 저장하며 `detectionId` 중복만 차단한다. `NORMAL`→`FULL` 전환
+  판정은 현재 호출자(엣지)의 책임이며, 백엔드는 `BIN_STATES`로 이를 검증하지 않는다.
 
 ### 이벤트가 생성되지 않는 경우
 
@@ -264,6 +277,10 @@ curl -X POST "http://localhost:8047/api/events" \
 
 * `misclassification`이고 `isMisclassified=false`
 * misclassification 쿨다운 적용 중(`cameraId`+`detectedClass` 기준 5초)
+
+동일한 `detectionId`가 이미 저장되어 있으면 새 문서를 만들지 않고 기존 `Event`를 HTTP 200으로
+반환한다. 현재 컨트롤러는 `MANAGE` 모드에서 이 기존 이벤트도 다시 WebSocket으로 전송하므로,
+저장 중복은 방지되지만 알림 중복까지 방지되지는 않는다.
 
 ### 정상 응답 — `Event`
 
@@ -386,12 +403,20 @@ GET /api/events?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
   {
     "eventId": "a3b70dae-3a1b-48b6-a8d1-a06afcb934d1",
     "timestamp": "2026-08-11T06:47:50.261977Z",
-    "cameraId": "REST-4F-01",
+    "cameraId": "ELEV-TOP",
+    "eventCategory": "misclassification",
+    "detectionId": "a6339b38-a4a0-46a2-90b1-55cd73ba85be",
+    "trackingId": 17,
     "detectedClass": "coffeeCup",
+    "binId": "BIN-PAPER",
+    "binType": "paper",
     "isMisclassified": true,
     "confidenceScore": 0.83,
     "actionTaken": "lightAndSound",
     "imageFileId": null,
+    "overflowDuration": null,
+    "overflowThreshold": null,
+    "modelVersion": "yolo26-mvp-1",
     "notes": null
   }
 ]
@@ -446,11 +471,18 @@ GET /api/events/a3b70dae-3a1b-48b6-a8d1-a06afcb934d1
   "timestamp": "2026-08-11T01:05:53.810490Z",
   "cameraId": "ELEV-TOP",
   "eventCategory": "misclassification",
+  "detectionId": "a6339b38-a4a0-46a2-90b1-55cd73ba85be",
+  "trackingId": 17,
   "detectedClass": "plastic",
+  "binId": "BIN-PAPER",
+  "binType": "paper",
   "isMisclassified": true,
   "confidenceScore": 0.91,
   "actionTaken": "lightAndSound",
   "imageFileId": "68f2c1a4b9d3e2f1a0c5d6e7",
+  "overflowDuration": null,
+  "overflowThreshold": null,
+  "modelVersion": "yolo26-mvp-1",
   "notes": null
 }
 ```
@@ -546,7 +578,8 @@ GET /api/statistics?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
 * 모든 클래스가 항상 `labels`에 포함된다.
 * 이벤트가 없는 클래스는 `counts` 값으로 `0`을 반환한다.
 * `from`, `to`가 있으면 해당 기간의 이벤트만 집계한다.
-* `overflow` 이벤트는 `detectedClass`가 없어 이 집계(클래스별 카운트)에는 포함되지 않는다(별도 집계 여부는 TBD).
+* `overflow` 이벤트는 `detectedClass`가 없어 `labels`/`counts` 클래스별 집계에는 포함되지
+  않지만, `totalEventCount`와 `overflowCount`에는 포함된다.
 
 ### 상태 코드
 
@@ -710,12 +743,16 @@ GET /api/statistics?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
 
 `recordingId`가 없으면 404, 캡처 프레임이 없으면 400, 카테고리별 필드 또는 카메라 역할이
 잘못되면 422를 반환한다. 이벤트 생성 후 모드와 카테고리에 맞는 WebSocket 메시지를 전송한다.
+현재는 `recordingId`로 시작 세션의 카메라를 확인하지 않으므로, stop 요청의 `cameraId`가 start
+요청과 같은지는 검증하지 않는다. 또한 GIF 업로드가 `isMisclassified=false`, Cooldown,
+중복 `detectionId` 판정보다 먼저 실행되어 Event가 새로 저장되지 않아도 GridFS 파일이 생성될
+수 있다.
 
 ---
 
 ## EP-07. `WS /ws/events`
 
-관리자 웹 클라이언트가 실시간 모드 변경 및 오분류 이벤트를 수신하는 WebSocket 엔드포인트다.
+관리자 웹 클라이언트가 실시간 모드 변경, 오분류, 넘침 이벤트를 수신하는 WebSocket 엔드포인트다.
 
 ### 연결 주소
 
@@ -747,6 +784,7 @@ wss://서버주소/ws/events
 | ---------------------------- | ------------------------------------------ | -------------------------------- |
 | `MODE_CHANGED`               | `mode`, `timestamp`                        | 연결 직후 1회 또는 모드 변경 성공 시           |
 | `MISCLASSIFICATION_DETECTED` | `cameraId`, `timestamp`, `isMisclassified` | `MANAGE` 모드에서 오분류 이벤트가 실제 생성됐을 때 |
+| `BIN_OVERFLOW_DETECTED`      | `cameraId`, `timestamp`                    | `MANAGE` 모드에서 overflow 이벤트가 반환됐을 때 |
 
 ### `MODE_CHANGED` 예시
 
@@ -771,7 +809,7 @@ wss://서버주소/ws/events
 
 ### 모드별 WebSocket 동작
 
-| Mode      | 이벤트 저장 | 오분류 WebSocket 전송 |
+| Mode      | 이벤트 저장 | 이벤트 WebSocket 전송 |
 | --------- | ------ | ---------------- |
 | `MANAGE`  | 저장     | 전송               |
 | `COLLECT` | 저장     | 전송하지 않음          |
@@ -907,6 +945,7 @@ WS /ws/events
 | 상태 코드 | 상황                                      |
 | ----- | --------------------------------------- |
 | 200   | 정상 처리                                   |
+| 400   | 녹화 프레임이 없어 GIF를 생성할 수 없음(EP-09)          |
 | 404   | 해당 이벤트를 찾을 수 없음                         |
 | 422   | Body, Query 또는 Path Parameter 스키마 검증 실패 |
 | 500   | 서버 내부 처리 오류                             |
@@ -1028,12 +1067,16 @@ WebSocket 메시지:
 저장된다. 실제 탐지 서비스가 아직 없어 지금은 `debug/detection/simulateEventPipeline.py`로
 시작/종료 신호를 흉내내 검증한다.
 
-다음 사항은 아직 확정되지 않았다.
+현재 구현과 확정 설계를 구분하면 다음과 같다.
 
-* Overflow Cooldown 시간(현재 misclassification과 동일 5초로 구현, 재검토 필요)
-* Overflow 이벤트의 `actionTaken`
-* Overflow 이벤트의 RPA 처리 방식
-* Overflow 통계 응답 구조(현재 `GET /api/statistics`는 `DetectedClass` 기준이라 overflow 미포함)
+* 현재 백엔드는 overflow에 시간 Cooldown을 적용하지 않는다. 서로 다른 `detectionId`이면 연속
+  요청도 각각 저장된다.
+* 확정 설계는 `BIN_STATES.currentState`가 `NORMAL`→`FULL`로 바뀌는 순간에만 호출/저장하는
+  방식이지만, `BIN_STATES` 코드가 아직 없어 백엔드가 이 전환을 강제하지 않는다.
+* `actionTaken`은 다른 이벤트와 동일하게 `MANAGE=lightAndSound`, `COLLECT=none`으로 저장된다.
+  실제 RPA 장치 동작은 미구현이다.
+* 통계는 `overflowCount`와 `totalEventCount`에 overflow를 포함한다. 클래스별 `counts`에서는
+  제외한다.
 
 ---
 
@@ -1049,7 +1092,7 @@ In-memory 저장소를 Motor 기반 MongoDB 저장소로 교체 완료했다(`re
 | 컨테이너 Port    | `27017`                      |
 | Python 드라이버  | `motor`                      |
 | 파일 저장        | GridFS(`topMedia`/`sideMedia` 버킷), GIF |
-| 저장 대상        | 이벤트(`events` 컬렉션), 이벤트 클립(GridFS) |
+| 저장 대상        | 이벤트(`events` 컬렉션), 이벤트 클립(GridFS). `binStates`는 설계만 확정되고 미구현 |
 
 모드 상태(`services/modeService.py`)는 여전히 메모리로만 관리되어 서버 재시작 시
 `MANAGE`로 초기화된다(DB 저장 대상 아님). MongoDB 연결 후에도 외부 JSON API 필드명은
@@ -1102,12 +1145,12 @@ camelCase를 유지한다.
 | ID      | 기능                    | 현재 상태           |
 | ------- | --------------------- | --------------- |
 | EP-01   | 카메라 MJPEG 스트리밍        | 구현됨             |
-| EP-02   | 오분류 이벤트 생성            | 구현됨             |
+| EP-02   | 오분류/넘침 이벤트 생성         | 구현됨(`BIN_STATES` 전환 검증 제외) |
 | EP-03   | 이벤트 목록 및 기간 조회        | 구현됨             |
 | EP-04   | 이벤트 상세 및 404 처리       | 구현됨             |
 | EP-05   | 클래스별 통계 조회            | 구현됨             |
 | EP-06   | 관리/수거 모드 전환           | 구현됨             |
-| EP-07   | WebSocket 모드 및 오분류 알림 | 구현됨             |
+| EP-07   | WebSocket 모드·오분류·넘침 알림 | 구현됨             |
 | EP-08   | 탐지 시작 및 이벤트 녹화 시작 | 구현됨             |
 | EP-09   | 탐지 종료·GIF·이벤트 저장     | 구현됨(misclassification/overflow) |
 | PG-01   | 모니터링 페이지              | 구현됨             |
