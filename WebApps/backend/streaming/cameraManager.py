@@ -119,6 +119,8 @@ class CameraManager:
         # 않고, 아래 read() 쪽에서 파이썬 코드로 직접 타임아웃을 건다.
         command = [
             _ffmpegPath,
+            "-hide_banner",
+            "-loglevel", "warning",
             "-rtsp_transport", "tcp",
             "-i", self.source,
             "-f", "mjpeg",
@@ -137,6 +139,16 @@ class CameraManager:
                 f"[cameraManager] ffmpeg 실행 파일을 찾을 수 없음: {_ffmpegPath}"
             )
             return False
+
+        # ffmpeg는 진행 상황을 stderr에 계속 찍는데, 아무도 안 읽으면 OS 파이프
+        # 버퍼(보통 64KB)가 꽉 차서 ffmpeg 자신이 stderr 쓰기에서 멈춰버림
+        # (=스트리밍이 조용히 멈추는 원인이었음, 실제로 관측됨). 그래서 항상
+        # 백그라운드에서 계속 비워준다 — 위의 -loglevel warning은 애초에 양을
+        # 줄이는 보조 수단이고, 이 드레인이 실제 방지책.
+        stderrBuffer = bytearray()
+        stderrTask = asyncio.create_task(
+            self._drainStderr(self.process, stderrBuffer)
+        )
 
         buffer = bytearray()
         openedThisRun = False
@@ -186,21 +198,49 @@ class CameraManager:
         finally:
             self.latestFrame = None
 
-            # 연결이 한 번도 안 열렸으면(=진짜 실패) ffmpeg가 왜 실패했는지
-            # stderr 마지막 부분을 로그로 남김 — 소스 URL엔 인증정보가 있을 수
-            # 있어서 명령어 자체는 안 찍고 ffmpeg 출력만 남긴다.
-            if not openedThisRun and self.process.stderr is not None:
-                stderrTail = await self.process.stderr.read()
+            stderrTask.cancel()
 
-                if stderrTail:
-                    print(
-                        f"[cameraManager] '{self.label}' ffmpeg 실패 로그: "
-                        + stderrTail.decode(errors="replace")[-500:]
-                    )
+            try:
+                await stderrTask
+            except asyncio.CancelledError:
+                pass
+
+            # 연결이 한 번도 안 열렸으면(=진짜 실패) ffmpeg가 왜 실패했는지
+            # 드레인해둔 stderr 마지막 부분을 로그로 남김 — 소스 URL엔 인증정보가
+            # 있을 수 있어서 명령어 자체는 안 찍고 ffmpeg 출력만 남긴다.
+            if not openedThisRun and stderrBuffer:
+                print(
+                    f"[cameraManager] '{self.label}' ffmpeg 실패 로그: "
+                    + stderrBuffer.decode(errors="replace")
+                )
 
             await self._terminateProcess()
 
         return openedThisRun
+
+    async def _drainStderr(
+        self,
+        process: asyncio.subprocess.Process,
+        tailBuffer: bytearray,
+    ) -> None:
+        if process.stderr is None:
+            return
+
+        try:
+            while True:
+                chunk = await process.stderr.read(
+                    _readChunkSize
+                )
+
+                if not chunk:
+                    break
+
+                tailBuffer.extend(chunk)
+
+                if len(tailBuffer) > 2000:
+                    del tailBuffer[:len(tailBuffer) - 2000]
+        except asyncio.CancelledError:
+            pass
 
     async def _terminateProcess(self) -> None:
         if self.process is None:
