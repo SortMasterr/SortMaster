@@ -1,0 +1,32 @@
+### VSCode REST Client 확장(humao.rest-client) 필요 — 요청 위 "Send Request" 클릭
+### services/detectionService.py(임시 스텁) 검증용. .agentfiles/apiSpec.md의 EP-08/EP-09 참고
+
+@baseUrl = http://192.168.0.40:8047
+
+### 1. 녹화 시작
+# @name start
+POST {{baseUrl}}/api/detection/start
+Content-Type: application/json
+
+{
+    "cameraId": "ELEV-TOP"
+}
+
+### 2. 녹화 종료 + GIF 업로드 + 이벤트 저장 (1번 실행 후 이어서 실행)
+POST {{baseUrl}}/api/detection/stop
+Content-Type: application/json
+
+{
+    "recordingId": "{{start.response.body.recordingId}}",
+    "cameraId": "ELEV-TOP",
+    "detectionId": "{{$guid}}",
+    "binId": "BIN-PLASTIC-CAN",
+    "binType": "plasticCan",
+    "modelVersion": "yolo26-dev",
+    "detectedClass": "plastic",
+    "isMisclassified": true,
+    "confidenceScore": 0.9
+}
+
+### 3. 저장된 이벤트 목록 확인
+GET {{baseUrl}}/api/events

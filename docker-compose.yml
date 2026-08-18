@@ -28,7 +28,7 @@ services:
     # 지금은 인증 없이 기동. 팀 공유 서버(.30)에 인증을 켜려면 mongosh로 root+팀원
     # 계정을 먼저 만든 다음, 아래 주석을 해제하고 재시작할 것(architecture.md의
     # "DB 접속" 절 참고 — 계정 없이 먼저 --auth부터 켜면 아무도 로그인 못 하니 순서 반드시 지킬 것):
-    command: ["mongod", "--auth"]
+    # command: ["mongod", "--auth"]
 
   # Qwen3-VL-8B 서빙(vLLM, OpenAI 호환 API) — MVP는 안 씀(YOLO26 단독으로 감지+분류+판정
   # 완결, architecture.md의 "탐지 파이프라인" 참고). 고도화 단계에서 학습 보조용(불확실한
