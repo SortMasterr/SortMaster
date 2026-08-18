@@ -1,7 +1,6 @@
 import asyncio
 from datetime import datetime, timezone
 
-import cv2
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -268,22 +267,11 @@ async def generateMjpegFrames(
             await asyncio.sleep(0.05)
             continue
 
-        encoded, buffer = (
-            await asyncio.to_thread(
-                cv2.imencode,
-                ".jpg",
-                frame,
-            )
-        )
-
-        if not encoded:
-            continue
-
         yield (
             b"--frame\r\n"
             b"Content-Type: "
             b"image/jpeg\r\n\r\n"
-            + buffer.tobytes()
+            + frame
             + b"\r\n"
         )
 

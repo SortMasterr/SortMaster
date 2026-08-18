@@ -2,7 +2,6 @@ import asyncio
 import io
 from datetime import datetime
 
-import cv2
 from PIL import Image
 
 from repositories.mediaRepository import (
@@ -22,9 +21,7 @@ def _encodeFramesAsGif(
         )
 
     images = [
-        Image.fromarray(
-            cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        )
+        Image.open(io.BytesIO(frame)).convert("RGB")
         for frame in frames
     ]
 
