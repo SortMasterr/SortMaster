@@ -11,10 +11,14 @@
 ## 예외
 
 - 클래스명(PascalCase), 프레임워크 강제 이름(`model_config` 등)
+- Python 내부용 식별자의 선행 언더스코어는 공개 범위 표시이므로 camelCase와 별개로 허용
+  (`_buildDateQuery`, `_client` 등 `_camelCase` 형태)
 - `README.md`/`.env`/`.gitignore` 등 관례적 파일명
 - Enum 멤버 식별자(`CameraId.ELEVTOP`), 값은 `"ELEV-TOP"` 고정
 - 환경변수 키(`.env`의 `MONGO_HOST` 등)는 SCREAMING_SNAKE_CASE 유지
 - Docker 이미지/컨테이너 이름은 케밥케이스(`sortmaster-backend`) — Docker 이미지 이름은 대문자 자체가 불가능(소문자+`.`/`_`/`-`만 허용)하고, Docker 생태계 관례와도 일치
+- GPU 서버 스크립트 및 학습 파이프라인과 연동되는 모델 가중치·산출물 파일명은 Python·학습 도구 관례와 기존 연동을 우선해 snake_case 허용
+  (`best_side.pt` 등). 이름을 바꾸려면 GPU 서버 스크립트와 모든 참조 위치를 함께 변경
 
 ## 폴더 구조 (`WebApps/backend`)
 

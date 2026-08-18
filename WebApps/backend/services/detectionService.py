@@ -30,13 +30,16 @@ class DetectionService:
         self,
         recordingId: str,
         cameraId: CameraId,
+        eventCategory: EventCategory,
         detectionId: str,
         trackingId: int | None,
-        detectedClass: DetectedClass,
+        detectedClass: DetectedClass | None,
         binId: str,
         binType: BinType,
-        isMisclassified: bool,
-        confidenceScore: float,
+        isMisclassified: bool | None,
+        confidenceScore: float | None,
+        overflowDuration: float | None,
+        overflowThreshold: float | None,
         modelVersion: str,
     ) -> Event | None:
         frames, _durationSeconds = await recordingService.stop(
@@ -51,7 +54,7 @@ class DetectionService:
 
         eventCreate = EventCreate(
             cameraId=cameraId,
-            eventCategory=EventCategory.MISCLASSIFICATION,
+            eventCategory=eventCategory,
             detectionId=detectionId,
             trackingId=trackingId,
             detectedClass=detectedClass,
@@ -60,6 +63,8 @@ class DetectionService:
             isMisclassified=isMisclassified,
             confidenceScore=confidenceScore,
             imageFileId=imageFileId,
+            overflowDuration=overflowDuration,
+            overflowThreshold=overflowThreshold,
             modelVersion=modelVersion,
         )
 
