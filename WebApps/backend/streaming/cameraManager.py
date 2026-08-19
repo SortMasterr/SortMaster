@@ -12,6 +12,7 @@ _ffmpegPath = os.getenv("FFMPEG_PATH", "ffmpeg")
 _readChunkSize = 65536
 _jpegQuality = "3"  # ffmpeg -q:v 스케일: 2(최고 화질)~31(최저)
 _readTimeoutSeconds = 5.0
+_outputFps = "12"  # 소스(약 20fps)보다 낮춰서 CPU 경합 시 여유를 둠(라이브뷰엔 충분)
 
 
 class CameraManager:
@@ -125,6 +126,14 @@ class CameraManager:
             "-i", self.source,
             "-f", "mjpeg",
             "-q:v", _jpegQuality,
+            # ffmpeg는 들어오는 프레임을 하나도 안 버리고 전부 순서대로
+            # 디코딩+JPEG 재인코딩함 — 우리 파이썬 쪽 "최신 프레임만 유지" 로직은
+            # ffmpeg가 이미 내보낸 것에만 적용되지, ffmpeg 내부 처리 자체가 실시간을
+            # 못 따라가면(다른 프로세스와 CPU 경합 등) 그 지연은 우리가 손 못 댐 —
+            # 실사용 중 실제로 이렇게 지연이 누적되는 게 확인됨. 그래서 출력
+            # 프레임레이트를 소스(약 20fps)보다 낮게 제한해서 ffmpeg가 못 따라잡을
+            # 상황이 되면 인코딩 자체를 덜 하도록(=오래된 프레임을 드롭하도록) 강제.
+            "-r", _outputFps,
             "pipe:1",
         ]
 
