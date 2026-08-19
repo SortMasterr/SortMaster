@@ -66,7 +66,7 @@ docker compose up --build
 ```
 
 - `backend`(포트 8047) + `mongo`(호스트 포트 27020) 상시 기동. 로컬 웹캠을 백엔드가 직접 여는 코드는 아직 없어서 지금은 컨테이너에 카메라 디바이스 패스스루 불필요
-- 여기서 뜨는 `mongo`는 로컬 전용 별도 인스턴스 — 팀 배포 서버(`192.168.0.40`)와는 다른 DB. 팀 배포 서버를 쓰려면 `.env`의 `MONGO_HOST`를 그쪽으로 두고 compose의 `mongo` 서비스는 안 띄워도 됨(`docker compose up backend`)
+- 여기서 뜨는 `mongo`는 로컬 전용 별도 인스턴스 — 팀 배포 서버(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)와는 다른 DB. 팀 배포 서버를 쓰려면 `.env`의 `MONGO_HOST`를 그쪽으로 두고 compose의 `mongo` 서비스는 안 띄워도 됨(`docker compose up backend`)
 - 라벨링/학습(YOLO26 재학습 + Qwen3-VL-8B LoRA·QLoRA)은 평소엔 내려두고 필요할 때만:
   ```bash
   docker compose --profile training up --build training
@@ -86,24 +86,27 @@ docker compose up --build
 
 ## 현재 상태 (Mock 단계)
 
-- **영상 소스**: 구현됨. `streaming/cameraManager.py` — 카메라 1대당 독립 젯슨 나노 1대
+- **영상 소스**: 구현됨. `streaming/cameraManager.py` — 카메라 1대당 독립 라즈베리파이 1대
   구성으로, `.env`의 `CAMERA_SOURCE_<CameraId>`(예: `CAMERA_SOURCE_ELEVTOP`,
   `CAMERA_SOURCE_ELEVSIDE`)마다 별도 `CameraManager`를 관리하고 `GET /api/stream/{cameraId}`로
   MJPEG 송출(role 파라미터 없음). `ELEV-TOP`만 기본값 `0`이라 웹캠 1대짜리 로컬 개발
   환경에서 바로 동작. 나머지 지점은 미설정 시 해당 `cameraId`만 503(다른 지점엔 영향 없음).
   메인보드 입고 후엔 `CAMERA_SOURCE_<CameraId>`를 RTSP URL로 교체(코드 불변).
-  젯슨 나노 입고 전 RTSP 경로를 미리 테스트하려면 `debug/streaming/startRtspSim.py`
+  라즈베리파이 입고 전 RTSP 경로를 미리 테스트하려면 `debug/streaming/startRtspSim.py`
   참고(이 PC 웹캠 여러 대를 지점별로 할당해 RTSP 송신 흉내, 백엔드와 무관한 로컬 테스트 전용 도구).
   `CameraId`는 `ELEV-TOP`/`ELEV-SIDE`로 확정 및 코드 반영 완료 — 설치 위치는 12층
   엘리베이터 앞 쓰레기통 1개뿐이라 지점 번호가 필요 없음 — `.agentfiles/architecture.md` 참고
-- **탐지**: 아직 미착수. **MVP는 YOLO26 단독**(상시감시+투척판단+쓰레기 종류 분류까지
-  전부 엣지에서)으로 확정됐지만 코드에 통합 전(상세는 `.agentfiles/architecture.md`,
-  `.agentfiles/apiSpec.md` 참고). Qwen3-VL-8B(LLM)는 MVP 실시간 경로엔 안 쓰고 고도화
-  단계 학습 보조용(불확실한 분류 안정화/환경별 통 모양 인식 데이터 생성)으로 후순위.
+- **탐지**: 아직 미착수. **MVP는 YOLO26 단독**(상시감시+투척판단+쓰레기 종류 분류까지)으로
+  확정됐지만 코드에 통합 전(상세는 `.agentfiles/architecture.md`, `.agentfiles/apiSpec.md`
+  참고). 메인보드를 Jetson Orin Nano Super→**라즈베리파이**로 전환하면서 **YOLO26 추론
+  위치도 엣지→GPU 서버(`inference` 컨테이너, 신규)로 이관**(라즈베리파이는 캡처+RTSP
+  송신+GPIO/스피커만 담당, 추론 없음) — MVP부터 GPU 서버가 실시간 경로에 들어오는 걸로
+  뒤집힘(단, LLM은 여전히 안 씀, YOLO26만). Qwen3-VL-8B(LLM)는 MVP 실시간 경로엔 안 쓰고
+  고도화 단계 학습 보조용(불확실한 분류 안정화/환경별 통 모양 인식 데이터 생성)으로 후순위.
   트리거 조건은 손 감지 조합이 아니라 **쓰레기 감지 자체**로 변경됨 — 옆 카메라 단독으로
-  넘침 감지 시 위치 특정 없이 바로 `overflow` 판정, 위 카메라는 엣지(젯슨) YOLO26이 감지+
-  추적+분류를 전부 끝내고 `misclassification` 판정까지 완결(GPU/LLM 호출 없음, 상세는
-  `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고). 이벤트는
+  넘침 감지 시 위치 특정 없이 바로 `overflow` 판정, 위 카메라는 GPU `inference`가 감지+
+  추적+분류를 끝내면 로컬 백엔드가 통 상태/쿨다운과 종합해 `misclassification` 판정을
+  완결(상세는 `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고). 이벤트는
   `misclassification`(투기)/`overflow`(넘침) 두 카테고리로 나뉨(스키마에 반영 완료,
   `schemas/event.py`의 `EventCategory`). 실제 트리거는 아직 없어서
   `debug/detection/simulateEventPipeline.py`로 시작/종료 신호를 흉내내 파이프라인만
@@ -128,42 +131,59 @@ docker compose up --build
 ### 배포 전략
 
 > **MVP 배포 위치 재조정(확정)** — 과거 "백엔드+DB+LLM 추론+학습을 GPU 서버에 전부 통합
-> 배포" 결정을 뒤집음. **백엔드+DB는 로컬(`192.168.0.40`, 마지막 옥텟 유동적)**에서 구동하고,
-> **GPU 서버는 YOLO26 학습만** MVP 범위(GPU 서버는 타 팀과 공유하는 자원이라 부담 경감
-> 목적). **MVP는 LLM(Qwen3-VL-8B)을 아예 안 씀** — YOLO26이 쓰레기 종류 분류까지 전담하게
-> 되면서 LLM은 고도화 단계 학습 보조용으로 후순위. 상세는 `.agentfiles/architecture.md` 참고.
+> 배포" 결정을 뒤집음. **백엔드+DB는 로컬(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)**에서 구동하고,
+> **GPU 서버는 YOLO26 학습+추론** 둘 다 MVP 범위(GPU 서버는 타 팀과 공유하는 자원이라 부담
+> 경감 목적). **MVP는 LLM(Qwen3-VL-8B)을 아예 안 씀** — YOLO26이 쓰레기 종류 분류까지 전담하게
+> 되면서 LLM은 고도화 단계 학습 보조용으로 후순위. **메인보드를 Jetson Orin Nano Super→
+> 라즈베리파이로 전환하며 YOLO26 추론도 엣지→GPU 서버로 이관**(라즈베리파이는 추론 성능
+> 부족) — 이 때문에 "MVP는 GPU 실시간 호출 없음"이었던 과거 전제가 깨지고, MVP부터 GPU
+> 서버(`inference`)가 실시간 경로에 포함됨. 상세는 `.agentfiles/architecture.md` 참고.
 
 - **개발**: Windows 노트북에서 Docker로 진행(로컬 웹캠 테스트)
-- **배포**: `backend`+`mongo`는 로컬 `192.168.0.40`에서 `docker compose up backend mongo`로
-  구동. `training`(학습)만 학원 GPU 서버(Linux, **NVIDIA L40S 4장 중 할당받은 1장**)로
-  이전해서 `docker compose --profile training up`로 구동(`llm`은 고도화 단계 전까지 안 씀)
+- **배포**: `backend`+`mongo`는 로컬 `<LOCAL_BACKEND_IP>`(실제 값은 Notion 참고)에서 `docker compose up backend mongo`로
+  구동. `training`(학습)+`inference`(YOLO26 상시 추론, 신규)를 학원 GPU 서버(Linux,
+  **NVIDIA L40S 4장 중 할당받은 1장**)로 이전해서 구동 — `training`은
+  `docker compose --profile training up`(필요할 때만), `inference`는
+  `docker compose up inference`(MVP부터 상시 기동). `llm`은 고도화 단계 전까지 안 씀
 - 다른 팀들과 서버를 공유하기 때문에 4장 중 **1장만 할당**받아 사용. **YOLO26 상시 추론은
-  GPU가 아니라 엣지(젯슨 Orin Nano Super)가 담당**(MVP는 GPU/LLM 호출 자체가 없음,
+  GPU 서버 `inference` 컨테이너가 담당**(라즈베리파이는 추론 없이 캡처+RTSP+GPIO만,
   `.agentfiles/architecture.md` 참고). GPU 패스스루는 `nvidia-docker`(NVIDIA Container Toolkit) 필요.
 - 로컬(웹캠)과 GPU 서버 배포(RTSP 수신/샘플 영상) 간 영상 소스는 `.env`의
   `CAMERA_SOURCE` 값만 다르게 관리(코드 변경 없음).
 
-### 젯슨 나노(메인보드) 엣지 코드
+### 라즈베리파이(메인보드) 엣지 코드
 
-메인보드 입고 전까지 별도 진행 중 (`webcamViewer.py` 등, 백엔드와는 다른 코드베이스):
+메인보드 입고 전까지 별도 진행 중 (`webcamViewer.py` 등, 백엔드와는 다른 코드베이스). Jetson
+Orin Nano Super 발주는 취소, **라즈베리파이로 확정 대체**(YOLO26 추론을 GPU 서버로 이관하면서
+메인보드엔 고성능 추론이 더 이상 필요 없어짐 — 상세는 `.agentfiles/architecture.md`의
+"탐지 파이프라인"/"배포 전략" 참고):
 
 1. **웹캠 캡처 → RTSP 송신**: 1단계(웹캠 뷰어) 노트북에서 테스트 완료. 다음 단계로
-   GStreamer 기반 RTSP 송신 서버로 확장 예정 (JetPack 기본 포함).
-2. **중앙 서버 알림 신호 수신 → GPIO 트리거**: 아직 설계 전. 현재 `RPAs/`는
-   중앙 백엔드 안에서 Mock 처리 중인 자리만 잡아둔 상태 — 실제로는 젯슨 나노 쪽
-   리스너로 옮겨야 할 가능성 높음. 신호 전달 방식(MQTT/HTTP/WebSocket)은 TBD.
+   GStreamer 또는 ffmpeg 기반 RTSP 송신 서버로 확장 예정. RTSP는 로컬 백엔드(LAN)와
+   GPU 서버(SSH 역터널) 양쪽에서 동시에 수신
+2. **중앙 서버 알림 신호 수신 → GPIO/스피커 트리거**: 아직 설계 전. 현재 `RPAs/`는
+   중앙 백엔드 안에서 Mock 처리 중인 자리만 잡아둔 상태 — 실제로는 라즈베리파이 쪽
+   리스너로 옮겨야 할 가능성 높음(GPIO 릴레이로 전구, USB/오디오잭으로 스피커).
+   신호 전달 방식(MQTT/HTTP/WebSocket)은 TBD.
+3. **YOLO26 추론은 여기 없음** — GPU 서버 `inference` 컨테이너가 전담(아래 "메인보드 입고
+   후 개발할 부분" 참고)
 
 ## 메인보드 입고 후 개발할 부분
 
 1. ~~`streaming/cameraManager.py`~~ **완료** — 카메라 1대당 독립 지점(`CameraId`), `/api/stream/{cameraId}`
    MJPEG 송출 구현됨. 메인보드 입고 후엔 `CAMERA_SOURCE_<CameraId>`를
    RTSP URL로 교체만 하면 됨(코드 변경 불필요). 저장/DB 연동은 아래 항목들이 선행돼야 함
-2. `services/detectionService.py` — 아직 미작성. **MVP는 YOLO26 단독**(상시감시+투척판단+
-   쓰레기 종류 분류까지) 파이프라인으로 구현 예정(Qwen3-VL-8B는 고도화 단계 전용, 코드에
-   안 들어감). 완성되면 이벤트 시작/종료 시점마다
-   아래 3~5번 파이프라인(`recordingService.start`/`stop` → `mediaService.saveClipAsGif`
-   → `eventService.createEvent`)을 그대로 호출하면 됨(순서는
-   `debug/detection/simulateEventPipeline.py` 참고)
+2. `services/detectionService.py` — **MVP 시연용 임시 스텁만 존재**(`debug/detection/`의
+   스크립트로 수동 HTTP 요청을 보내 DB에 이벤트를 채워 넣는 용도, 실제 탐지 연동 아님).
+   **MVP는 YOLO26 단독**(상시감시+투척판단+쓰레기 종류 분류까지)이지만 **GPU 서버
+   `inference` 컨테이너에서 돎**(라즈베리파이 엣지 아님, `.agentfiles/architecture.md`의
+   "탐지 파이프라인" 참고) — 이 서비스는 앞으로 GPU `inference`가 보내는 감지 시작/판정
+   완료 API 신호를 받아 통 상태/쿨다운과 종합해서 최종 판정하는 역할로 교체될 예정
+   (Qwen3-VL-8B는 고도화 단계 전용, 코드에 안 들어감). 지금 스텁도 이벤트 시작/종료
+   시점마다 아래 3~5번 파이프라인(`recordingService.start`/`stop` →
+   `mediaService.saveClipAsGif` → `eventService.createEvent`)을 그대로 호출하므로, GPU
+   `inference` 연동 시 진입점만 바꾸면 됨(수동 검증은 `debug/detection/simulateEventPipeline.py`
+   또는 `testDetectionApi.http` 참고)
 3. ~~**이벤트 트리거 녹화**~~ **완료** — `services/recordingService.py`. 탐지 서비스가
    아직 없어서 고정 10초 대신, 시작/종료 두 신호(향후 탐지 파이프라인이 전달) 사이의
    실제 구간을 캡처하는 구조로 미리 구현. 2번이 없는 지금은 디버그 스크립트로 신호를
@@ -172,8 +192,8 @@ docker compose up --build
    `repositories/mediaRepository.py`(GridFS 저장), 파일 ID 발급까지 구현됨
 5. ~~`repositories/eventRepository.py`~~ **완료** — motor 기반 MongoDB 연동으로 교체,
    4번의 GridFS 파일 ID를 `imageFileId`로 같이 저장
-6. `services/rpaService.py` — 아직 미작성. 실제 GPIO/HW 연동(`RPAs/` 참고, 젯슨
-   나노 쪽으로 이전 검토 중)
+6. `services/rpaService.py` — 아직 미작성. 실제 GPIO/HW 연동(`RPAs/` 참고, 라즈베리파이
+   쪽으로 이전 검토 중)
 
 ## TBD (팀 논의 필요)
 
@@ -182,4 +202,5 @@ docker compose up --build
 - MongoDB 버전, Docker/Compose 버전 (개발 환경 표 참고)
 - 통계 대시보드 세부 지표
 - 안면인식(투기자 식별) 포함 여부 — 기본 제외
-- 젯슨 나노 ↔ 중앙 서버 알림 신호 전달 방식(MQTT/HTTP/WebSocket)
+- 라즈베리파이↔중앙 백엔드(RPA 트리거)/GPU 서버 `inference`↔중앙 백엔드(판정 결과) 신호
+  전달 방식(MQTT/HTTP/WebSocket, 둘 다 미정)

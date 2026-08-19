@@ -133,7 +133,7 @@ def _envKeyForCameraId(cameraId: str) -> str:
     return "CAMERA_SOURCE_" + cameraId.replace("-", "").upper()
 
 
-# 지점(CameraId)당 카메라 1대, 지점마다 독립된 젯슨 나노 1개(architecture.md 참고).
+# 지점(CameraId)당 카메라 1대, 지점마다 독립된 라즈베리파이 1개(architecture.md 참고).
 # CAMERA_SOURCE_<ID>가 .env에 없으면 해당 지점은 미설정 상태로 남고,
 # 스트림 요청 시 503으로 처리됨(일부 지점만 연결된 개발 환경 대응).
 # ELEV-TOP만 기본값 "0"으로 둬서, 로컬 웹캠 1대짜리 개발 환경에서 바로 동작하게 함.
