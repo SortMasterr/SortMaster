@@ -66,7 +66,7 @@ docker compose up --build
 ```
 
 - `backend`(포트 8047) + `mongo`(호스트 포트 27020) 상시 기동. 로컬 웹캠을 백엔드가 직접 여는 코드는 아직 없어서 지금은 컨테이너에 카메라 디바이스 패스스루 불필요
-- 여기서 뜨는 `mongo`는 로컬 전용 별도 인스턴스 — 팀 배포 서버(`192.168.0.40`)와는 다른 DB. 팀 배포 서버를 쓰려면 `.env`의 `MONGO_HOST`를 그쪽으로 두고 compose의 `mongo` 서비스는 안 띄워도 됨(`docker compose up backend`)
+- 여기서 뜨는 `mongo`는 로컬 전용 별도 인스턴스 — 팀 배포 서버(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)와는 다른 DB. 팀 배포 서버를 쓰려면 `.env`의 `MONGO_HOST`를 그쪽으로 두고 compose의 `mongo` 서비스는 안 띄워도 됨(`docker compose up backend`)
 - 라벨링/학습(YOLO26 재학습 + Qwen3-VL-8B LoRA·QLoRA)은 평소엔 내려두고 필요할 때만:
   ```bash
   docker compose --profile training up --build training
@@ -131,7 +131,7 @@ docker compose up --build
 ### 배포 전략
 
 > **MVP 배포 위치 재조정(확정)** — 과거 "백엔드+DB+LLM 추론+학습을 GPU 서버에 전부 통합
-> 배포" 결정을 뒤집음. **백엔드+DB는 로컬(`192.168.0.40`, 마지막 옥텟 유동적)**에서 구동하고,
+> 배포" 결정을 뒤집음. **백엔드+DB는 로컬(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)**에서 구동하고,
 > **GPU 서버는 YOLO26 학습+추론** 둘 다 MVP 범위(GPU 서버는 타 팀과 공유하는 자원이라 부담
 > 경감 목적). **MVP는 LLM(Qwen3-VL-8B)을 아예 안 씀** — YOLO26이 쓰레기 종류 분류까지 전담하게
 > 되면서 LLM은 고도화 단계 학습 보조용으로 후순위. **메인보드를 Jetson Orin Nano Super→
@@ -140,7 +140,7 @@ docker compose up --build
 > 서버(`inference`)가 실시간 경로에 포함됨. 상세는 `.agentfiles/architecture.md` 참고.
 
 - **개발**: Windows 노트북에서 Docker로 진행(로컬 웹캠 테스트)
-- **배포**: `backend`+`mongo`는 로컬 `192.168.0.40`에서 `docker compose up backend mongo`로
+- **배포**: `backend`+`mongo`는 로컬 `<LOCAL_BACKEND_IP>`(실제 값은 Notion 참고)에서 `docker compose up backend mongo`로
   구동. `training`(학습)+`inference`(YOLO26 상시 추론, 신규)를 학원 GPU 서버(Linux,
   **NVIDIA L40S 4장 중 할당받은 1장**)로 이전해서 구동 — `training`은
   `docker compose --profile training up`(필요할 때만), `inference`는

@@ -7,7 +7,7 @@ GPU 서버(`e8000`, 학교 공용, 다른 팀·수강생과 공유) 운영 실�
 
 ## 서버 특성
 
-- `ssh -p 2222 <계정>@116.42.115.24` — 포트포워딩은 2222만 열려있음(관리자 권한 없어 추가 불가).
+- `ssh -p 2222 <계정>@<GPU_SERVER_IP>`(실제 IP는 Notion 참고) — 포트포워딩은 2222만 열려있음(관리자 권한 없어 추가 불가).
   다른 서비스는 SSH 터널로 우회
 - Docker는 기본 **rootful 데몬을 전원이 공유**(`docker ps -a`에 남 컨테이너까지 보임) — 이름/포트
   충돌 방지 위해 계정별로 **rootless Docker** 사용
@@ -75,11 +75,11 @@ docker info | grep -i rootless      # 값 나오면 성공
 
 ```bash
 # GPU 서버 서비스를 노트북/로컬 백엔드에서 보기(-L). 8100(llm)은 고도화 단계 전까지 불필요
-ssh -p 2222 -L 8899:localhost:8899 -L 8100:localhost:8100 soma@116.42.115.24
+ssh -p 2222 -L 8899:localhost:8899 -L 8100:localhost:8100 soma@<GPU_SERVER_IP>
 # 노트북/로컬 DB+카메라를 GPU 서버로 보내기(-R, 반대 방향). 27020은 로컬 MongoDB(학습용
 # 원본 이미지 조회, MVP부터 필요), 8554/8555는 ELEV-TOP/ELEV-SIDE 각 라즈베리파이의 RTSP
 # (MVP부터 GPU `inference` 상시 추론에 필수 — training 테스트용이 아니라 실서비스 경로)
-ssh -p 2222 -R 27020:localhost:27020 -R 8554:localhost:8554 -R 8555:localhost:8555 soma@116.42.115.24
+ssh -p 2222 -R 27020:localhost:27020 -R 8554:localhost:8554 -R 8555:localhost:8555 soma@<GPU_SERVER_IP>
 ```
 `-R`로 받은 스트림은 컨테이너 안에서 호스트의 `localhost`에 직접 못 닿으므로, GPU 서버의
 `inference`/`training` 서비스에도 `backend`와 동일하게

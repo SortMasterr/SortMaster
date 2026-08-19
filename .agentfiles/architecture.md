@@ -114,7 +114,7 @@ Qwen3-VL-8B는 MVP 실시간 추론 경로에 없음 — **학습/데이터 준�
 > 파이프라인" 참고
 
 - 개발: Windows+Docker, 로컬 웹캠 테스트(기존과 동일)
-- **배포**: `backend`+`mongo`는 로컬 `192.168.0.40`(확정, 단 마지막 옥텟은 유동적일 수 있음)에서
+- **배포**: `backend`+`mongo`는 로컬 `<LOCAL_BACKEND_IP>`(확정, 실제 값은 Notion 참고)에서
   `docker compose up backend mongo`로 실행. `training`/`inference`는 GPU 서버로 이전해서
   `training`은 `docker compose --profile training up`(학습, 필요할 때만), `inference`는
   `docker compose up inference`(YOLO26 상시 추론, MVP부터 상시 기동)로 실행. `llm`(vLLM)은
@@ -129,7 +129,7 @@ Qwen3-VL-8B는 MVP 실시간 추론 경로에 없음 — **학습/데이터 준�
   관리자 웹 실시간 송출에 씀(`cameraManager.py` 변경 불필요, 라즈베리파이의 RTSP 서버 하나에
   클라이언트 2곳이 붙는 구조)
 - **백엔드(로컬) → LLM(GPU 서버) 연결은 MVP엔 여전히 불필요** — 고도화 단계에서 `llm` 서비스를
-  쓰게 되면 그때 SSH 터널(예: `ssh -p 2222 -L 8100:localhost:8100 soma@116.42.115.24`)을 상시
+  쓰게 되면 그때 SSH 터널(예: `ssh -p 2222 -L 8100:localhost:8100 soma@<GPU_SERVER_IP>`)을 상시
   유지해야 함(안정성 확보 방법은 그때 검토)
 - **`training`(GPU 서버) → MongoDB(로컬) 연결은 MVP부터 필요** — 학습용 원본 이미지를
   로컬 GridFS에서 그대로 가져다 쓰기로 확정(위 "이벤트 적재" 참고)해서, 학습 돌릴 때마다
@@ -206,7 +206,7 @@ Qwen3-VL-8B는 MVP 실시간 추론 경로에 없음 — **학습/데이터 준�
   추가 불필요). 순수 저장 구조 관리 편의 목적, 보관정책 차이는 없음(`EVENT` 컬렉션 자체는
   카메라별로 안 나누고 하나로 유지 — 상세는 `Docs/ERD.md` 참고)
 - **학습용 원본 이미지는 로컬 GridFS 재사용으로 확정**(GPU 서버 로컬 디스크 축적 방식은 기각) —
-  `training`(GPU 서버)이 학습 때마다 로컬(`192.168.0.40`) GridFS에 네트워크로 직접 접속.
+  `training`(GPU 서버)이 학습 때마다 로컬(`<LOCAL_BACKEND_IP>`) GridFS에 네트워크로 직접 접속.
   역방향 SSH 터널 필요(아래 "배포 전략" 참고)
 
 ## Event Flow
@@ -228,11 +228,11 @@ Detect → Create Event → Save Event → Check mode
 
 > ⚠️ **MongoDB를 GPU 서버(`e8000`)로 이전했던 최근 작업은 이번 "백엔드+DB는 로컬" 재조정으로
 > 보류됨** — GPU 서버 `mongo` 컨테이너에 만들어둔 `root`+`user01`~`05` 계정·데이터는 당장은
-> 안 쓰임(나중에 재활용할 수도 있어 지우진 않음). **"로컬" 호스트는 `192.168.0.40`으로 확정**
-> (마지막 옥텟은 유동적일 수 있음) — 과거 `192.168.0.30`(팀 공유 서버)과는 별개.
+> 안 쓰임(나중에 재활용할 수도 있어 지우진 않음). **"로컬" 호스트는 `<LOCAL_BACKEND_IP>`로 확정**
+> (실제 값은 Notion 참고) — 과거 `<LEGACY_SHARED_SERVER_IP>`(팀 공유 서버)와는 별개.
 
 - `.env`의 `MONGO_HOST`/`DB_PORT`/`DB_USER`/`DB_PASSWORD`를 팀원마다 다르게 설정
-  - **팀 배포(확정)**: `MONGO_HOST=192.168.0.40`(마지막 옥타드는 유동적)
+  - **팀 배포(확정)**: `MONGO_HOST=<LOCAL_BACKEND_IP>`(실제 값은 Notion 참고)
   - 개인 로컬 개발용: `MONGO_HOST=localhost`
 - `infra/checkEnv.py`, `debug/db/testDbConnection.py`, `debug/db/testCrud.py` 세 스크립트가 `.env` 키 공유 — 값 다르면 결과 엇갈림
 - 디버그 스크립트는 Atlas → 로컬/자체 Docker로 전환(`mongodb+srv://` → `mongodb://`+포트)

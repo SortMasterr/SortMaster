@@ -96,7 +96,7 @@ erDiagram
 - **통계(`GET /api/statistics`)**: 저장 없이 매 요청마다 `EVENT`에서 온디맨드 집계 — 별도 엔티티 아님. `overflow`는 `detectedClass`별 집계에 안 섞고(애초에 `detectedClass`가 없음), `overflowCount` 같은 별도 필드로 분리 집계(확정 — 성격이 다른 카테고리를 같은 막대그래프에 억지로 합치면 오히려 헷갈림).
 - **SystemState.mode**(`MANAGE`/`COLLECT`): 전역 상태로만 언급되고 영속화 계층(DB/파일) 명시 없어 ERD에서 제외.
 - 탐지 모델(YOLO26=엣지 추론, Qwen3-VL-8B=고도화 단계 GPU 서버 학습 보조) 자체는 DB에 영속화되는 대상이 아니라 ERD 범위 밖.
-- **DB 실행 위치**: MongoDB는 **로컬**(`192.168.0.40`)에서 `backend`와 같이 구동(MVP 배포
+- **DB 실행 위치**: MongoDB는 **로컬**(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)에서 `backend`와 같이 구동(MVP 배포
   위치 재조정 확정 — GPU 서버로 이전했던 건 보류됨, `.agentfiles/architecture.md` 참고).
   `training`(GPU 서버)이 학습용 이미지를 가져올 때만 역방향 SSH 터널로 이 DB에 접속 —
   ERD의 엔티티 구조 자체엔 영향 없음.

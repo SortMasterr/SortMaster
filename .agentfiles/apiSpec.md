@@ -1,6 +1,6 @@
 # apiSpec.md
 
-v0.1(MVP), 구현 기준일 2026-08-18. Base URL `http://localhost:8047`(배포 시 로컬 배포 서버 `192.168.0.40:8047` — 백엔드는 GPU 서버가 아니라 로컬에서 구동, `architecture.md` 참고). JSON camelCase. 인증 없음(내부망).
+v0.1(MVP), 구현 기준일 2026-08-18. Base URL `http://localhost:8047`(배포 시 로컬 배포 서버 `<LOCAL_BACKEND_IP>:8047`, 실제 IP는 Notion 참고 — 백엔드는 GPU 서버가 아니라 로컬에서 구동, `architecture.md` 참고). JSON camelCase. 인증 없음(내부망).
 
 새 엔드포인트 추가 시 이 문서 형식(EP-번호, 표) 그대로 유지.
 

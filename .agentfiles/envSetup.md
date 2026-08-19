@@ -20,7 +20,7 @@
 
 ## DB 접속 대상 (.env)
 
-- `MONGO_HOST=192.168.0.40` → 팀 배포 서버(로컬, 확정 — 인증 필요, `DB_USER`/`DB_PASSWORD`를
+- `MONGO_HOST=<LOCAL_BACKEND_IP>`(실제 값은 Notion 참고) → 팀 배포 서버(로컬, 확정 — 인증 필요, `DB_USER`/`DB_PASSWORD`를
   배정받은 `user01`~`user05` 계정으로 채울 것 — 계정 생성/관리는 `architecture.md`의 "DB 접속" 절 참고)
 - `MONGO_HOST=localhost` → 로컬 Docker(`my-mongo`, 무인증이면 `DB_USER`/`DB_PASSWORD` 비워둠)
 - checkEnv.py/testDbConnection.py/testCrud.py 세 스크립트가 `.env` 키 공유 — 값 다르면 결과 엇갈림

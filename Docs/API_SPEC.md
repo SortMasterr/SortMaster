@@ -3,7 +3,7 @@
 > **버전**: v0.1 MVP / MongoDB(motor) 연동
 > **기준일**: 2026-08-18
 > **Base URL**: `http://localhost:8047`
-> **배포 환경**: 로컬 배포 서버 `192.168.0.40:8047`로 대체 예정(백엔드는 GPU 서버가 아니라
+> **배포 환경**: 로컬 배포 서버 `<LOCAL_BACKEND_IP>:8047`(실제 IP는 Notion 참고)로 대체 예정(백엔드는 GPU 서버가 아니라
 > 로컬에서 구동 — `.agentfiles/architecture.md` 참고)
 > **Swagger UI**: `http://localhost:8047/docs`
 > **OpenAPI JSON**: `http://localhost:8047/openapi.json`
@@ -78,7 +78,7 @@
 * **처리 위치**
 
   * MVP는 탐지·분류·판정 전부 **엣지(젯슨)에서 처리**, GPU 서버는 YOLO26 학습(`training`)만 담당
-  * 백엔드+DB는 로컬(`192.168.0.40`)에서 구동, GPU 서버가 아님
+  * 백엔드+DB는 로컬(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)에서 구동, GPU 서버가 아님
   * 젯슨 나노는 영상 캡처, RTSP 송신, GPIO 알림 수신에 더해 **YOLO26 추론까지** 담당
 
 자세한 설계는 `.agentfiles/architecture.md`를 참고한다.

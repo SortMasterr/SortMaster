@@ -41,13 +41,13 @@
   인덱스, 중복 저장 방지), `trackingId`(YOLO26 추적 ID, 디버깅용, 전역 유니크 아님),
   `modelVersion`(재학습 이후 이벤트 비교용). 상세는 `Docs/ERD.md` 참고
 - **MVP 배포 위치 재조정** → 과거 "백엔드+DB+LLM 추론+학습을 GPU 서버 안에 전부 통합
-  배포" 결정을 뒤집음. **백엔드+DB는 로컬(`192.168.0.40`, 마지막 옥텟 유동적)**, **GPU
+  배포" 결정을 뒤집음. **백엔드+DB는 로컬(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)**, **GPU
   서버는 YOLO26 학습(`training`)만** MVP 범위(`llm`은 고도화 단계 전까지 기동 안 함). 이유:
   GPU 서버는 타 팀과 공유하는 자원이라 부담을 줄이고, 백엔드/DB는 원래도 GPU를 안 써서
   로컬에 둬도 기능상 문제없음. GPU 서버에 이미 만들어둔 MongoDB 계정(`root`/`user01`~`05`)은
   당장 안 쓰이지만 보존
 - **학습용 원본 이미지는 로컬 GridFS 재사용으로 확정** → GPU 서버 로컬 디스크에 별도로
-  누적하는 방식은 기각. `training`(GPU 서버)이 학습마다 로컬(`192.168.0.40`) GridFS에
+  누적하는 방식은 기각. `training`(GPU 서버)이 학습마다 로컬(`<LOCAL_BACKEND_IP>`) GridFS에
   네트워크로 직접 접속 — 역방향 SSH 터널이 MVP부터 필요(`architecture.md`의 "배포 전략" 참고)
 - **`binType`은 `plasticCan` 유지, `DetectedClass`에 `can` 추가** → 물리 통은 캔·플라스틱을
   같이 받지만 AI는 이미 둘을 별도 클래스로 학습 중이라, `binType` 값을 통일하는 대신
@@ -58,6 +58,13 @@
   `binType`(4종)에 다대일로 완전히 매핑되는 닫힌 집합이 되어, "매핑 없는 값" 예외 처리
   자체가 필요 없어짐(예전에 검토했던 "mixed/uncertain은 매핑 없어서 자동 오분류" 로직도
   같이 폐기 — 애초에 그런 값이 안 나옴)
+- **문서에 실제 서버 IP(`192.168.0.40`/`192.168.0.30`/`116.42.115.24`)가 여러 커밋에 걸쳐
+  평문으로 올라간 것 발견 → 플레이스홀더로 마스킹** → 레포가 public이라 이미 push된 과거
+  커밋(`a5606c1`/`29a427f`/`82c74b9` 등, `origin/dev`/`origin/feature/rtsp-streaming-hardening`)
+  에는 여전히 남아있음(history rewrite는 팀 조율 부담이 커서 일단 보류, 프로젝트 종료 시점에
+  한 번에 정리하거나 그때 private 전환 검토). 앞으로는 문서에 실값 대신 `<GPU_SERVER_IP>`/
+  `<LOCAL_BACKEND_IP>` 같은 플레이스홀더만 쓰기로 확정 — 상세 규칙은 `CLAUDE.md`의 "민감정보
+  처리" 절 참고
 - **메인보드: Jetson Orin Nano Super → 라즈베리파이로 최종 전환, YOLO26 추론도 엣지→GPU
   서버로 이관** → Orin Nano Super 발주 자체는 확정됐었으나, 실제 메인보드 용도가 "YOLO26
   엣지 상시 추론"이었던 게 라즈베리파이로는 성능상 불가능해져서 통째로 재설계. 라즈베리
