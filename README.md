@@ -84,7 +84,11 @@ docker compose up --build
   **주의**: JupyterLab은 진짜 멀티유저(JupyterHub)가 아니라 커널 하나를 공유하는
   구조라, 팀원 여러 명이 동시에 같은 셀을 실행하면 충돌할 수 있음 — 번갈아 쓰는 걸 권장
 
-## 현재 상태 (Mock 단계)
+## 현재 상태 (고도화 진행 중)
+
+> MVP 데모(수동 HTTP 스텁으로 이벤트 플로우 시연)는 끝났고, 지금은 라즈베리파이/GPU
+> `inference` 실제 하드웨어·소프트웨어 통합과 LLM 자동 라벨링 검증 등을 진행하는 고도화
+> 단계. 아래 "아직 미착수"/TBD 표시는 실제 구현 상태 그대로임(데모 종료 ≠ 구현 완료).
 
 - **영상 소스**: 구현됨. `streaming/cameraManager.py` — 카메라 1대당 독립 라즈베리파이 1대
   구성으로, `.env`의 `CAMERA_SOURCE_<CameraId>`(예: `CAMERA_SOURCE_ELEVTOP`,
@@ -96,17 +100,19 @@ docker compose up --build
   참고(이 PC 웹캠 여러 대를 지점별로 할당해 RTSP 송신 흉내, 백엔드와 무관한 로컬 테스트 전용 도구).
   `CameraId`는 `ELEV-TOP`/`ELEV-SIDE`로 확정 및 코드 반영 완료 — 설치 위치는 12층
   엘리베이터 앞 쓰레기통 1개뿐이라 지점 번호가 필요 없음 — `.agentfiles/architecture.md` 참고
-- **탐지**: 아직 미착수. **MVP는 YOLO26 단독**(상시감시+투척판단+쓰레기 종류 분류까지)으로
-  확정됐지만 코드에 통합 전(상세는 `.agentfiles/architecture.md`, `.agentfiles/apiSpec.md`
-  참고). 메인보드를 Jetson Orin Nano Super→**라즈베리파이**로 전환하면서 **YOLO26 추론
-  위치도 엣지→GPU 서버(`inference` 컨테이너, 신규)로 이관**(라즈베리파이는 캡처+RTSP
-  송신+GPIO/스피커만 담당, 추론 없음) — MVP부터 GPU 서버가 실시간 경로에 들어오는 걸로
-  뒤집힘(단, LLM은 여전히 안 씀, YOLO26만). Qwen3-VL-8B(LLM)는 MVP 실시간 경로엔 안 쓰고
-  고도화 단계 학습 보조용(불확실한 분류 안정화/환경별 통 모양 인식 데이터 생성)으로 후순위.
-  트리거 조건은 손 감지 조합이 아니라 **쓰레기 감지 자체**로 변경됨 — 옆 카메라 단독으로
-  넘침 감지 시 위치 특정 없이 바로 `overflow` 판정, 위 카메라는 GPU `inference`가 감지+
-  추적+분류를 끝내면 로컬 백엔드가 통 상태/쿨다운과 종합해 `misclassification` 판정을
-  완결(상세는 `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고). 이벤트는
+- **탐지**: 아직 미착수(수동 HTTP 스텁으로만 검증 중). **TOP은 YOLO26**(상시감시+투척판단+
+  쓰레기 종류 분류까지), **SIDE는 룰 베이스**(딥러닝 모델 아님)로 역할이 나뉨(상세는
+  `.agentfiles/architecture.md`, `.agentfiles/apiSpec.md` 참고). 메인보드를 Jetson Orin
+  Nano Super→**라즈베리파이**로 전환하면서 **TOP의 YOLO26 추론 위치도 엣지→GPU 서버
+  (`inference` 컨테이너, 신규)로 이관**(라즈베리파이는 캡처+RTSP 송신+GPIO/스피커만 담당,
+  추론 없음). **SIDE는 GPU 서버에 아예 관여하지 않고 로컬 백엔드가 룰 베이스로 직접 판정**.
+  Qwen3-VL-8B(LLM)는 실시간 경로엔 안 쓰고 학습 준비 단계의 자동 라벨링 검증에 **이미
+  사용 중**(베이스 모델+프롬프트, 파인튜닝은 필요성 확인되면 착수 — 통 모양 인식 데이터
+  생성은 아직 미착수). 트리거 조건은 손 감지 조합이 아니라 **쓰레기 감지 자체**로 변경됨 —
+  SIDE는 로컬 백엔드가 넘침 감지 시 위치 특정 없이 바로 `overflow` 판정, TOP은 GPU
+  `inference`가 감지+추적+분류를 끝내면 로컬 백엔드가 통 상태/쿨다운과 종합해
+  `misclassification` 판정을 완결(상세는 `.agentfiles/architecture.md`의 "탐지 파이프라인"
+  참고). 이벤트는
   `misclassification`(투기)/`overflow`(넘침) 두 카테고리로 나뉨(스키마에 반영 완료,
   `schemas/event.py`의 `EventCategory`). 실제 트리거는 아직 없어서
   `debug/detection/simulateEventPipeline.py`로 시작/종료 신호를 흉내내 파이프라인만
@@ -130,24 +136,24 @@ docker compose up --build
 
 ### 배포 전략
 
-> **MVP 배포 위치 재조정(확정)** — 과거 "백엔드+DB+LLM 추론+학습을 GPU 서버에 전부 통합
-> 배포" 결정을 뒤집음. **백엔드+DB는 로컬(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)**에서 구동하고,
-> **GPU 서버는 YOLO26 학습+추론** 둘 다 MVP 범위(GPU 서버는 타 팀과 공유하는 자원이라 부담
-> 경감 목적). **MVP는 LLM(Qwen3-VL-8B)을 아예 안 씀** — YOLO26이 쓰레기 종류 분류까지 전담하게
-> 되면서 LLM은 고도화 단계 학습 보조용으로 후순위. **메인보드를 Jetson Orin Nano Super→
-> 라즈베리파이로 전환하며 YOLO26 추론도 엣지→GPU 서버로 이관**(라즈베리파이는 추론 성능
-> 부족) — 이 때문에 "MVP는 GPU 실시간 호출 없음"이었던 과거 전제가 깨지고, MVP부터 GPU
-> 서버(`inference`)가 실시간 경로에 포함됨. 상세는 `.agentfiles/architecture.md` 참고.
+> **배포 위치(확정)** — 과거 "백엔드+DB+LLM 추론+학습을 GPU 서버에 전부 통합 배포" 결정을
+> 뒤집음. **백엔드+DB는 로컬(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)**에서 구동하고,
+> **GPU 서버는 YOLO26 학습+추론(TOP)+LLM 자동 라벨링 검증** 담당(GPU 서버는 타 팀과 공유하는
+> 자원이라 부담 경감 목적). LLM은 실시간 탐지 경로엔 여전히 안 씀 — 학습 준비 단계 검증용으로만
+> 이미 사용 중. **메인보드를 Jetson Orin Nano Super→라즈베리파이로 전환하며 TOP의 YOLO26
+> 추론도 엣지→GPU 서버로 이관**(라즈베리파이는 추론 성능 부족). **SIDE는 룰 베이스라 GPU
+> 서버에 안 감**, 로컬 백엔드가 직접 처리. 상세는 `.agentfiles/architecture.md` 참고.
 
 - **개발**: Windows 노트북에서 Docker로 진행(로컬 웹캠 테스트)
 - **배포**: `backend`+`mongo`는 로컬 `<LOCAL_BACKEND_IP>`(실제 값은 Notion 참고)에서 `docker compose up backend mongo`로
-  구동. `training`(학습)+`inference`(YOLO26 상시 추론, 신규)를 학원 GPU 서버(Linux,
-  **NVIDIA L40S 4장 중 할당받은 1장**)로 이전해서 구동 — `training`은
-  `docker compose --profile training up`(필요할 때만), `inference`는
-  `docker compose up inference`(MVP부터 상시 기동). `llm`은 고도화 단계 전까지 안 씀
-- 다른 팀들과 서버를 공유하기 때문에 4장 중 **1장만 할당**받아 사용. **YOLO26 상시 추론은
-  GPU 서버 `inference` 컨테이너가 담당**(라즈베리파이는 추론 없이 캡처+RTSP+GPIO만,
-  `.agentfiles/architecture.md` 참고). GPU 패스스루는 `nvidia-docker`(NVIDIA Container Toolkit) 필요.
+  구동. `training`/`inference`/`llm`을 학원 GPU 서버(Linux, **NVIDIA L40S 4장 중 할당받은
+  1장**)로 이전해서 구동 — `training`/`llm`은 `docker compose --profile training up`/
+  `--profile llm up`(자동 라벨링 검증 파이프라인 돌 때만 같이 기동), `inference`는
+  `docker compose up inference`(TOP 카메라 YOLO26 상시 추론, 상시 기동)
+- 다른 팀들과 서버를 공유하기 때문에 4장 중 **1장만 할당**받아 사용. **TOP 카메라 YOLO26
+  상시 추론은 GPU 서버 `inference` 컨테이너가 담당**(라즈베리파이는 추론 없이 캡처+RTSP+
+  GPIO만, SIDE는 로컬 백엔드 룰 베이스라 GPU 자체를 안 씀, `.agentfiles/architecture.md`
+  참고). GPU 패스스루는 `nvidia-docker`(NVIDIA Container Toolkit) 필요.
 - 로컬(웹캠)과 GPU 서버 배포(RTSP 수신/샘플 영상) 간 영상 소스는 `.env`의
   `CAMERA_SOURCE` 값만 다르게 관리(코드 변경 없음).
 
@@ -173,13 +179,15 @@ Orin Nano Super 발주는 취소, **라즈베리파이로 확정 대체**(YOLO26
 1. ~~`streaming/cameraManager.py`~~ **완료** — 카메라 1대당 독립 지점(`CameraId`), `/api/stream/{cameraId}`
    MJPEG 송출 구현됨. 메인보드 입고 후엔 `CAMERA_SOURCE_<CameraId>`를
    RTSP URL로 교체만 하면 됨(코드 변경 불필요). 저장/DB 연동은 아래 항목들이 선행돼야 함
-2. `services/detectionService.py` — **MVP 시연용 임시 스텁만 존재**(`debug/detection/`의
+2. `services/detectionService.py` — **데모용 임시 스텁만 존재**(`debug/detection/`의
    스크립트로 수동 HTTP 요청을 보내 DB에 이벤트를 채워 넣는 용도, 실제 탐지 연동 아님).
-   **MVP는 YOLO26 단독**(상시감시+투척판단+쓰레기 종류 분류까지)이지만 **GPU 서버
-   `inference` 컨테이너에서 돎**(라즈베리파이 엣지 아님, `.agentfiles/architecture.md`의
-   "탐지 파이프라인" 참고) — 이 서비스는 앞으로 GPU `inference`가 보내는 감지 시작/판정
-   완료 API 신호를 받아 통 상태/쿨다운과 종합해서 최종 판정하는 역할로 교체될 예정
-   (Qwen3-VL-8B는 고도화 단계 전용, 코드에 안 들어감). 지금 스텁도 이벤트 시작/종료
+   **TOP은 YOLO26**(상시감시+투척판단+쓰레기 종류 분류까지)이 **GPU 서버 `inference`
+   컨테이너에서 돎**(라즈베리파이 엣지 아님), **SIDE는 룰 베이스로 로컬 백엔드가 직접
+   판정**(`.agentfiles/architecture.md`의 "탐지 파이프라인" 참고) — 이 서비스는 앞으로
+   TOP은 GPU `inference`가 보내는 감지 시작/판정 완료 API 신호를 받아 통 상태/쿨다운과
+   종합해서 최종 판정하는 역할로, SIDE는 로컬 백엔드의 룰 베이스 판정 로직 호출로 교체될
+   예정(Qwen3-VL-8B는 실시간 경로엔 안 들어감, 학습 준비 단계 자동 라벨링 검증에만 사용).
+   지금 스텁도 이벤트 시작/종료
    시점마다 아래 3~5번 파이프라인(`recordingService.start`/`stop` →
    `mediaService.saveClipAsGif` → `eventService.createEvent`)을 그대로 호출하므로, GPU
    `inference` 연동 시 진입점만 바꾸면 됨(수동 검증은 `debug/detection/simulateEventPipeline.py`

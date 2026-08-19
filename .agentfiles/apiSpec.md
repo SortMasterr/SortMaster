@@ -9,7 +9,7 @@ v0.1(MVP), 구현 기준일 2026-08-18. Base URL `http://localhost:8047`(배포 
 | Enum | 값 |
 |---|---|
 | CameraId | ELEV-TOP / ELEV-SIDE / REST-4F-01 — 설치 위치 1곳뿐이라 번호 없음(`.agentfiles/architecture.md` 참고). ELEV-TOP=쓰레기 종류 분류+쓰레기통 감지+투척 감지 3기능 모델, ELEV-SIDE=쓰레기통 넘침 여부만 판정 |
-| EventCategory | misclassification(투기, 위 카메라 단독 — **GPU 서버 `inference`가 감지+추적+분류**를 계속 수행, 투척 통(`binId`)과 쓰레기 종류(`detectedClass`) 비교 판정. LLM은 미사용 — Qwen3-VL-8B는 고도화 단계 학습 보조용으로 후순위) / overflow(넘침, 옆 카메라 단독 — 물리 통 4개의 상태를 `BIN_STATES`로 지속 추적하다 `NORMAL`→`FULL` 전환 시점에만 생성) |
+| EventCategory | misclassification(투기, 위 카메라 단독 — **GPU 서버 `inference`가 감지+추적+분류**를 계속 수행, 투척 통(`binId`)과 쓰레기 종류(`detectedClass`) 비교 판정. 실시간 경로엔 LLM 미사용 — Qwen3-VL-8B는 학습 준비 단계 자동 라벨링 검증에만 사용 중) / overflow(넘침, 옆 카메라 단독 — **룰 베이스, 로컬 백엔드가 직접 처리(GPU 미사용)**, 물리 통 4개의 상태를 `BIN_STATES`로 지속 추적하다 `NORMAL`→`FULL` 전환 시점에만 생성) |
 | BinType | general / plasticCan / coffeeCup / paper — 물리 쓰레기통 4개 고정. `plasticCan` 통은 `DetectedClass`의 `plastic`/`can` 둘 다 받음(매핑 필요, `Docs/ERD.md` 참고) |
 | DetectedClass | general / paper / plastic / can / coffeeCup — 총 5종, misclassification 이벤트에서만 사용. `mixed`/`uncertain`은 제외됨 |
 | ActionTaken | lightAndSound / soundOnly / lightOnly / notificationOnly / none |
@@ -50,7 +50,7 @@ Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory
 
 ### EP-08/EP-09. POST /api/detection/start, stop — 탐지 파이프라인 임시 스텁
 
-`services/detectionService.py`: **MVP 시연용 임시 스텁** — GPU 서버 `inference` 실제 연동 전까지,
+`services/detectionService.py`: **데모용 임시 스텁** — GPU 서버 `inference`(TOP) 실제 연동 전까지,
 시작/종료 신호를 `debug/detection/`의 스크립트로 수동 HTTP 요청을 보내 DB에 이벤트를 채워
 넣는 용도. API로 직접 받아 `recordingService`(녹화)→`mediaService`(GIF 인코딩+GridFS 업로드)→
 `eventService.createEvent`(EP-02와 동일 로직, Cooldown 포함)를 그대로 호출하는 HTTP 연결부.
