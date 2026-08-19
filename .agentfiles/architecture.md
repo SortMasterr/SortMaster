@@ -29,6 +29,15 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
 | 배포 구조 | 지점별(카메라별) 독립 메인보드+카메라 1대 — 설치 위치 1곳에 지점(=메인보드+카메라 세트) 2개 |
 | 클래스 | general, paper, plastic, can(신규, 플라스틱과 별도지만 같은 통), coffeeCup(별도 통) — 총 5종. `mixed`/`uncertain`은 제외 확정(자체 라벨링 시 전부 5종 중 하나로 분류 가능하다고 판단, 아래 "해결된 TBD" 참고) |
 
+> **현재 모델 산출물 검증(2026-08-19)**: 수령한 `bestTop.pt`
+> (SHA256 `2AF28906CE55D7367F807B2FD70B77A7F91C3F469BE8F328E7747B3FE44CDFFC`)는
+> `trash_normal/paper/recyclables/coffeecup` 4종 +
+> `box_normal/paper/recyclables/coffeecup` 4종, 총 8클래스다. 확정 계약의 쓰레기
+> `plastic`과 `can`이 `recyclables` 하나로 합쳐져 있어 정보 손실 없이 5종
+> `DetectedClass`로 변환할 수 없다. 따라서 이 파일은 현재 이벤트 API에 연결하지 않으며,
+> 쓰레기 5종+통 4종 모델 재학습 또는 CTO 승인 하 계약 변경 중 하나가 선행되어야 한다.
+> `tracking2.py`와 `botsort_mvp.yaml`은 Notion/첨부에만 있고 저장소에는 아직 없다.
+
 ## 탐지 파이프라인
 
 > **MVP는 LLM(Qwen3-VL-8B) 없이 엣지 YOLO26 단독으로 동작하는 걸로 확정**(과거 "엣지 YOLO26 +
@@ -84,11 +93,13 @@ Qwen3-VL-8B는 MVP 실시간 추론 경로에 없음 — **학습/데이터 준�
 > 로컬에 둬도 기능상 문제없음.
 
 - 개발: Windows+Docker, 로컬 웹캠 테스트(기존과 동일)
-- **배포**: `backend`+`mongo`는 로컬 `192.168.0.40`(확정, 단 마지막 옥텟은 유동적일 수 있음)에서
-  `docker compose up backend mongo`로 실행. `training`만 GPU 서버로 이전해서
+- **배포**: 로컬 `192.168.0.40`의 인증 MongoDB는 사전 구축된 공유 인스턴스를 사용하고,
+  `COMPOSE_MONGO_HOST`/`COMPOSE_DB_*`에 발급 계정을 넣은 뒤
+  `docker compose up --no-deps --build backend`로 백엔드만 실행한다. Compose의 무인증
+  `sortMasterTest` `mongo` 서비스는 loopback 개발 전용이며 배포에서는 실행하지 않는다.
+  `training`만 GPU 서버로 이전해서
   `docker compose --profile training up`로 실행(MVP 범위). `llm`(vLLM)은 고도화 단계에
-  가서야 GPU 서버에서 `docker compose up llm`로 띄우면 됨 — **하나의 `docker-compose.yml`을
-  그대로 쓰되, 호스트/단계마다 띄우는 서비스 조합만 다름**(별도 compose 파일 분리 불필요)
+  가서야 GPU 서버에서 `docker compose up llm`로 띄우면 됨
 - **백엔드(로컬) → LLM(GPU 서버) 연결은 MVP엔 불필요** — 고도화 단계에서 `llm` 서비스를 쓰게
   되면 그때 SSH 터널(예: `ssh -p 2222 -L 8100:localhost:8100 soma@116.42.115.24`)을 상시
   유지해야 함(안정성 확보 방법은 그때 검토)
@@ -128,7 +139,8 @@ Orin Nano Super(8GB, 67 TOPS)라 YOLO26 엣지 추론 여력은 충분. GPU 서�
 
 1. 웹캠→RTSP 송신: GStreamer(JetPack 포함) 예정. 1단계 웹캠 뷰어(Py 3.11)는 노트북 테스트 완료
 2. **YOLO26 엣지 추론**: 상시감시(위/옆 카메라 공통) + 위 카메라는 투척 위치 추적+쓰레기
-   종류 분류까지(MVP는 LLM 없이 YOLO26 혼자 완결 — 위 "탐지 파이프라인" 참고). 미착수
+   종류 분류까지(MVP는 LLM 없이 YOLO26 혼자 완결 — 위 "탐지 파이프라인" 참고).
+   외부 `tracking2.py` 프로토타입과 가중치는 수령했지만 위 8/9 클래스 충돌로 통합 보류
 3. **투척 결과 판정**(위 카메라만): YOLO26이 추적한 투척 위치와 자신이 분류한 쓰레기 종류를
    엣지에서 직접 비교(MVP엔 GPU/LLM 결과 수신 단계 없음). 설계 전
 4. 로컬 백엔드로 결과 신호 전송+GPIO 트리거: 설계 전. `RPAs/alertController.py`는 현재
@@ -191,6 +203,9 @@ Detect → Create Event → Save Event → Check mode
 - `.env`의 `MONGO_HOST`/`DB_PORT`/`DB_USER`/`DB_PASSWORD`를 팀원마다 다르게 설정
   - **팀 배포(확정)**: `MONGO_HOST=192.168.0.40`(마지막 옥타드는 유동적)
   - 개인 로컬 개발용: `MONGO_HOST=localhost`
+- Docker Compose 내부 백엔드는 호스트용 값과 분리된 `COMPOSE_MONGO_HOST`/
+  `COMPOSE_DB_PORT`/`COMPOSE_DB_*`를 사용한다. 기본값은 Compose 서비스
+  `mongo:27017/sortMasterTest`(무인증)이며, 공유 DB 컨테이너 배포 때만 별도로 변경한다.
 - `infra/checkEnv.py`, `debug/db/testDbConnection.py`, `debug/db/testCrud.py` 세 스크립트가 `.env` 키 공유 — 값 다르면 결과 엇갈림
 - 디버그 스크립트는 Atlas → 로컬/자체 Docker로 전환(`mongodb+srv://` → `mongodb://`+포트)
 - **팀 공유 서버 계정**: 공유 Mongo는 팀원별 계정(`user01`~`user05`, `sortMaster` DB에

@@ -52,7 +52,7 @@ erDiagram
         float overflowDuration "nullable, overflow만. 전환 확정 시점의 BIN_STATES.overflowDuration 스냅샷"
         float overflowThreshold "nullable, overflow만. FULL 판정 기준 시간(모델/설정값)"
         string actionTaken "lightAndSound/soundOnly/lightOnly/notificationOnly/none"
-        string imageFileId FK "nullable, Mock단계 항상 null"
+        string imageFileId FK "nullable, detection start/stop 녹화 사용 시 카메라별 GridFS GIF ID"
         string modelVersion "신규 — YOLO26/Qwen3-VL-8B 등 모델 버전. 재학습 이후 이벤트 비교/추적용"
         string notes "nullable"
     }
@@ -101,14 +101,10 @@ erDiagram
   `training`(GPU 서버)이 학습용 이미지를 가져올 때만 역방향 SSH 터널로 이 DB에 접속 —
   ERD의 엔티티 구조 자체엔 영향 없음.
 
-## TBD (ERD에 영향 줄 수 있는 항목)
-
-- **`GET /api/events`/`/api/events/{id}` 응답에 `binId` 반영**: 필드가 스키마에 추가되면
-  `static/js/eventsList.js`의 `convertEventToRow()`도 `loc: eventData.cameraId`(임시 대체)
-  대신 실제 `binId`를 쓰도록 고쳐야 함(코드 작업, 설계는 이미 확정)
-
 ## 해결된 TBD
 
+- **`GET /api/events`/`/api/events/{id}` 및 이전기록 화면에 `binId` 반영 완료** →
+  Event 스키마·MongoDB 문서·`eventsList.js`가 모두 실제 `binId`를 사용
 - **물리 쓰레기통 구성 확정** → 카메라에 4개(일반/플라스틱·캔/커피컵/종이)가 잡힘.
   `binId`가 이 4개 중 하나를 가리키는 걸로 확정 — 이전에 고민했던 "카메라 위치 특정 폐지"와는
   다른 층위(카메라 역할 분담 vs 개별 통 식별)라 서로 모순 아님

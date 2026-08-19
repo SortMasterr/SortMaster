@@ -23,4 +23,14 @@
 - `MONGO_HOST=192.168.0.40` → 팀 배포 서버(로컬, 확정 — 인증 필요, `DB_USER`/`DB_PASSWORD`를
   배정받은 `user01`~`user05` 계정으로 채울 것 — 계정 생성/관리는 `architecture.md`의 "DB 접속" 절 참고)
 - `MONGO_HOST=localhost` → 로컬 Docker(`my-mongo`, 무인증이면 `DB_USER`/`DB_PASSWORD` 비워둠)
-- checkEnv.py/testDbConnection.py/testCrud.py 세 스크립트가 `.env` 키 공유 — 값 다르면 결과 엇갈림
+- Compose 내부 백엔드는 컨테이너 네트워크용
+  `COMPOSE_MONGO_HOST=mongo`/`COMPOSE_DB_PORT=27017`/`COMPOSE_DB_NAME=sortMasterTest`와
+  비어 있는 `COMPOSE_DB_USER`/`COMPOSE_DB_PASSWORD`를 사용한다. 호스트 Python용
+  `MONGO_HOST`/`DB_PORT`/`DB_*`와 혼용하지 않는다.
+- `.env.example`은 안전한 로컬 기본값(`MONGO_HOST=localhost`,
+  `DB_NAME=sortMasterTest`)을 제공한다.
+- `checkEnv.py`와 `testDbConnection.py`는 `.env` 접속 대상에 ping만 수행한다.
+  `debug/db/testCrud.py`와 `seedTestEvents.py`는 데이터를 쓰므로 loopback +
+  `DB_NAME=sortMasterTest`가 아니면 실행 전에 중단한다.
+- 백엔드도 startup에서 5초 제한 MongoDB `ping`과 Event 인덱스 준비를 수행한다. 실패하면
+  uvicorn startup을 중단하며, shutdown에서는 연결 풀을 닫는다.

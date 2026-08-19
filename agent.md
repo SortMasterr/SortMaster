@@ -1,4 +1,9 @@
 # 프로젝트 컨텍스트 문서 (AI 개발 참고용)
+> ⚠️ **과거 초안(비활성)**: 이 문서의 설치 위치, CameraId, 모델, DB/Mock 상태는 현재 구현과
+> 충돌한다. 현재 source of truth는 `CLAUDE.md`가 연결하는
+> `.agentfiles/architecture.md`, `.agentfiles/apiSpec.md`, `Docs/API_SPEC.md`,
+> `Docs/ERD.md`다. 아래 내용은 결정 이력 참고용이며 구현 근거로 사용하지 않는다.
+>
 > 바이브 코딩 세션 시작 시 프로젝트 메모리로 사용. `CLAUDE.md`/`.cursorrules`로 저장.
 > 목적: 프로젝트 배경 재추측 방지 (목적/범위, 파이프라인, DB/기술스택 결정, TBD)
 

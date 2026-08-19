@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 
 from pydantic import ValidationError
@@ -61,6 +62,12 @@ class MemoryEventRepository:
             for eventCategory in EventCategory
         }
 
+    async def getStatisticsCounts(self, fromDate=None, toDate=None):
+        return (
+            await self.countByDetectedClass(fromDate, toDate),
+            await self.countByEventCategory(fromDate, toDate),
+        )
+
 
 def createMisclassification(detectionId, detectedClass=DetectedClass.PLASTIC):
     return EventCreate(
@@ -91,6 +98,23 @@ class EventMvpTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(firstEvent.eventId, secondEvent.eventId)
         self.assertEqual(1, len(self.repository.events))
 
+    async def testCreationStatusMarksDuplicateAsNotNew(self):
+        eventCreate = createMisclassification("detection-status")
+
+        firstResult = await self.service.createEventWithStatus(
+            eventCreate
+        )
+        secondResult = await self.service.createEventWithStatus(
+            eventCreate
+        )
+
+        self.assertTrue(firstResult.created)
+        self.assertFalse(secondResult.created)
+        self.assertEqual(
+            firstResult.event.eventId,
+            secondResult.event.eventId,
+        )
+
     async def testCooldownBlocksSameClassWithDifferentDetectionId(self):
         firstEvent = await self.service.createEvent(
             createMisclassification("detection-001")
@@ -101,6 +125,22 @@ class EventMvpTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNotNone(firstEvent)
         self.assertIsNone(secondEvent)
+
+    async def testConcurrentCooldownStoresOnlyOneEvent(self):
+        results = await asyncio.gather(
+            self.service.createEvent(
+                createMisclassification("concurrent-001")
+            ),
+            self.service.createEvent(
+                createMisclassification("concurrent-002")
+            ),
+        )
+
+        self.assertEqual(
+            1,
+            sum(event is not None for event in results),
+        )
+        self.assertEqual(1, len(self.repository.events))
 
     async def testOverflowDoesNotUseTimeCooldown(self):
         def createOverflow(detectionId):

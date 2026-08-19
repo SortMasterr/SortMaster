@@ -1,7 +1,7 @@
 # API 명세서 — CCTV 기반 분리수거 오분류 탐지·자동 경고 시스템
 
 > **버전**: v0.1 MVP / MongoDB(motor) 연동
-> **기준일**: 2026-08-18
+> **기준일**: 2026-08-19
 > **Base URL**: `http://localhost:8047`
 > **배포 환경**: 로컬 배포 서버 `192.168.0.40:8047`로 대체 예정(백엔드는 GPU 서버가 아니라
 > 로컬에서 구동 — `.agentfiles/architecture.md` 참고)
@@ -40,16 +40,19 @@
 * 서버 재시작 시 모드 상태 초기화(이벤트는 이제 MongoDB에 영속화되어 재시작에도 유지됨)
 * 실제 RPA 전구·경고음 장치 연동 미구현
 * AI 탐지 모델 연동 미구현 — 이벤트 생성/녹화 트리거가 아직 실제 탐지가 아니라 수동/디버그
-  스크립트 호출 기준
+  호출. 수령한 `bestTop.pt`는 쓰레기 `plastic`/`can`을 `recyclables` 하나로 합친
+  8클래스라 확정 API의 쓰레기 5종+통 4종 계약과 불일치하며, 재학습 또는 CTO 계약 변경 전에는
+  연결하지 않는다(`.agentfiles/architecture.md`의 현재 모델 산출물 검증 참고).
 * 카메라 연결 해제 및 시스템 오류 WebSocket 이벤트 미구현
 * 이벤트 상세 페이지 미구현
+* `imageFileId`의 GridFS GIF를 내려받는 외부 API 미정의 — 새 API이므로 CTO 승인 필요
 * 인증 및 권한 미구현
 * `BIN_STATES` 스키마·저장소·상태 변경/조회 API 미구현 — 현재 백엔드는 overflow의
   `NORMAL`→`FULL` 전환 여부를 검증하지 않고 유효한 요청을 이벤트로 바로 저장
 
 ---
 
-## 탐지 파이프라인 개요 — 향후 구현 예정
+## 탐지 파이프라인 개요 — 확정 설계와 현재 HTTP 연결부
 
 > 아래 파이프라인은 설계가 진행 중인 향후 구현 범위이며, 현재 v0.1 Mock API에는 AI 탐지 모델이 연결되어 있지 않다.
 
@@ -279,8 +282,8 @@ curl -X POST "http://localhost:8047/api/events" \
 * misclassification 쿨다운 적용 중(`cameraId`+`detectedClass` 기준 5초)
 
 동일한 `detectionId`가 이미 저장되어 있으면 새 문서를 만들지 않고 기존 `Event`를 HTTP 200으로
-반환한다. 현재 컨트롤러는 `MANAGE` 모드에서 이 기존 이벤트도 다시 WebSocket으로 전송하므로,
-저장 중복은 방지되지만 알림 중복까지 방지되지는 않는다.
+반환한다. 내부 생성 결과의 `created` 상태를 구분하므로 기존 이벤트를 반환하는 재전송에서는
+WebSocket 알림도 다시 보내지 않는다.
 
 ### 정상 응답 — `Event`
 
@@ -743,10 +746,20 @@ GET /api/statistics?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
 
 `recordingId`가 없으면 404, 캡처 프레임이 없으면 400, 카테고리별 필드 또는 카메라 역할이
 잘못되면 422를 반환한다. 이벤트 생성 후 모드와 카테고리에 맞는 WebSocket 메시지를 전송한다.
-현재는 `recordingId`로 시작 세션의 카메라를 확인하지 않으므로, stop 요청의 `cameraId`가 start
-요청과 같은지는 검증하지 않는다. 또한 GIF 업로드가 `isMisclassified=false`, Cooldown,
-중복 `detectionId` 판정보다 먼저 실행되어 Event가 새로 저장되지 않아도 GridFS 파일이 생성될
-수 있다.
+`recordingId`에 저장된 시작 카메라와 stop 요청의 `cameraId`가 다르면 HTTP 400으로 거부하며
+활성 세션은 올바른 카메라로 다시 요청할 수 있도록 보존한다. GIF 업로드 뒤
+`isMisclassified=false`, Cooldown, 중복 `detectionId` 또는 DB 저장 실패로 Event가 새로
+저장되지 않으면 방금 올린 GridFS 파일을 보상 삭제한다.
+
+정상 종료된 녹화의 프레임과 duration은 최대 120초 동안만 메모리에 보존한다. GIF/DB 처리가
+성공하면 원본 프레임은 즉시 해제하고 완료 결과만 120초 동안 `recordingId`+`detectionId`로
+캐시한다. 응답 유실 뒤 같은 두 ID로 stop을 재시도하면 GIF 업로드·DB 저장·WebSocket 전송을
+반복하지 않고 기존 결과를 반환한다. 처리 실패 때만 원본 프레임을 보존해 같은 요청으로 다시
+처리할 수 있다. 같은 `recordingId`를 다른 `detectionId`에 재사용하면 HTTP 400으로 거부한다.
+종료 신호 자체가 오지 않은 활성 세션은 최대 30초 캡처 뒤 세션과 프레임을 자동 정리한다.
+`debug/detection/detectionApiClient.py`는 start에는 자동 재시도를 적용하지 않고, stop에만
+60초 timeout과 연결 오류(응답 처리 중 연결 단절 포함) 1회 재시도를 적용한다. 재시도에도 같은
+`recordingId`와 `detectionId`를 사용한다.
 
 ---
 
@@ -882,6 +895,7 @@ WS /ws/events
 
 ```text
 GET /api/events
+GET /api/events/{id}
 POST /api/mode
 WS /ws/events
 ```
@@ -945,7 +959,7 @@ WS /ws/events
 | 상태 코드 | 상황                                      |
 | ----- | --------------------------------------- |
 | 200   | 정상 처리                                   |
-| 400   | 녹화 프레임이 없어 GIF를 생성할 수 없음(EP-09)          |
+| 400   | 녹화 프레임 없음, 시작/종료 카메라 불일치 또는 `recordingId` 재사용 충돌(EP-09) |
 | 404   | 해당 이벤트를 찾을 수 없음                         |
 | 422   | Body, Query 또는 Path Parameter 스키마 검증 실패 |
 | 500   | 서버 내부 처리 오류                             |
@@ -1093,6 +1107,19 @@ In-memory 저장소를 Motor 기반 MongoDB 저장소로 교체 완료했다(`re
 | Python 드라이버  | `motor`                      |
 | 파일 저장        | GridFS(`topMedia`/`sideMedia` 버킷), GIF |
 | 저장 대상        | 이벤트(`events` 컬렉션), 이벤트 클립(GridFS). `binStates`는 설계만 확정되고 미구현 |
+
+이벤트 목록과 통계는 현재 필수 필드·Enum 계약을 만족하는 문서만 대상으로 한다. 과거 raw insert
+등으로 필드가 빠졌거나 Enum·timestamp·선택 필드 타입이 다른 문서는 의미를 임의로 만들어
+응답하지 않고 건너뛰며 서버 로그에 남긴다. 따라서 구형 문서 한 건 때문에 전체
+`GET /api/events`가 500이 되거나 목록과 통계 집계 대상이 달라지지는 않는다.
+`debug/db/seedTestEvents.py`와 `testCrud.py`는 `MONGO_HOST=localhost`(또는 loopback)와
+`DB_NAME=sortMasterTest` 조합만 허용해 공유 DB에 테스트 문서를 넣는 실행을 차단한다.
+
+앱 lifespan은 시작 시 5초 제한으로 MongoDB `ping`과 Event 인덱스 준비를 수행한다. 연결·인증
+또는 인덱스 준비가 실패하면 uvicorn이 정상 시작된 것처럼 응답하지 않고 startup 자체를
+실패시킨다. 종료 시 활성 녹화·캐시 프레임·카메라 캡처와 MongoDB 연결 풀을 정리한다.
+`GET /api/statistics`의 클래스·카테고리 집계는 한 `$facet` 쿼리에서 계산해 요청 도중 새
+이벤트가 들어와도 두 합계의 읽기 시점이 갈리지 않는다.
 
 모드 상태(`services/modeService.py`)는 여전히 메모리로만 관리되어 서버 재시작 시
 `MANAGE`로 초기화된다(DB 저장 대상 아님). MongoDB 연결 후에도 외부 JSON API 필드명은

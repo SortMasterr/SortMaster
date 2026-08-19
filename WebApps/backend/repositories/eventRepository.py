@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 
 from pymongo.errors import DuplicateKeyError
@@ -11,6 +12,9 @@ from schemas.event import (
     Event,
     EventCategory,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class EventRepository:
@@ -38,7 +42,9 @@ class EventRepository:
     def _fromDocument(self, document: dict) -> Event:
         return Event(
             eventId=document["eventId"],
-            timestamp=document["timestamp"],
+            timestamp=self.normalizeDateTime(
+                document["timestamp"]
+            ),
             cameraId=CameraId(document["cameraId"]),
             eventCategory=EventCategory(document["eventCategory"]),
             detectionId=document["detectionId"],
@@ -59,6 +65,20 @@ class EventRepository:
             modelVersion=document["modelVersion"],
             notes=document.get("notes"),
         )
+
+    def _tryFromDocument(
+        self,
+        document: dict,
+    ) -> Event | None:
+        try:
+            return self._fromDocument(document)
+        except (KeyError, TypeError, ValueError) as error:
+            logger.warning(
+                'Skipping incompatible event document %r: %s',
+                document.get('_id'),
+                error,
+            )
+            return None
 
     async def ensureIndexes(self) -> None:
         if self.indexesReady:
@@ -109,7 +129,7 @@ class EventRepository:
         )
 
         return (
-            self._fromDocument(document)
+            self._tryFromDocument(document)
             if document is not None
             else None
         )
@@ -123,7 +143,7 @@ class EventRepository:
         )
 
         return (
-            self._fromDocument(document)
+            self._tryFromDocument(document)
             if document is not None
             else None
         )
@@ -142,10 +162,15 @@ class EventRepository:
             "timestamp", -1
         )
 
-        return [
-            self._fromDocument(document)
-            async for document in cursor
-        ]
+        events = []
+
+        async for document in cursor:
+            event = self._tryFromDocument(document)
+
+            if event is not None:
+                events.append(event)
+
+        return events
 
     async def countByDetectedClass(
         self,
@@ -182,9 +207,16 @@ class EventRepository:
             groupId = result["_id"]
 
             if groupId is not None:
-                counts[DetectedClass(groupId)] = result[
-                    "count"
-                ]
+                try:
+                    detectedClass = DetectedClass(groupId)
+                except ValueError:
+                    logger.warning(
+                        "Skipping unknown detectedClass %r",
+                        groupId,
+                    )
+                    continue
+
+                counts[detectedClass] = result["count"]
 
         return counts
 
@@ -221,9 +253,102 @@ class EventRepository:
             groupId = result["_id"]
 
             if groupId is not None:
-                counts[EventCategory(groupId)] = result["count"]
+                try:
+                    eventCategory = EventCategory(groupId)
+                except ValueError:
+                    logger.warning(
+                        "Skipping unknown eventCategory %r",
+                        groupId,
+                    )
+                    continue
+
+                counts[eventCategory] = result["count"]
 
         return counts
+
+    async def getStatisticsCounts(
+        self,
+        fromDate: datetime | None = None,
+        toDate: datetime | None = None,
+    ) -> tuple[
+        dict[DetectedClass, int],
+        dict[EventCategory, int],
+    ]:
+        query = self._buildDateQuery(
+            fromDate=fromDate,
+            toDate=toDate,
+        )
+        pipeline = [
+            {"$match": query},
+            {
+                "$facet": {
+                    "detectedClasses": [
+                        {
+                            "$group": {
+                                "_id": "$detectedClass",
+                                "count": {"$sum": 1},
+                            }
+                        }
+                    ],
+                    "eventCategories": [
+                        {
+                            "$group": {
+                                "_id": "$eventCategory",
+                                "count": {"$sum": 1},
+                            }
+                        }
+                    ],
+                }
+            },
+        ]
+        facetResult = {}
+
+        async for result in self.collection.aggregate(pipeline):
+            facetResult = result
+            break
+
+        countsByClass = {
+            detectedClass: 0
+            for detectedClass in DetectedClass
+        }
+
+        for result in facetResult.get("detectedClasses", []):
+            groupId = result["_id"]
+
+            if groupId is None:
+                continue
+
+            try:
+                detectedClass = DetectedClass(groupId)
+            except ValueError:
+                logger.warning(
+                    "Skipping unknown detectedClass %r",
+                    groupId,
+                )
+                continue
+
+            countsByClass[detectedClass] = result["count"]
+
+        countsByCategory = {
+            eventCategory: 0
+            for eventCategory in EventCategory
+        }
+
+        for result in facetResult.get("eventCategories", []):
+            groupId = result["_id"]
+
+            try:
+                eventCategory = EventCategory(groupId)
+            except ValueError:
+                logger.warning(
+                    "Skipping unknown eventCategory %r",
+                    groupId,
+                )
+                continue
+
+            countsByCategory[eventCategory] = result["count"]
+
+        return countsByClass, countsByCategory
 
     async def updateImageFileId(
         self,
@@ -234,6 +359,105 @@ class EventRepository:
             {"eventId": eventId},
             {"$set": {"imageFileId": imageFileId}},
         )
+
+    def _buildCurrentDocumentQuery(self) -> dict:
+        return {
+            "eventId": {"$type": "string", "$ne": ""},
+            "timestamp": {"$type": "date"},
+            "cameraId": {
+                "$in": [item.value for item in CameraId]
+            },
+            "eventCategory": {
+                "$in": [item.value for item in EventCategory]
+            },
+            "detectionId": {"$type": "string", "$ne": ""},
+            "detectedClass": {
+                "$in": [
+                    None,
+                    *[item.value for item in DetectedClass],
+                ]
+            },
+            "binId": {"$type": "string", "$ne": ""},
+            "binType": {
+                "$in": [item.value for item in BinType]
+            },
+            "actionTaken": {
+                "$in": [item.value for item in ActionTaken]
+            },
+            "modelVersion": {"$type": "string", "$ne": ""},
+            "$and": [
+                {
+                    "$or": [
+                        {"trackingId": None},
+                        {
+                            "trackingId": {
+                                "$type": ["int", "long"],
+                                "$gte": 0,
+                            }
+                        },
+                    ]
+                },
+                {
+                    "$or": [
+                        {"imageFileId": None},
+                        {"imageFileId": {"$type": "string"}},
+                    ]
+                },
+                {
+                    "$or": [
+                        {"overflowDuration": None},
+                        {
+                            "overflowDuration": {
+                                "$type": "number",
+                                "$gte": 0.0,
+                            }
+                        },
+                    ]
+                },
+                {
+                    "$or": [
+                        {"overflowThreshold": None},
+                        {
+                            "overflowThreshold": {
+                                "$type": "number",
+                                "$gte": 0.0,
+                            }
+                        },
+                    ]
+                },
+                {
+                    "$or": [
+                        {"notes": None},
+                        {"notes": {"$type": "string"}},
+                    ]
+                },
+            ],
+            "$or": [
+                {
+                    "eventCategory": "misclassification",
+                    "cameraId": CameraId.ELEVTOP.value,
+                    "detectedClass": {
+                        "$in": [
+                            item.value
+                            for item in DetectedClass
+                        ]
+                    },
+                    "isMisclassified": {"$type": "bool"},
+                    "confidenceScore": {
+                        "$type": "number",
+                        "$gte": 0.0,
+                        "$lte": 1.0,
+                    },
+                },
+                {
+                    "eventCategory": "overflow",
+                    "cameraId": CameraId.ELEVSIDE.value,
+                    "detectedClass": None,
+                    "isMisclassified": None,
+                    "confidenceScore": None,
+                },
+            ],
+        }
 
     def _buildDateQuery(
         self,
@@ -253,20 +477,29 @@ class EventRepository:
         if normalizedToDate is not None:
             timestampQuery["$lte"] = normalizedToDate
 
-        return (
-            {"timestamp": timestampQuery}
-            if timestampQuery
-            else {}
-        )
+        query = self._buildCurrentDocumentQuery()
+
+        if timestampQuery:
+            query["timestamp"] = {
+                "$type": "date",
+                **timestampQuery,
+            }
+
+        return query
 
     def normalizeDateTime(
         self,
         dateTime: datetime | None,
     ) -> datetime | None:
-        if (
-            dateTime is not None
-            and dateTime.tzinfo is None
-        ):
+        if dateTime is None:
+            return None
+
+        if not isinstance(dateTime, datetime):
+            raise TypeError(
+                "timestamp must be a BSON datetime"
+            )
+
+        if dateTime.tzinfo is None:
             return dateTime.replace(
                 tzinfo=timezone.utc
             )

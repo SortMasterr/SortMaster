@@ -1,3 +1,6 @@
+import asyncio
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
@@ -10,10 +13,47 @@ from controllers.views import (
 from controllers.webSocket import (
     router as webSocketRouter,
 )
+from repositories.eventRepository import eventRepository
+from repositories.mongoClient import (
+    closeMongoClient,
+    pingMongo,
+)
+from services.recordingService import recordingService
+from streaming.cameraManager import cameraManagers
+
+
+mongoStartupTimeoutSeconds = 5.0
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        await asyncio.wait_for(
+            pingMongo(),
+            timeout=mongoStartupTimeoutSeconds,
+        )
+        await eventRepository.ensureIndexes()
+        yield
+    finally:
+        try:
+            await recordingService.shutdown()
+        finally:
+            try:
+                await asyncio.gather(
+                    *(
+                        cameraManager.stop()
+                        for cameraManager
+                        in cameraManagers.values()
+                    ),
+                    return_exceptions=True,
+                )
+            finally:
+                closeMongoClient()
 
 
 app = FastAPI(
     title="스마트 수거 관리 시스템",
+    lifespan=lifespan,
 )
 
 

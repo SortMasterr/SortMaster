@@ -36,6 +36,7 @@ mongoPort = os.getenv("DB_PORT", "27020")
 mongoUser = os.getenv("DB_USER")
 mongoPassword = os.getenv("DB_PASSWORD")
 mongoDbName = os.getenv("DB_NAME", "sortMaster")
+mongoServerSelectionTimeoutMs = 5000
 
 if mongoUser and mongoPassword:
     _auth = f"{quote_plus(mongoUser)}:{quote_plus(mongoPassword)}@"
@@ -54,13 +55,35 @@ _clientLoop: asyncio.AbstractEventLoop | None = None
 def getMongoDb() -> AsyncIOMotorDatabase:
     global _client, _clientLoop
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     if _client is None or _clientLoop is not loop:
-        _client = AsyncIOMotorClient(mongoUri)
+        if _client is not None:
+            _client.close()
+
+        _client = AsyncIOMotorClient(
+            mongoUri,
+            serverSelectionTimeoutMS=(
+                mongoServerSelectionTimeoutMs
+            ),
+        )
         _clientLoop = loop
 
     return _client[mongoDbName]
+
+
+async def pingMongo() -> None:
+    await getMongoDb().command("ping")
+
+
+def closeMongoClient() -> None:
+    global _client, _clientLoop
+
+    if _client is not None:
+        _client.close()
+
+    _client = None
+    _clientLoop = None
 
 
 def getGridFsBucket(

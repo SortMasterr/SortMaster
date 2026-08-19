@@ -20,7 +20,9 @@
         },
     )
 """
+import http.client
 import json
+import time
 import urllib.error
 import urllib.request
 
@@ -29,7 +31,15 @@ class DetectionApiError(RuntimeError):
     pass
 
 
-def _postJson(url: str, payload: dict) -> dict | None:
+class DetectionApiConnectionError(DetectionApiError):
+    pass
+
+
+def _postJson(
+    url: str,
+    payload: dict,
+    timeoutSeconds: float = 10,
+) -> dict | None:
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -38,7 +48,10 @@ def _postJson(url: str, payload: dict) -> dict | None:
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urllib.request.urlopen(
+            request,
+            timeout=timeoutSeconds,
+        ) as response:
             body = response.read().decode("utf-8")
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace")
@@ -46,8 +59,19 @@ def _postJson(url: str, payload: dict) -> dict | None:
             f"백엔드 요청 실패({error.code}): {detail}"
         ) from error
     except urllib.error.URLError as error:
-        raise DetectionApiError(
+        raise DetectionApiConnectionError(
             f"백엔드에 연결할 수 없습니다: {error.reason}"
+        ) from error
+    except TimeoutError as error:
+        raise DetectionApiConnectionError(
+            "백엔드 요청 시간이 초과되었습니다."
+        ) from error
+    except (
+        OSError,
+        http.client.HTTPException,
+    ) as error:
+        raise DetectionApiConnectionError(
+            f"백엔드 연결이 응답 중 끊어졌습니다: {error}"
         ) from error
 
     return json.loads(body) if body else None
@@ -74,7 +98,27 @@ def stopDetection(
     backendUrl: str,
     detectionResult: dict,
 ) -> dict | None:
-    return _postJson(
-        f"{backendUrl.rstrip('/')}/api/detection/stop",
-        detectionResult,
+    stopUrl = (
+        f"{backendUrl.rstrip('/')}/api/detection/stop"
     )
+    lastError = None
+
+    for attempt in range(2):
+        try:
+            return _postJson(
+                stopUrl,
+                detectionResult,
+                timeoutSeconds=60,
+            )
+        except DetectionApiConnectionError as error:
+            lastError = error
+
+            if attempt == 0:
+                time.sleep(0.5)
+
+    if lastError is None:
+        raise DetectionApiError(
+            "종료 요청 재시도 상태가 올바르지 않습니다."
+        )
+
+    raise lastError

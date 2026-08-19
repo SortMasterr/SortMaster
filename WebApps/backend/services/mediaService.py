@@ -10,6 +10,7 @@ from repositories.mediaRepository import (
     mediaRepository,
 )
 from schemas.event import CameraId
+from services.errors import EmptyRecordingError
 
 
 def _encodeFramesAsGif(
@@ -57,6 +58,11 @@ class MediaService:
         timestamp: datetime,
         fps: float = 5.0,
     ) -> str:
+        if not frames:
+            raise EmptyRecordingError(
+                "GIF로 인코딩할 프레임이 없습니다."
+            )
+
         gifBytes = await asyncio.to_thread(
             _encodeFramesAsGif, frames, fps
         )
@@ -69,6 +75,16 @@ class MediaService:
         return await self.repository.saveBytes(
             filename,
             gifBytes,
+            cameraId,
+        )
+
+    async def deleteClip(
+        self,
+        fileId: str,
+        cameraId: CameraId,
+    ) -> None:
+        await self.repository.deleteById(
+            fileId,
             cameraId,
         )
 

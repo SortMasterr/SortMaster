@@ -7,8 +7,8 @@
 3. Docker 설치 여부 확인
 4. MongoDB 접속 확인 — .env의 MONGO_HOST/DB_PORT/DB_USER/DB_PASSWORD를 그대로
    사용하므로 팀원마다 자기 .env만 맞추면 각자 환경(로컬 Docker, 팀 공유 서버 등)에
-   맞게 체크됨. debug/db/testDbConnection.py, debug/db/testCrud.py와 동일한
-   .env 키를 공유.
+   맞게 ping함. debug/db/testDbConnection.py와 동일한 키를 사용하며, 쓰기 도구인
+   testCrud.py/seedTestEvents.py는 별도로 로컬 sortMasterTest만 허용.
 
 실행:
     python checkEnv.py
@@ -141,9 +141,9 @@ def checkDocker() -> bool:
 def checkMongodb() -> bool:
     """MongoDB 접속 가능 여부 확인.
     .env의 MONGO_HOST/DB_PORT/DB_USER/DB_PASSWORD를 그대로 사용 —
-    debug/db/testDbConnection.py, debug/db/testCrud.py와 동일한 대상을 테스트해서
-    "스크립트마다 접속 대상이 다른" 혼선을 방지한다. 팀원마다 자기 .env의
-    MONGO_HOST만 바꾸면 각자 환경에 맞게 체크됨.
+    debug/db/testDbConnection.py와 동일한 대상을 ping한다. 쓰기 도구인
+    debug/db/testCrud.py/seedTestEvents.py는 공유 DB 오작동을 막기 위해 별도로
+    loopback+sortMasterTest만 허용한다.
     Windows Docker Desktop은 첫 연결이 느릴 수 있어 재시도 포함."""
     try:
         import asyncio

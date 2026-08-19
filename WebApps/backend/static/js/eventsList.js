@@ -104,11 +104,6 @@ document.addEventListener("DOMContentLoaded", async () => {
             type: typeInfo.name,
             typeClass: typeInfo.className,
 
-            /*
-             * binId는 ERD에서 확정됐지만 현재 API 스키마에는
-             * 아직 반영 전입니다. Mock 데이터에서는 화면 검증을
-             * 위해 제공하고, 실제 API에 없으면 '-'로 표시합니다.
-             */
             loc: eventData.binId ?? "-",
 
             result: isOverflow
@@ -142,14 +137,18 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (fromValue) {
             parameters.set(
                 "from",
-                `${fromValue}T00:00:00`
+                new Date(
+                    `${fromValue}T00:00:00`
+                ).toISOString()
             );
         }
 
         if (toValue) {
             parameters.set(
                 "to",
-                `${toValue}T23:59:59`
+                new Date(
+                    `${toValue}T23:59:59.999`
+                ).toISOString()
             );
         }
 
@@ -571,6 +570,24 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     }
 
+    async function loadEventDetail(eventId) {
+        const response = await fetch(
+            "/api/events/" +
+            encodeURIComponent(eventId)
+        );
+
+        if (!response.ok) {
+            throw new Error(
+                "Event detail request failed: HTTP " +
+                response.status
+            );
+        }
+
+        return convertEventToRow(
+            await response.json()
+        );
+    }
+
     function attachRowEvents() {
         document
             .querySelectorAll(
@@ -579,21 +596,28 @@ document.addEventListener("DOMContentLoaded", async () => {
             .forEach((tableRow) => {
                 tableRow.addEventListener(
                     "click",
-                    () => {
+                    async () => {
                         const eventId =
                             tableRow.dataset
                                 .eventId;
 
-                        const selectedRow =
-                            data.find(
-                                (row) =>
-                                    row.eventId ===
+                        try {
+                            const selectedRow =
+                                await loadEventDetail(
                                     eventId
-                            );
+                                );
 
-                        if (selectedRow) {
                             openModal(
                                 selectedRow
+                            );
+                        } catch (error) {
+                            console.error(
+                                "Event detail load failed:",
+                                error
+                            );
+
+                            alert(
+                                "이벤트 상세 정보를 불러오지 못했습니다."
                             );
                         }
                     }
