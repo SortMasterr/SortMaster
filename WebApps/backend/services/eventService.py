@@ -1,3 +1,5 @@
+import asyncio
+from dataclasses import dataclass
 from datetime import (
     datetime,
     timedelta,
@@ -21,6 +23,12 @@ from schemas.statistics import Statistics
 from services.modeService import modeService
 
 
+@dataclass(frozen=True)
+class EventCreationResult:
+    event: Event | None
+    created: bool
+
+
 class EventService:
     def __init__(
         self,
@@ -29,6 +37,7 @@ class EventService:
         self.repository = repository
         self.cooldownSeconds = 5
         self.lastEventTimes = {}
+        self.creationLock = asyncio.Lock()
 
     async def getEvents(
         self,
@@ -53,18 +62,12 @@ class EventService:
         fromDate: datetime | None = None,
         toDate: datetime | None = None,
     ) -> Statistics:
-        countsByClass = (
-            await self.repository.countByDetectedClass(
+        (
+            countsByClass,
+            countsByCategory,
+        ) = await self.repository.getStatisticsCounts(
                 fromDate=fromDate,
                 toDate=toDate,
-            )
-        )
-
-        countsByCategory = (
-            await self.repository.countByEventCategory(
-                fromDate=fromDate,
-                toDate=toDate,
-            )
         )
 
         detectedClasses = list(
@@ -93,19 +96,39 @@ class EventService:
         self,
         eventCreate: EventCreate,
     ) -> Event | None:
+        result = await self.createEventWithStatus(eventCreate)
+        return result.event
+
+    async def createEventWithStatus(
+        self,
+        eventCreate: EventCreate,
+    ) -> EventCreationResult:
+        async with self.creationLock:
+            return await self._createEventWithStatus(eventCreate)
+
+    async def _createEventWithStatus(
+        self,
+        eventCreate: EventCreate,
+    ) -> EventCreationResult:
         existingEvent = await self.repository.findByDetectionId(
             eventCreate.detectionId
         )
 
         if existingEvent is not None:
-            return existingEvent
+            return EventCreationResult(
+                event=existingEvent,
+                created=False,
+            )
 
         if (
             eventCreate.eventCategory
             == EventCategory.MISCLASSIFICATION
             and not eventCreate.isMisclassified
         ):
-            return None
+            return EventCreationResult(
+                event=None,
+                created=False,
+            )
 
         currentTime = datetime.now(
             timezone.utc
@@ -122,7 +145,10 @@ class EventService:
                 and currentTime - lastEventTime
                 < timedelta(seconds=self.cooldownSeconds)
             ):
-                return None
+                return EventCreationResult(
+                    event=None,
+                    created=False,
+                )
 
         currentMode = (
             modeService.getMode().mode
@@ -171,10 +197,15 @@ class EventService:
             )
         )
 
-        if cooldownKey is not None:
+        created = savedEvent.eventId == event.eventId
+
+        if cooldownKey is not None and created:
             self.lastEventTimes[cooldownKey] = currentTime
 
-        return savedEvent
+        return EventCreationResult(
+            event=savedEvent,
+            created=created,
+        )
 
     def _buildCooldownKey(
         self,

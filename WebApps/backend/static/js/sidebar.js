@@ -147,7 +147,7 @@ function updateActiveMenu() {
 }
 
 
-function showMisclassificationWarning() {
+function showEventWarning() {
     const videoContainer =
         document.getElementById(
             "videoContainer"
@@ -217,9 +217,11 @@ function connectSidebarSocket() {
 
         if (
             message.eventType ===
-            "MISCLASSIFICATION_DETECTED"
+                "MISCLASSIFICATION_DETECTED" ||
+            message.eventType ===
+                "BIN_OVERFLOW_DETECTED"
         ) {
-            showMisclassificationWarning();
+            showEventWarning();
         }
     };
 

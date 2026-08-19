@@ -1,3 +1,5 @@
+from bson import ObjectId
+
 from repositories.mongoClient import getGridFsBucket
 from schemas.event import CameraId
 
@@ -16,6 +18,14 @@ class MediaRepository:
         )
 
         return str(fileId)
+
+    async def deleteById(
+        self,
+        fileId: str,
+        cameraId: CameraId,
+    ) -> None:
+        bucket = getGridFsBucket(cameraId)
+        await bucket.delete(ObjectId(fileId))
 
 
 mediaRepository = MediaRepository()
