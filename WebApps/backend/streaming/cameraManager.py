@@ -252,6 +252,16 @@ class CameraManager:
                 if not chunk:
                     break
 
+                # -loglevel warning이라 정상 상태에선 거의 안 찍히는데, 그럼에도
+                # 뭔가 나온다는 건 실제 경고(RTP 패킷 유실, 타임스탬프 불연속 등) —
+                # 연결이 안 끊긴 "성공 중" 상태에서도 실시간으로 바로 보이게 함
+                # (기존엔 완전 실패했을 때만 로그에 남아서 "연결은 됐는데 밀리는"
+                # 상황이 안 보였음).
+                print(
+                    f"[cameraManager] '{self.label}' ffmpeg: "
+                    + chunk.decode(errors="replace").rstrip()
+                )
+
                 tailBuffer.extend(chunk)
 
                 if len(tailBuffer) > 2000:
