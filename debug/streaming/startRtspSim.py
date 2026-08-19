@@ -218,7 +218,13 @@ def startFfmpegPush(
         "-preset", "ultrafast",
         "-tune", "zerolatency",
         "-pix_fmt", "yuv420p",
-        "-g", "40",
+        # 40(2초)였던 걸 축소 — RTSP를 TCP로 강제해서 쓰는데(방화벽 문제 회피,
+        # 아래 -rtsp_transport 참고) TCP는 패킷이 하나라도 늦으면 재전송을 기다리며
+        # 뒤 프레임이 전부 순서대로 밀림. 실제 웹캠 영상(데이터량 많음)이 합성
+        # 테스트 영상(거의 텍스트만, 데이터량 적음)보다 이 문제에 훨씬 취약했던 것으로
+        # 보임 — 한 번 밀리면 다음 키프레임(최대 2초 뒤)까지 계속 밀린 채로 유지됨.
+        # 키프레임을 자주 찍어서 밀리더라도 빨리 복구되게 함.
+        "-g", "10",
         "-rtsp_transport", "tcp",
         "-f", "rtsp",
         f"rtsp://localhost:{rtspPort}/{rtspPath}",
