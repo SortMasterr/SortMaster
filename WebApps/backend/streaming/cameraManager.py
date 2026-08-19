@@ -137,6 +137,14 @@ class CameraManager:
             "pipe:1",
         ]
 
+        # 소스 문자열(RTSP URL에 인증정보가 포함될 수 있음)은 서버 로그에만 남기고
+        # API 응답에는 절대 포함하지 않음(기존 원칙과 동일) — 지금 이 카메라 슬롯이
+        # 실제로 어느 RTSP 경로를 구독 중인지 로그로 바로 확인할 수 있게 함
+        # (.env 값이 컨테이너에 실제로 반영됐는지 등을 docker logs로 바로 검증 가능).
+        print(
+            f"[cameraManager] '{self.label}' 연결 시도: {self.source}"
+        )
+
         try:
             self.process = await asyncio.create_subprocess_exec(
                 *command,
