@@ -23,33 +23,48 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
   고정 설치(`ELEV` 명칭은 여기서 유래). 카메라 지점 2개(위+옆), `CameraId`는 `ELEV-TOP`/`ELEV-SIDE`로
   확정(설치 위치 번호 불필요 — 위치가 1곳뿐이라서). 4층 휴게실(`REST-4F-01`) 추가는 고도화
   단계 스트레치 목표(진행 여부 미정, 시간 남으면 검토) |
-| 메인보드 | **Jetson Nano 4GB 발주 무산 → Jetson Orin Nano Super Developer Kit로 확정**(icbanq 무료 렌탈). 8GB 유니파이드 메모리, JetPack 6.x(Ubuntu 22.04, Python 3.10) |
-| 카메라 구성 | **"카메라 1대 = 지점 1개 = `CameraId` 1개 = 독립 젯슨 나노 1대" 규칙 유지**(안 깨짐). 설치 위치 1곳(12층 엘리베이터 앞)에 지점 2개(위+옆). `.env` 키는 기존 하이픈 제거 규칙 그대로 `CAMERA_SOURCE_ELEVTOP`/`CAMERA_SOURCE_ELEVSIDE` |
+| 메인보드 | **Jetson Orin Nano Super 발주 건 완전 취소 → 라즈베리파이로 확정 대체.** YOLO26 추론을 GPU 서버로 이관하면서(아래 "탐지 파이프라인" 참고) 메인보드엔 고성능 추론이 더 이상 필요 없어짐 — 캡처+RTSP 송신+GPIO/스피커만 담당. Raspberry Pi OS(Python 3.11+)라 `WebApps/backend`와 문법 호환성 문제 없음 |
+| 카메라 구성 | **"카메라 1대 = 지점 1개 = `CameraId` 1개 = 독립 라즈베리파이 1대" 규칙 유지**(안 깨짐). 설치 위치 1곳(12층 엘리베이터 앞)에 지점 2개(위+옆). `.env` 키는 기존 하이픈 제거 규칙 그대로 `CAMERA_SOURCE_ELEVTOP`/`CAMERA_SOURCE_ELEVSIDE` |
 | 카메라 스펙 | 웹캠 실촬영 해상도 **640×480**(약 30만 화소). YOLO 입력 전처리는 **640×640**으로 통일(레터박스 패딩 방식 — 비율 유지, 단순 리사이즈 아님). MVP는 YOLO26 혼자 분류까지 끝내서 별도 모델로 좌표를 넘길 일이 없음(LLM에 좌표 넘기는 보정은 고도화 단계에서 LLM을 실제로 쓰게 될 때 재검토) |
 | 배포 구조 | 지점별(카메라별) 독립 메인보드+카메라 1대 — 설치 위치 1곳에 지점(=메인보드+카메라 세트) 2개 |
 | 클래스 | general, paper, plastic, can(신규, 플라스틱과 별도지만 같은 통), coffeeCup(별도 통) — 총 5종. `mixed`/`uncertain`은 제외 확정(자체 라벨링 시 전부 5종 중 하나로 분류 가능하다고 판단, 아래 "해결된 TBD" 참고) |
 
 ## 탐지 파이프라인
 
-> **MVP는 LLM(Qwen3-VL-8B) 없이 엣지 YOLO26 단독으로 동작하는 걸로 확정**(과거 "엣지 YOLO26 +
-> 중앙 LLM 실시간 하이브리드" 결정을 다시 뒤집음). **YOLO26이 감지+투척위치 추적뿐 아니라
-> 쓰레기 종류 분류까지 담당**하도록 기능이 추가돼서, MVP 단계에선 GPU 서버로의 실시간 영상
-> 전송/LLM 호출 자체가 없음. LLM은 "고도화" 단계로 완전히 미룸(아래 "LLM 활용(고도화, MVP
-> 이후)" 참고) — 방금 만든 `llm`(vLLM) 서비스는 지금 당장 검증할 필요 없음.
+> **메인보드를 Jetson Orin Nano Super에서 라즈베리파이로 전환하면서 YOLO26 추론 위치도
+> 엣지→GPU 서버로 이관 확정**(과거 "엣지 YOLO26 단독" 결정을 다시 뒤집음). 라즈베리파이는
+> 추론 성능이 부족해 **캡처+RTSP 송신+GPIO(전구/스피커)만 담당**하고, **YOLO26 상시 추론
+> (감지+추적+분류+판정)은 GPU 서버의 신규 `inference` 컨테이너가 전담**. 라즈베리파이의
+> RTSP 스트림을 GPU 서버가 SSH 역터널로 직접 당겨서(같은 스트림을 로컬 백엔드도 동시에
+> 받아 관리자 웹 실시간 송출에 그대로 씀 — `cameraManager.py` 변경 불필요) 연속 추론 루프를
+> 돈다. LLM(Qwen3-VL-8B)은 여전히 이 실시간 경로엔 없음(고도화 전용, 아래 "LLM 활용" 참고) —
+> **`inference`와 `llm`은 서로 다른 GPU 컨테이너**.
 
-- **넘침(overflow) 판정**(**옆 카메라** 단독, 엣지): 옆 카메라 젯슨에서 YOLO가 쓰레기통 넘침
-  상태를 감지하면 **바로 알림 + DB에 시간대 저장**(기존과 동일, 변경 없음)
-- **투기(misclassification) 판정**(**위 카메라** 단독, **엣지 전용 — MVP엔 GPU/LLM 호출 없음**):
-  1. 위 카메라 젯슨에서 **YOLO26(엣지)**이 쓰레기 감지 → 이 시점부터 녹화 시작(DB 저장용)
-  2. **YOLO26이 그 자리에서 쓰레기 종류까지 분류**(신규 기능 — 별도 모델 호출 없이 한 번에)
-  3. YOLO26이 계속 추적한 투척 결과(어느 통에 들어갔는지)와 자신이 분류한 쓰레기 종류를
-     종합해 오분류 여부 판단(전부 엣지에서 완결) → **로컬 백엔드로 결과 전송·저장** → 불일치
-     시 RPA 트리거
-  4. 투척 완료 후 **약 3초 텀**을 두고 녹화 종료
-  - 엣지→로컬 백엔드 결과 저장 시 실제 신호 전달 방식(MQTT/HTTP/WS)은 여전히 TBD
-- **역할 분담(MVP)**: 젯슨(엣지)이 캡처+RTSP 송신+GPIO+**YOLO26 추론(감지+추적+분류 전부)**을
-  담당. GPU 서버는 **YOLO26 학습**(`training` 컨테이너)만 MVP 범위 — LLM 관련 컨테이너(`llm`)는
-  기동 안 함
+- **넘침(overflow) 판정**(**옆 카메라** 단독, GPU 서버): 옆 카메라 라즈베리파이가 보낸 RTSP를
+  GPU `inference`가 상시 수신하며 쓰레기통 넘침 상태를 감지. `NORMAL`→`FULL` 전환 시점마다
+  경량 이벤트 신호(JSON, 원본 프레임 아님)를 로컬 백엔드로 전송 → 백엔드가 `BIN_STATES`
+  갱신+`EVENT` 생성(기존과 동일, 신호 발신 위치만 옆 카메라 라즈베리파이→GPU 서버로 변경)
+- **투기(misclassification) 판정**(**위 카메라** 단독, GPU 서버 추론 + 로컬 백엔드 판정):
+  1. 위 카메라 라즈베리파이가 보낸 RTSP를 GPU `inference`가 상시 수신 → 쓰레기 감지 시
+     "감지 시작" 신호를 로컬 백엔드로 전송 → 백엔드가 이 시점부터 녹화 시작(DB 저장용)
+  2. GPU `inference`가 **감지+추적+쓰레기 종류 분류를 프레임 단위로 계속 수행**(투척 궤적
+     추적처럼 프레임 간 연속성이 필요한 상태는 GPU 쪽에서 유지 — 매 프레임 백엔드에
+     왕복하면 실시간성이 떨어지므로)
+  3. 투척 완료를 GPU가 판단하면 분류 결과+`trackingId`를 담아 **"판정 완료" 신호 1회**를
+     로컬 백엔드로 전송 → 백엔드가 이미 갖고 있는 통 상태/쿨다운(5초) 로직으로 최종
+     오분류 여부 확정 → **`EVENT` 저장** → 불일치 시 RPA 트리거 신호를 라즈베리파이로 전송
+  4. 투척 완료 후 **약 3초 텀**을 두고 녹화 종료(신호는 백엔드가 자체 타이머로 처리, 기존과 동일)
+  - GPU `inference` ↔ 로컬 백엔드 신호는 원본 프레임이 아니라 소형 JSON이라 왕복해도
+    지연 영향이 작음 — 무거운 건 라즈베리파이→GPU 서버로 가는 RTSP 영상 자체(아래
+    "배포 전략"의 SSH 역터널 참고). 실제 전달 방식(MQTT/HTTP/WS)은 TBD
+- **역할 분담(MVP)**:
+  - **라즈베리파이(엣지)**: 캡처+RTSP 송신+GPIO(전구 릴레이)+스피커(경고음) — **추론 없음**
+  - **GPU 서버 `inference`**: YOLO26 상시 추론(감지+추적+분류), 투척 궤적처럼 프레임 연속성이
+    필요한 판정까지만 담당(상태는 진행 중인 투척 1건 범위 내에서만 GPU가 들고 있음)
+  - **로컬 백엔드**: 통 상태(`BIN_STATES`)/쿨다운/최종 `EVENT` 생성/녹화 시작·종료 타이밍/RPA
+    트리거 신호 송신 — 지속 상태는 전부 백엔드(로컬 MongoDB) 소유, 기존과 동일
+  - GPU 서버 컨테이너는 `training`(학습)/`inference`(YOLO26 상시 추론, 신규)/`llm`(고도화 전용,
+    MVP 미기동) 3개로 늘어남
 
 ## LLM 활용(고도화, MVP 이후)
 
@@ -67,37 +82,61 @@ Qwen3-VL-8B는 MVP 실시간 추론 경로에 없음 — **학습/데이터 준�
 ## 추론 인프라
 
 - NVIDIA L40S 총 4장, **팀당 1장씩 전용 할당**(다른 팀과 경합 없음)
-- MVP 모델/역할 분담은 위 "탐지 파이프라인" 참고(YOLO26 엣지 단독, GPU/LLM 미사용)
-- **GPU 서버엔 컨테이너 2개**: `training`(라벨링·학습, MVP 범위, 필요할 때만 기동) /
-  `llm`(Qwen3-VL-8B 서빙, vLLM — 고도화 전용, **MVP엔 기동 불필요**). `backend`/`mongo`는
-  GPU 서버가 아니라 **로컬에서 구동**(아래 "배포 전략" 참고)
+- MVP 모델/역할 분담은 위 "탐지 파이프라인" 참고(YOLO26은 GPU 서버 `inference`, LLM은 미사용)
+- **GPU 서버엔 컨테이너 3개**: `training`(라벨링·학습, MVP 범위, 필요할 때만 기동) /
+  `inference`(YOLO26 상시 추론, **신규, MVP 범위, 상시 기동**) / `llm`(Qwen3-VL-8B 서빙, vLLM —
+  고도화 전용, **MVP엔 기동 불필요**). `backend`/`mongo`는 GPU 서버가 아니라 **로컬에서 구동**
+  (아래 "배포 전략" 참고)
+- `inference`는 `training`과 같은 카드(`GPU_DEVICE_ID`)를 공유하는 상시 컨테이너라, 학습을
+  돌리는 시간대엔 두 워크로드가 VRAM/연산을 나눠 써야 함 — `llm`처럼 GPU 메모리 사용량을
+  제한해두는 게 안전(실측 후 조정 필요, 아래 TBD 참고)
+- (과거 TBD였던) `training`에서 나온 `.pt` 가중치를 젯슨(엣지)에 배포하는 문제는 이번 이관으로
+  해소 — `training`/`inference` 둘 다 GPU 서버 안에 있어 로컬 파일/볼륨 공유로 충분(원격 배포
+  불필요)
 - `training` 컨테이너는 JupyterLab을 띄워서 팀원이 브라우저로 같이 접속해 학습 코드 작성
   (`.env`의 `JUPYTER_PORT`/`JUPYTER_TOKEN`, 진짜 멀티유저 격리는 아니라 동시 실행 지양).
   GPU 서버 운영 실무(계정/rootless Docker/포트/SSH 터널 등)는 `gpuServerOps.md` 참고
+- `inference` 컨테이너 자체(FastAPI+ultralytics 등 실제 구현/Dockerfile/docker-compose.yml
+  서비스 정의)는 아직 미착수 — 위 "탐지 파이프라인" 설계대로 구현 예정
 
 ## 배포 전략
 
 > **MVP 배포 위치 재조정(확정)** — 과거 "백엔드+DB+LLM 추론+학습을 GPU 서버 안에 전부
-> 통합 배포"였던 결정을 뒤집음. **백엔드+DB는 로컬**, **GPU 서버는 YOLO26 학습**만 MVP
-> 범위(LLM 추론은 MVP에서 아예 안 씀 — 위 "탐지 파이프라인"/"LLM 활용" 참고). 이유: GPU
-> 서버는 다른 팀과 공유하는 자원이라 부담을 줄이고, 백엔드/DB는 애초에 GPU를 안 쓰므로
-> 로컬에 둬도 기능상 문제없음.
+> 통합 배포"였던 결정을 뒤집음. **백엔드+DB는 로컬**, **GPU 서버는 YOLO26 학습+추론** 둘 다
+> MVP 범위(LLM 추론은 여전히 MVP에서 안 씀 — 위 "탐지 파이프라인"/"LLM 활용" 참고). 이유:
+> GPU 서버는 다른 팀과 공유하는 자원이라 학습·추론 외 부담(백엔드/DB)은 줄이고, 백엔드/DB는
+> 애초에 GPU를 안 쓰므로 로컬에 둬도 기능상 문제없음.
+>
+> **메인보드를 Jetson Orin Nano Super → 라즈베리파이로 전환하며 YOLO26 추론도 엣지→GPU
+> 서버로 이관(재확정)** — 라즈베리파이는 추론 성능이 부족해 엣지 단독 추론이 불가능해짐.
+> 이 결정으로 "MVP는 GPU/LLM 실시간 호출 없음"이었던 과거 전제가 깨짐: **MVP부터 GPU
+> 서버가 실시간 경로에 들어옴**(단, LLM이 아니라 YOLO26 `inference`만). 상세는 위 "탐지
+> 파이프라인" 참고
 
 - 개발: Windows+Docker, 로컬 웹캠 테스트(기존과 동일)
 - **배포**: `backend`+`mongo`는 로컬 `192.168.0.40`(확정, 단 마지막 옥텟은 유동적일 수 있음)에서
-  `docker compose up backend mongo`로 실행. `training`만 GPU 서버로 이전해서
-  `docker compose --profile training up`로 실행(MVP 범위). `llm`(vLLM)은 고도화 단계에
-  가서야 GPU 서버에서 `docker compose up llm`로 띄우면 됨 — **하나의 `docker-compose.yml`을
-  그대로 쓰되, 호스트/단계마다 띄우는 서비스 조합만 다름**(별도 compose 파일 분리 불필요)
-- **백엔드(로컬) → LLM(GPU 서버) 연결은 MVP엔 불필요** — 고도화 단계에서 `llm` 서비스를 쓰게
-  되면 그때 SSH 터널(예: `ssh -p 2222 -L 8100:localhost:8100 soma@116.42.115.24`)을 상시
+  `docker compose up backend mongo`로 실행. `training`/`inference`는 GPU 서버로 이전해서
+  `training`은 `docker compose --profile training up`(학습, 필요할 때만), `inference`는
+  `docker compose up inference`(YOLO26 상시 추론, MVP부터 상시 기동)로 실행. `llm`(vLLM)은
+  고도화 단계에 가서야 GPU 서버에서 `docker compose --profile llm up llm`로 띄우면 됨 —
+  **하나의 `docker-compose.yml`을 그대로 쓰되, 호스트/단계마다 띄우는 서비스 조합만 다름**
+  (별도 compose 파일 분리 불필요)
+- **로컬(라즈베리파이) → GPU 서버 `inference` 컨테이너 연결은 MVP부터 상시 필요** — 라즈베리
+  파이의 RTSP를 SSH 역터널로 GPU 서버까지 계속 흘려보내야 YOLO26 상시 추론이 가능(카메라당
+  포트 1개, `ELEV-TOP`/`ELEV-SIDE` 총 2개). 끊기면 그 순간 탐지가 통째로 멈추는 **단일
+  장애점**이라 기존 "학습 때만 켜는" 터널보다 안정성 요구가 훨씬 높음 — `autossh` 등 자동
+  재연결 검토 필요(아래 TBD 참고). 같은 RTSP 스트림을 로컬 백엔드도 LAN으로 그대로 받아
+  관리자 웹 실시간 송출에 씀(`cameraManager.py` 변경 불필요, 라즈베리파이의 RTSP 서버 하나에
+  클라이언트 2곳이 붙는 구조)
+- **백엔드(로컬) → LLM(GPU 서버) 연결은 MVP엔 여전히 불필요** — 고도화 단계에서 `llm` 서비스를
+  쓰게 되면 그때 SSH 터널(예: `ssh -p 2222 -L 8100:localhost:8100 soma@116.42.115.24`)을 상시
   유지해야 함(안정성 확보 방법은 그때 검토)
 - **`training`(GPU 서버) → MongoDB(로컬) 연결은 MVP부터 필요** — 학습용 원본 이미지를
   로컬 GridFS에서 그대로 가져다 쓰기로 확정(위 "이벤트 적재" 참고)해서, 학습 돌릴 때마다
-  역방향 터널(로컬 PC에서 `ssh -p 2222 -R 27020:localhost:27020 soma@116.42.115.24` 실행)이
-  필요함
-- **GPU 연산 자체는 `training`/`llm` 컨테이너만 사용**(MVP는 `training`만 실제로 씀) — DB/백엔드가
-  로컬로 빠지면서 이 구분은 자연히 유지됨(`docker run --gpus`는 `training`/`llm`에만 적용)
+  역방향 터널(위 라즈베리파이 RTSP 터널과 같은 SSH 세션에 포트만 추가)이 필요함
+- **GPU 연산 자체는 `training`/`inference`/`llm` 컨테이너만 사용**(MVP는 `training`/`inference`
+  실제로 씀) — DB/백엔드가 로컬로 빠지면서 이 구분은 자연히 유지됨(`docker run --gpus`는
+  `training`/`inference`/`llm`에만 적용)
 - 서버 CPU/RAM이 팀별로 분리되는지(GPU만 분리되는지)는 서버 관리자 확인 필요(TBD)
 - GPU 패스스루: nvidia-docker 필요
 - **GPU 서버는 다인 공유 환경**(팀 5명뿐 아니라 다른 수강생들도 같은 호스트 공유) — 계정 격리,
@@ -114,28 +153,32 @@ Qwen3-VL-8B는 MVP 실시간 추론 경로에 없음 — **학습/데이터 준�
 - 입고 후 CameraId별 독립 RTSP로 교체(소스 문자열만 RTSP URL로 교체, 로직 불변)
 - `cv2.VideoCapture().read()` 동기 블로킹 → `asyncio.to_thread()`로 감쌈(적용 완료)
 - **로컬에서 RTSP 경로 미리 테스트**: `debug/streaming/startRtspSim.py` — 이 PC의 웹캠 여러 대를
-  각각 다른 지점(`CameraId`)에 할당해서, 지점별로 독립된 젯슨 나노 역할(FFmpeg+MediaMTX로
+  각각 다른 지점(`CameraId`)에 할당해서, 지점별로 독립된 라즈베리파이 역할(FFmpeg+MediaMTX로
   RTSP 송신)을 동시에 흉내냄. `infra/checkEnv.py`처럼 필요한 것 자동 설치하지만, RTSP
   테스트하는 사람만 필요해서 `checkEnv.py`와는 별도 유지(`debug/db/`와 같은 패턴).
   WebApps/backend·docker-compose.yml과 무관 — 백엔드는 수정 없이 그대로 RTSP 수신
 
-## 메인보드(Jetson Orin Nano Super) 엣지 코드 (미착수)
+## 메인보드(라즈베리파이) 엣지 코드 (미착수)
 
-**엣지 단독으로 확정**(위 "탐지 파이프라인" 참고) — 캡처+RTSP 송신+GPIO뿐 아니라
-**YOLO26 상시 추론(감지+추적+분류 전부)까지 젯슨이 담당**, MVP는 GPU/LLM 실시간 호출 없음.
-Orin Nano Super(8GB, 67 TOPS)라 YOLO26 엣지 추론 여력은 충분. GPU 서버(`training`)에서
-학습한 `.pt` 가중치를 젯슨에 배포해야 하는데, 배포 방식(SCP 등)은 TBD.
+> **Jetson Orin Nano Super 발주 건은 완전히 취소, 라즈베리파이로 확정 대체.** 이유: 애초
+> Orin을 쓰려던 목적(YOLO26 엣지 상시 추론)이 라즈베리파이로는 성능상 불가능해서, YOLO26을
+> GPU 서버(`inference`)로 이관(위 "탐지 파이프라인" 참고)하기로 하면서 메인보드에 고성능
+> NPU/GPU가 더 이상 필요 없어짐 — 캡처+RTSP 송신+GPIO/스피커만 하면 되는 역할이라 라즈베리
+> 파이로 충분.
 
-1. 웹캠→RTSP 송신: GStreamer(JetPack 포함) 예정. 1단계 웹캠 뷰어(Py 3.11)는 노트북 테스트 완료
-2. **YOLO26 엣지 추론**: 상시감시(위/옆 카메라 공통) + 위 카메라는 투척 위치 추적+쓰레기
-   종류 분류까지(MVP는 LLM 없이 YOLO26 혼자 완결 — 위 "탐지 파이프라인" 참고). 미착수
-3. **투척 결과 판정**(위 카메라만): YOLO26이 추적한 투척 위치와 자신이 분류한 쓰레기 종류를
-   엣지에서 직접 비교(MVP엔 GPU/LLM 결과 수신 단계 없음). 설계 전
-4. 로컬 백엔드로 결과 신호 전송+GPIO 트리거: 설계 전. `RPAs/alertController.py`는 현재
-   중앙에서 Mock 처리 중, 젯슨 쪽으로 이전 가능성. 전달 방식(MQTT/HTTP/WS) TBD
+**추론 없음, 캡처+송신+RPA 출력만 담당**(위 "탐지 파이프라인"의 "역할 분담" 참고):
 
-> Jetson Nano 4GB(Python 3.6 제약)는 발주 무산으로 더 이상 해당 없음 — Orin Nano Super는
-> JetPack 6.x/Python 3.10이라 `WebApps/backend`와 문법 호환성 문제 없음.
+1. 웹캠(또는 카메라 모듈)→RTSP 송신: GStreamer 또는 ffmpeg. 라즈베리파이는 표준 Linux
+   배포판(Raspberry Pi OS)이라 별도 SDK 제약 없음
+2. GPU 서버 `inference`가 도달할 수 있도록 RTSP를 SSH 역터널로 노출(위 "배포 전략" 참고) —
+   같은 스트림을 로컬 백엔드에도 LAN으로 그대로 흘려 관리자 웹 송출에 사용(듀얼 클라이언트)
+3. 로컬 백엔드로부터 RPA 트리거 신호 수신 → **GPIO(릴레이 경유 전구 점등)** + **스피커
+   (USB 또는 3.5mm 오디오잭, Python에서 `aplay` 서브프로세스 등으로 경고음 재생)** 출력.
+   `RPAs/alertController.py`는 현재 중앙에서 Mock 처리 중, 라즈베리파이 쪽으로 이전 예정.
+   신호 전달 방식(MQTT/HTTP/WS) TBD
+
+라즈베리파이(Raspberry Pi OS)는 표준 최신 Python(3.11+)을 쓸 수 있어 `WebApps/backend`와
+문법 호환성 문제 없음 — 과거 Jetson Nano 4GB의 Python 3.6 제약 이슈는 애초에 해당 없음.
 
 ## RPA 정책
 
@@ -200,24 +243,30 @@ Detect → Create Event → Save Event → Check mode
 
 ## TBD
 
-- **로컬 백엔드 → GPU 서버 `llm` 컨테이너 연결 안정성** — 고도화 단계에서 `llm`을 실제로
-  쓰게 되면, GPU 서버가 SSH(2222) 외 포트를 안 열어줘서 SSH 터널을 상시 유지해야 함(끊기면
-  분류 불가). 자동 재연결 방안(예: autossh) 또는 다른 접속 방식 검토 필요 — MVP엔 해당 없음
+- **라즈베리파이 → GPU 서버 `inference` SSH 역터널 안정성** — MVP부터 상시 연결이 필요한
+  단일 장애점(끊기면 탐지 전체 중단). `autossh` 등 자동 재연결 방안 검토 필요(과거 `llm`
+  전용 TBD였던 걸 `inference`로 이관 — `llm`은 여전히 고도화 전까지 해당 없음)
+- **GPU 서버 `inference` 컨테이너 실제 구현 미착수** — FastAPI+ultralytics 등 구체 스택,
+  Dockerfile, `docker-compose.yml` 서비스 정의(GPU 카드 공유 방식은 `training`/`llm` 패턴
+  재사용 예정) 전부 TBD
+- **GPU 카드 공유 시 `inference`(상시)-`training`(간헐) 동시 실행 지연/자원 경합 실측 필요** —
+  `inference`가 상시 기동으로 바뀌면서 `llm`-`training` 조합보다 경합 빈도가 높아짐
+- 라즈베리파이 RTSP를 GPU 서버로 역터널링할 때 **역터널을 어느 호스트에서 실행할지**(라즈베리
+  파이 자체 vs 로컬 백엔드 호스트) 미정
 - LLM을 이용한 "불확실한 분류 안정화"/"환경별 통 모양 인식 데이터 생성"의 구체적 방식(고도화 단계)
-- `DetectedClass`→`binType` 매핑표를 어디에 둘지(엣지 코드 하드코딩 vs 설정 파일 등) — 매핑표
-  자체는 확정(`Docs/ERD.md` 참고), 위치만 미정
+- `DetectedClass`→`binType` 매핑표를 어디에 둘지(GPU `inference` 코드 하드코딩 vs 설정 파일
+  등) — 매핑표 자체는 확정(`Docs/ERD.md` 참고), 위치만 미정
 - misclassification Cooldown 5초 조정 여부(overflow는 상태 전환 기반으로 확정돼 별도
   Cooldown 없음 — 해결된 TBD 참고)
-- 경고 전구 HW/GPIO 연동, 젯슨↔중앙 신호 전달 방식
+- 경고 전구 HW/GPIO 연동 상세, 라즈베리파이↔중앙 백엔드(RPA 트리거)/GPU 서버↔백엔드(판정
+  결과) 신호 전달 방식(MQTT/HTTP/WS, 둘 다 미정)
 - 안면인식 레포 포함 여부
 - 4층 휴게실(`REST-4F-01`) 설치 진행 여부 — 고도화 단계 스트레치 목표, 시간 남으면 진행(불확실)
 - **GPU 서버 CPU/디스크/네트워크 병목 실측**: GPU(VRAM)는 팀별 카드 분리로 경합 없음
   확인됨(아래 "해결된 TBD" 참고). CPU(192스레드)/디스크(2.8GB/s)는 여유 있어 보이지만
-  다른 팀과 공유라 완전히 보장은 안 됨. **네트워크**는 엣지 YOLO26 확정으로 RTSP가 상시
-  송출이 아니라 감지 시에만 전송되는 구조로 바뀌어서 우려가 줄었지만, 여전히 미측정 —
-  메인보드 입고 후 실측 필요
-- **YOLO26 `.pt` 가중치를 GPU 서버(`training`)에서 젯슨(엣지)으로 배포하는 방식**: SCP 등
-  구체적 방법 미정
+  다른 팀과 공유라 완전히 보장은 안 됨. **네트워크**는 이제 라즈베리파이→GPU 서버로 RTSP가
+  상시 스트리밍되는 구조라(엣지 단독 시절 기대했던 "감지 시에만 전송" 절감 효과가 사라짐)
+  대역폭/지연 실측이 오히려 더 중요해짐 — 메인보드 입고 후 최우선 실측 필요
 
 ## 해결된 TBD
 

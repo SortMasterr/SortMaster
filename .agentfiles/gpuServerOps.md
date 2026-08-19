@@ -47,8 +47,10 @@ docker info | grep -i rootless      # 값 나오면 성공
 
 ## GPU 카드 격리 & 포트
 
-- `.env`의 `GPU_DEVICE_ID=<nvidia-smi 인덱스>` → `training` 서비스가 `device_ids`로 그 카드만 사용
-  (`count: all`은 타 팀 카드까지 잡으므로 금지)
+- `.env`의 `GPU_DEVICE_ID=<nvidia-smi 인덱스>` → `training`/`inference`/`llm` 서비스가
+  `device_ids`로 그 카드만 사용(`count: all`은 타 팀 카드까지 잡으므로 금지). `inference`는
+  MVP부터 상시 기동이라 `training`을 돌리는 시간대엔 같은 카드를 나눠 써야 함 —
+  `gpu-memory-utilization` 류 제한 필요(실측 후 조정, `architecture.md`의 "추론 인프라" 참고)
 - 컨테이너 **내부** 포트는 겹쳐도 무관, **호스트** 포트만 충돌 주의: `sudo ss -tlnp | grep <포트>`로 사전 확인
 - `docker compose ps`의 `PORTS` 칸이 비면(컨테이너 `Up`인데 매핑 안 보임) 이전 실패로 이상 상태 남은 것 —
   지우고 재생성:
@@ -59,23 +61,30 @@ docker info | grep -i rootless      # 값 나오면 성공
 
 ## 외부 접속 — SSH 터널 (2222 외 포트포워딩 불가)
 
-> **`-L`(GPU서버→로컬 보기)의 `llm` 포트는 MVP엔 필요 없음** — YOLO26(엣지) 단독으로
-> 감지+분류+판정이 끝나서 로컬 백엔드가 GPU 서버를 실시간으로 호출할 일이 없음
+> **`-L`(GPU서버→로컬 보기)의 `llm` 포트는 MVP엔 필요 없음** — LLM은 여전히 고도화 전용
 > (`architecture.md`의 "탐지 파이프라인" 참고). 고도화 단계에서 `llm`을 쓰게 되면 그때부터
 > 끊기면 분류가 안 되는 상시 연결이 되므로 `autossh` 등 자동 재연결 방안 검토 필요.
 > **`-R`(로컬→GPU서버 보내기)의 Mongo 포트는 MVP부터 필요** — `training`이 학습용 원본
 > 이미지를 로컬 GridFS에서 직접 가져오기로 확정(`architecture.md`)했기 때문.
+> **`-R`의 RTSP 포트(8554/8555)는 이제 MVP부터 상시 필요** — 메인보드를 라즈베리파이로
+> 전환하며 YOLO26 추론을 GPU 서버 `inference`로 이관했기 때문에(`architecture.md` 참고),
+> 예전엔 "`training` 컨테이너 테스트용" 정도였던 이 포트가 지금은 **실시간 탐지의 필수
+> 경로**가 됨 — 끊기면 탐지가 통째로 멈추는 단일 장애점이라 `llm`보다 오히려 `autossh` 같은
+> 자동 재연결이 더 시급함. 카메라(`CameraId`)가 2개(`ELEV-TOP`/`ELEV-SIDE`)라 포트도 2개
+> 필요. 이 역터널을 라즈베리파이 자체에서 실행할지, 로컬 백엔드 호스트에서 실행할지는 TBD
 
 ```bash
 # GPU 서버 서비스를 노트북/로컬 백엔드에서 보기(-L). 8100(llm)은 고도화 단계 전까지 불필요
 ssh -p 2222 -L 8899:localhost:8899 -L 8100:localhost:8100 soma@116.42.115.24
-# 노트북/로컬 DB를 GPU 서버로 보내기(-R, 반대 방향). 27020은 로컬 MongoDB(학습용 원본
-# 이미지 조회, MVP부터 필요), 8554는 웹캠→RTSP(training 컨테이너 테스트용 등)
-ssh -p 2222 -R 27020:localhost:27020 -R 8554:localhost:8554 soma@116.42.115.24
+# 노트북/로컬 DB+카메라를 GPU 서버로 보내기(-R, 반대 방향). 27020은 로컬 MongoDB(학습용
+# 원본 이미지 조회, MVP부터 필요), 8554/8555는 ELEV-TOP/ELEV-SIDE 각 라즈베리파이의 RTSP
+# (MVP부터 GPU `inference` 상시 추론에 필수 — training 테스트용이 아니라 실서비스 경로)
+ssh -p 2222 -R 27020:localhost:27020 -R 8554:localhost:8554 -R 8555:localhost:8555 soma@116.42.115.24
 ```
-`-R`로 받은 스트림은 컨테이너 안에서 호스트의 `localhost`에 직접 못 닿으므로, `backend` 서비스에
-`extra_hosts: ["host.docker.internal:host-gateway"]`(적용됨)를 쓰고 `.env`에
-`CAMERA_SOURCE_ELEVTOP=rtsp://host.docker.internal:8554/ELEV-TOP`처럼 지정. 사설 IP(`192.168.0.x`)
+`-R`로 받은 스트림은 컨테이너 안에서 호스트의 `localhost`에 직접 못 닿으므로, GPU 서버의
+`inference`/`training` 서비스에도 `backend`와 동일하게
+`extra_hosts: ["host.docker.internal:host-gateway"]`를 적용하고 카메라 소스는
+`rtsp://host.docker.internal:8554/ELEV-TOP`처럼 지정. 사설 IP(`192.168.0.x`)
 카메라 소스는 GPU 서버가 그 네트워크에 속하지 않아 직접 라우팅이 안 되므로 반드시 이 방식 필요.
 
 ## 팀 공유 MongoDB 계정 (GPU 서버로 이전 시) — 현재 보류
@@ -93,15 +102,17 @@ ssh -p 2222 -R 27020:localhost:27020 -R 8554:localhost:8554 soma@116.42.115.24
 4. `.env`: backend도 같은 서버면 `MONGO_HOST=mongo`/`DB_PORT=27017`(내부망), 외부 접속이면
    `MONGO_HOST=<서버IP>`/`DB_PORT=27020`
 
-## 메인보드(Jetson Orin Nano Super) 참고
+## 메인보드(라즈베리파이) 참고
 
-Jetson Nano 4GB(JetPack 4.6.x, Python 3.6 제약)는 발주 무산으로 더 이상 해당 없음 — **Jetson
-Orin Nano Super Developer Kit**(icbanq 무료 렌탈, 8GB 유니파이드 메모리, 67 TOPS, JetPack 6.x/
-Ubuntu 22.04/**Python 3.10**)로 확정. `WebApps/backend`(Python 3.11)와 문법 호환성 문제 없음
-— 이전에 남겨뒀던 3.6 문법 제약(`str | None` 등 금지)은 더 이상 적용 안 됨.
+Jetson Orin Nano Super(icbanq 무료 렌탈) 발주 건은 **완전히 취소** — 라즈베리파이로 확정
+대체. 이유: 애초 Orin을 쓰려던 목적(YOLO26 엣지 상시 추론)을 GPU 서버(`inference`)로
+이관하기로 하면서 메인보드에 고성능 NPU/GPU가 더 이상 필요 없어짐(`architecture.md`의
+"탐지 파이프라인"/"배포 전략" 참고). 라즈베리파이는 표준 Raspberry Pi OS(Python 3.11+)라
+`WebApps/backend`와 문법 호환성 문제 없음 — 과거 Jetson Nano 4GB의 Python 3.6 제약 이슈는
+애초에 해당 없음.
 
-엣지에서 YOLO26을 직접 돌림(`architecture.md`의 "탐지 파이프라인" 참고) — GPU 서버
-(`training`)에서 학습한 `.pt` 가중치를 젯슨에 배포해서 상시 추론. **MVP는 YOLO26이 감지+
-분류+판정을 전부 엣지에서 완결**해서 GPU 서버 호출 자체가 없음(과거 "중앙 LLM으로 영상
-전송" 하이브리드 구조는 뒤집힘 — Qwen3-VL-8B는 고도화 단계 학습 보조용으로 후순위). `.pt`
-배포 절차(SCP 등)는 아직 미정, 확정되면 여기에 추가할 것.
+**라즈베리파이는 추론을 하지 않음** — 캡처+RTSP 송신(위 "외부 접속" 절의 8554/8555 역터널로
+GPU 서버까지 도달)+GPIO(전구 릴레이)+스피커(경고음)만 담당. YOLO26 상시 추론(감지+추적+분류)은
+GPU 서버 `inference` 컨테이너가 전담하고, 학습 가중치(`.pt`)는 `training`→`inference` 둘 다
+GPU 서버 안에 있으므로 원격 배포 없이 로컬 파일/볼륨 공유로 충분(과거 "젯슨에 SCP로 배포"
+문제 자체가 사라짐).
