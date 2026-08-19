@@ -8,17 +8,8 @@ services:
       - "8047:8047"
     env_file:
       - .env
-    environment:
-      # 호스트에서 직접 실행할 때 쓰는 MONGO_HOST=localhost:27020과 분리한다.
-      # Compose 네트워크 안에서는 서비스명 mongo와 컨테이너 포트 27017을 사용한다.
-      - MONGO_HOST=${COMPOSE_MONGO_HOST:-mongo}
-      - DB_PORT=${COMPOSE_DB_PORT:-27017}
-      - DB_NAME=${COMPOSE_DB_NAME:-sortMasterTest}
-      - DB_USER=${COMPOSE_DB_USER:-}
-      - DB_PASSWORD=${COMPOSE_DB_PASSWORD:-}
     depends_on:
-      mongo:
-        condition: service_healthy
+      - mongo
     # 카메라가 GPU 서버와 다른 사설망(팀원 로컬 PC)에 있을 때, 노트북→GPU서버 역방향
     # SSH 터널(-R)로 끌어온 RTSP를 컨테이너 안에서 host.docker.internal로 접근하기 위함.
     # .env의 CAMERA_SOURCE_<CameraId>에서 host.docker.internal 사용 시에만 의미 있음.
@@ -30,18 +21,14 @@ services:
     container_name: sortmaster-mongo
     restart: unless-stopped
     ports:
-      - "127.0.0.1:27020:27017"
+      - "27020:27017"
     volumes:
       - mongo-data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "quit(db.adminCommand('ping').ok ? 0 : 2)"]
-      interval: 2s
-      timeout: 2s
-      retries: 15
-      start_period: 5s
-    # 개발 전용 무인증 sortMasterTest 인스턴스다. 호스트 loopback에만 노출하며 팀 배포
-    # 서버(192.168.0.40)의 인증 MongoDB와 혼용하지 않는다. 운영에서는 이 서비스를
-    # 시작하지 않고 COMPOSE_*에 발급받은 공유 DB 접속값을 넣어 backend만 실행한다.
+    # 이 컨테이너는 로컬용 별도 인스턴스 — 팀 공유 서버(<LEGACY_SHARED_SERVER_IP>, 실제 값은
+    # Notion 참고)와는 다른 DB. 지금은 인증 없이 기동. 팀 공유 서버에 인증을 켜려면 mongosh로 root+팀원
+    # 계정을 먼저 만든 다음, 아래 주석을 해제하고 재시작할 것(architecture.md의
+    # "DB 접속" 절 참고 — 계정 없이 먼저 --auth부터 켜면 아무도 로그인 못 하니 순서 반드시 지킬 것):
+    # command: ["mongod", "--auth"]
 
   # Qwen3-VL-8B 서빙(vLLM, OpenAI 호환 API) — MVP는 안 씀(YOLO26 단독으로 감지+분류+판정
   # 완결, architecture.md의 "탐지 파이프라인" 참고). 고도화 단계에서 학습 보조용(불확실한

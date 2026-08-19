@@ -1,6 +1,6 @@
 # apiSpec.md
 
-v0.1(MVP), 구현 기준일 2026-08-19. Base URL `http://localhost:8047`(배포 시 로컬 배포 서버 `192.168.0.40:8047` — 백엔드는 GPU 서버가 아니라 로컬에서 구동, `architecture.md` 참고). JSON camelCase. 인증 없음(내부망).
+v0.1(MVP), 구현 기준일 2026-08-18. Base URL `http://localhost:8047`(배포 시 로컬 배포 서버 `<LOCAL_BACKEND_IP>:8047`, 실제 IP는 Notion 참고 — 백엔드는 GPU 서버가 아니라 로컬에서 구동, `architecture.md` 참고). JSON camelCase. 인증 없음(내부망).
 
 새 엔드포인트 추가 시 이 문서 형식(EP-번호, 표) 그대로 유지.
 
@@ -9,7 +9,7 @@ v0.1(MVP), 구현 기준일 2026-08-19. Base URL `http://localhost:8047`(배포 
 | Enum | 값 |
 |---|---|
 | CameraId | ELEV-TOP / ELEV-SIDE / REST-4F-01 — 설치 위치 1곳뿐이라 번호 없음(`.agentfiles/architecture.md` 참고). ELEV-TOP=쓰레기 종류 분류+쓰레기통 감지+투척 감지 3기능 모델, ELEV-SIDE=쓰레기통 넘침 여부만 판정 |
-| EventCategory | misclassification(투기, 위 카메라 단독 — **MVP는 엣지 YOLO26 단독**으로 투척 통(`binId`)과 쓰레기 종류(`detectedClass`)를 감지+분류+비교까지 전부 처리, 불일치 시 엣지가 판정. LLM/GPU 호출 없음 — Qwen3-VL-8B는 고도화 단계 학습 보조용으로 후순위) / overflow(넘침, 옆 카메라 단독 — 물리 통 4개의 상태를 `BIN_STATES`로 지속 추적하다 `NORMAL`→`FULL` 전환 시점에만 생성) |
+| EventCategory | misclassification(투기, 위 카메라 단독 — **GPU 서버 `inference`가 감지+추적+분류**를 계속 수행, 투척 통(`binId`)과 쓰레기 종류(`detectedClass`) 비교 판정. LLM은 미사용 — Qwen3-VL-8B는 고도화 단계 학습 보조용으로 후순위) / overflow(넘침, 옆 카메라 단독 — 물리 통 4개의 상태를 `BIN_STATES`로 지속 추적하다 `NORMAL`→`FULL` 전환 시점에만 생성) |
 | BinType | general / plasticCan / coffeeCup / paper — 물리 쓰레기통 4개 고정. `plasticCan` 통은 `DetectedClass`의 `plastic`/`can` 둘 다 받음(매핑 필요, `Docs/ERD.md` 참고) |
 | DetectedClass | general / paper / plastic / can / coffeeCup — 총 5종, misclassification 이벤트에서만 사용. `mixed`/`uncertain`은 제외됨 |
 | ActionTaken | lightAndSound / soundOnly / lightOnly / notificationOnly / none |
@@ -17,8 +17,7 @@ v0.1(MVP), 구현 기준일 2026-08-19. Base URL `http://localhost:8047`(배포 
 | CameraStatus | ONLINE / OFFLINE |
 | WSEventType | MISCLASSIFICATION_DETECTED / BIN_OVERFLOW_DETECTED / MODE_CHANGED / CAMERA_DISCONNECTED / SYSTEM_ERROR |
 
-상태 코드: 200 정상 / 400 녹화 프레임 없음·카메라 불일치·`recordingId` 재사용 충돌(EP-09) /
-404 이벤트·녹화 세션 없음 /
+상태 코드: 200 정상 / 400 녹화 프레임 없음(EP-09) / 404 이벤트·녹화 세션 없음 /
 422 스키마 불일치 / 500 서버 오류 / 503 카메라 미설정·연결 실패
 
 ## JSON API
@@ -31,7 +30,7 @@ v0.1(MVP), 구현 기준일 2026-08-19. Base URL `http://localhost:8047`(배포 
 | EP-05 | GET /api/statistics | 클래스별·카테고리별 집계, 온디맨드(캐시없음) | Query: from?, to? | 200/422 | Response: `labels`, `counts`, `totalEventCount`, `misclassificationCount`, `overflowCount` |
 | EP-06 | POST /api/mode | 모드 전환 | Body: mode(Mode) | 200/422 | 성공 시 전체 WS 클라이언트에 MODE_CHANGED 브로드캐스트 |
 | EP-08 | POST /api/detection/start | 녹화 시작(탐지 시작 신호) | Body: cameraId(CameraId) | 200/422/503 | `recordingService.start` 호출, recordingId 반환. 카메라 미설정/연결 실패 시 503 |
-| EP-09 | POST /api/detection/stop | 녹화 종료+GIF 업로드+이벤트 저장(탐지 종료 결과 신호) | Body: recordingId, cameraId, eventCategory(생략 시 misclassification), detectionId, binId, binType, modelVersion + 카테고리별 필드 | 200/400/404/422 | misclassification/overflow 공통. EP-02와 동일한 저장·Cooldown·WS 부수효과 적용. recordingId 없으면 404, 프레임 없음·카메라 불일치·다른 detectionId 재사용은 400 |
+| EP-09 | POST /api/detection/stop | 녹화 종료+GIF 업로드+이벤트 저장(탐지 종료 결과 신호) | Body: recordingId, cameraId, eventCategory(생략 시 misclassification), detectionId, binId, binType, modelVersion + 카테고리별 필드 | 200/400/404/422 | misclassification/overflow 공통. EP-02와 동일한 저장·Cooldown·WS 부수효과 적용. recordingId 없으면 404, 캡처된 프레임 없으면 400 |
 
 ### EP-02. POST /api/events — 이벤트 생성
 
@@ -42,8 +41,8 @@ Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory
 - overflow: 현재 백엔드는 시간 Cooldown이나 `BIN_STATES` 전환 검증 없이, 스키마가 유효하고
   `detectionId`가 새 값이면 저장한다. `NORMAL`→`FULL` 전환 시점에만 호출하는 것은 확정 설계이자
   호출자 책임이며 `BIN_STATES`는 아직 코드 미반영(`Docs/ERD.md` 참고)
-- 동일 `detectionId`: 새 문서를 만들지 않고 기존 Event를 200으로 반환한다. 내부
-  `created=false` 결과를 사용하므로 기존 이벤트 재전송은 WS로 다시 브로드캐스트하지 않는다.
+- 동일 `detectionId`: 새 문서를 만들지 않고 기존 Event를 200으로 반환한다. 현재 `MANAGE`
+  모드에서는 기존 이벤트도 WS로 다시 브로드캐스트되므로 알림 중복까지 막지는 않는다.
 - `detectionId`는 비어 있지 않은 문자열, `binId`도 비어 있지 않은 문자열만 검증한다. UUID 형식,
   물리 통 ID 목록, `binId`와 `binType`의 일치는 아직 스키마에서 검증하지 않는다.
 
@@ -51,37 +50,21 @@ Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory
 
 ### EP-08/EP-09. POST /api/detection/start, stop — 탐지 파이프라인 임시 스텁
 
-`services/detectionService.py`: 실제 YOLO26 모델(젯슨 엣지) 완성 전까지, 시작/종료 신호를
-API로 직접 받아 `recordingService`(녹화)→`mediaService`(GIF 인코딩+GridFS 업로드)→
+`services/detectionService.py`: **MVP 시연용 임시 스텁** — GPU 서버 `inference` 실제 연동 전까지,
+시작/종료 신호를 `debug/detection/`의 스크립트로 수동 HTTP 요청을 보내 DB에 이벤트를 채워
+넣는 용도. API로 직접 받아 `recordingService`(녹화)→`mediaService`(GIF 인코딩+GridFS 업로드)→
 `eventService.createEvent`(EP-02와 동일 로직, Cooldown 포함)를 그대로 호출하는 HTTP 연결부.
 EP-09는 `eventCategory`에 따라 misclassification/overflow를 모두 처리하며, 기존 호출과의
 호환성을 위해 `eventCategory`를 생략하면 misclassification으로 처리한다. misclassification은
 `detectedClass`/`isMisclassified`/`confidenceScore`가 필수이고, overflow는 해당 필드를 보내지
 않으며 `overflowDuration`/`overflowThreshold`를 선택적으로 보낸다. 두 카테고리 모두
 `detectionId`/`binId`/`binType`/`modelVersion`이 필요하다.
-`recordingId`가 없으면 404, 프레임이 없거나 시작/종료 카메라가 다르면 400,
-스키마/카메라 역할 오류는 422다. GIF 업로드 뒤 `isMisclassified=false`, Cooldown, 중복
-`detectionId` 또는 DB 저장 실패로 Event가 새로 저장되지 않으면 새 GridFS 파일을 보상 삭제한다.
-완료 녹화는 최대 120초 동안만 원본 프레임을 보존한다. 성공 시 프레임을 즉시 해제하고
-`recordingId`+`detectionId` 완료 결과만 120초 캐시해 동일 stop 재시도에서 GIF/DB/WS를
-반복하지 않는다. 다른 `detectionId`로 같은 `recordingId`를 재사용하면 400이다. 종료 신호가
-없는 활성 녹화는 최대 30초 뒤 세션·프레임을 자동 정리한다.
-`debug/detection/detectionApiClient.py`는 start를 자동 재시도하지 않으며, stop만 60초
-timeout+응답 중 연결 단절을 포함한 연결 오류 1회 재시도한다. 같은
-`recordingId`/`detectionId`를 유지한다.
-현재 수령한 `bestTop.pt`는 `plastic`/`can`을 `recyclables`로 합친 8클래스라
-확정 API의 쓰레기 5종+통 4종 계약으로 손실 없이 변환할 수 없다. 재학습 또는 CTO 승인 계약
-변경 전에는 EP-08/EP-09 운영 호출에 연결하지 않는다(`Docs/DATASET_DESCRIPTION.md` 참고).
-엣지→백엔드 신호 전달 방식(MQTT/HTTP/WS, `architecture.md` 기준 TBD)이 확정되면 진입점만
-그쪽으로 바꾸고 `detectionService` 내부 로직은 재사용 예정.
-
-MongoDB 목록/통계 조회는 현재 Event 필수 필드·Enum·timestamp·선택 필드 타입 계약을 만족하는
-문서만 포함한다. 구형 raw 문서의 누락 필드를 임의 생성하지 않으며 호환되지 않는 문서는
-건너뛰고 로그에 남긴다. 앱 시작 시 5초 제한 `ping`과 인덱스 준비에 실패하면 startup을
-실패시키고, 종료 시 Mongo 연결 풀과 녹화 자원을 정리한다. 통계의 클래스·카테고리 합계는
-한 Mongo `$facet` 쿼리에서 계산한다.
-`debug/db/seedTestEvents.py`와 `testCrud.py`는 loopback MongoDB의
-`sortMasterTest` DB만 허용한다.
+`recordingId`가 없으면 404, 프레임이 없으면 400, 스키마/카메라 역할 오류는 422다. GIF 업로드가
+이벤트의 `isMisclassified=false`, Cooldown, 중복 `detectionId` 판정보다 먼저 실행되므로 현재는
+Event가 새로 저장되지 않아도 GridFS 파일이 먼저 생성될 수 있다.
+현재 `recordingId`에 저장된 시작 카메라와 stop 요청의 `cameraId`가 같은지는 검증하지 않는다.
+GPU `inference`→백엔드 신호 전달 방식(MQTT/HTTP/WS, `architecture.md` 기준 TBD)이 확정되면
+진입점만 그쪽으로 바꾸고 `detectionService` 내부 로직은 재사용 예정.
 
 ### EP-07. WS /ws/events — 실시간 스트림
 

@@ -1,4 +1,4 @@
-"""엣지 모델과 SortMaster 백엔드 사이의 HTTP 연결 클라이언트.
+"""탐지 모델(계획상 GPU 서버 `inference`)과 SortMaster 백엔드 사이의 HTTP 연결 클라이언트.
 
 모델 런타임(PyTorch/TensorRT)과 무관하게 탐지 시작·종료 시점에 이 모듈의 두 함수를
 호출하면 된다. 외부 패키지 없이 Python 표준 라이브러리만 사용한다.
@@ -11,7 +11,7 @@
             "recordingId": recordingId,
             "cameraId": "ELEV-SIDE",
             "eventCategory": "overflow",
-            "detectionId": "엣지에서 생성한 UUID",
+            "detectionId": "탐지 모델이 생성한 UUID",
             "binId": "BIN-GENERAL",
             "binType": "general",
             "overflowDuration": 5.2,

@@ -1,13 +1,13 @@
 """
-젯슨 나노 도착 전, 이 PC의 웹캠들로 RTSP 송신을 흉내내는 로컬 테스트 도구.
-지점(CameraId)당 독립 젯슨 나노 1대+카메라 1대 구성(architecture.md 참고) —
+라즈베리파이 도착 전, 이 PC의 웹캠들로 RTSP 송신을 흉내내는 로컬 테스트 도구.
+지점(CameraId)당 독립 라즈베리파이 1대+카메라 1대 구성(architecture.md 참고) —
 카메라 여러 대를 각각 다른 지점(ELEV-TOP, ELEV-SIDE 등)에 할당해서 동시에 RTSP로 송신.
 infra/checkEnv.py처럼 필요한 것(FFmpeg/MediaMTX)을 자동으로 확인+설치하고,
 카메라 장치도 자동으로 찾아서 MediaMTX + FFmpeg 송신을 바로 띄운다.
 
-실제 배포 시엔 각 지점의 젯슨 나노가 이 역할(GStreamer RTSP 서버)을 대신하므로,
+실제 배포 시엔 각 지점의 라즈베리파이가 이 역할(GStreamer RTSP 서버)을 대신하므로,
 이 스크립트는 WebApps/backend·docker-compose.yml과 무관한 로컬 테스트 전용 —
-카메라를 든 쪽(현재는 이 PC, 나중엔 젯슨 나노)의 역할만 흉내낸다.
+카메라를 든 쪽(현재는 이 PC, 나중엔 라즈베리파이)의 역할만 흉내낸다.
 백엔드(streaming/cameraManager.py)는 RTSP URL을 받기만 하면 되므로 수정 불필요.
 
 실행:
@@ -153,7 +153,7 @@ def listDshowCameras(ffmpegPath: str) -> list[tuple[str, str]]:
     return cameras
 
 
-# schemas/event.py의 CameraId 값과 동일하게 유지 — 지점당 독립 젯슨 나노+카메라 1대.
+# schemas/event.py의 CameraId 값과 동일하게 유지 — 지점당 독립 라즈베리파이+카메라 1대.
 cameraIdChoices = ["ELEV-TOP", "ELEV-SIDE", "REST-4F-01"]
 
 
