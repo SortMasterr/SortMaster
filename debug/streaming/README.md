@@ -1,10 +1,10 @@
-# 젯슨 나노 RTSP 시뮬레이션 (로컬 테스트용)
+# 라즈베리파이 RTSP 시뮬레이션 (로컬 테스트용)
 
-젯슨 나노 입고 전, 이 PC의 웹캠 여러 대를 각각 다른 지점(`CameraId`)에 할당해서, 지점마다
-독립된 젯슨 나노가 나중에 할 역할(캡처+RTSP 송신)을 흉내내는 도구. 카메라 1대 = 지점 1개 =
+라즈베리파이 입고 전, 이 PC의 웹캠 여러 대를 각각 다른 지점(`CameraId`)에 할당해서, 지점마다
+독립된 라즈베리파이가 나중에 할 역할(캡처+RTSP 송신)을 흉내내는 도구. 카메라 1대 = 지점 1개 =
 `CameraId` 1개 구성(architecture.md 참고).
 
-**주의**: 여기서 쓰는 FFmpeg/MediaMTX는 "카메라를 든 쪽"(현재는 이 PC, 나중엔 젯슨 나노) 역할이라
+**주의**: 여기서 쓰는 FFmpeg/MediaMTX는 "카메라를 든 쪽"(현재는 이 PC, 나중엔 라즈베리파이) 역할이라
 `WebApps/backend`나 `docker-compose.yml`에는 포함되지 않음. 백엔드는 원래 설계대로 RTSP URL만
 받아서 열면 됨(`cv2.VideoCapture`가 RTSP 문자열도 그대로 처리 — 백엔드 코드 수정 불필요).
 
@@ -55,7 +55,7 @@ uvicorn main:app --reload --port 8047
 ## 참고
 
 - MediaMTX 기본 RTSP 포트는 8554(변경 가능하나 바꿀 이유 없음)
-- 실제 배포 시엔 젯슨 나노가 자체 RTSP 서버(GStreamer, JetPack 기본 포함)를 띄우므로 이 절차
-  전체가 불필요해짐 — `.env`의 `CAMERA_SOURCE_<CameraId>`만 해당 젯슨 나노 IP로 교체
+- 실제 배포 시엔 라즈베리파이가 자체 RTSP 서버(GStreamer, JetPack 기본 포함)를 띄우므로 이 절차
+  전체가 불필요해짐 — `.env`의 `CAMERA_SOURCE_<CameraId>`만 해당 라즈베리파이 IP로 교체
 - FFmpeg 인코딩 옵션(`ultrafast`/`zerolatency`/GOP 40 등)은 팀원이 실측으로 찾은 안정화 설정
   (H264 corrupted macroblock, frame duplication 문제 해결 이력 있음)

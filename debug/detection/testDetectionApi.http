@@ -1,7 +1,7 @@
 ### VSCode REST Client 확장(humao.rest-client) 필요 — 요청 위 "Send Request" 클릭
 ### services/detectionService.py(임시 스텁) 검증용. .agentfiles/apiSpec.md의 EP-08/EP-09 참고
 
-@baseUrl = http://192.168.0.40:8047
+@baseUrl = http://<LOCAL_BACKEND_IP>:8047
 
 ### 1. 녹화 시작
 # @name start

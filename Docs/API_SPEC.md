@@ -55,15 +55,15 @@
 
 * **탐지 모델(MVP)**
 
-  * YOLO26 사용(변경 전 YOLOv8-Nano), **엣지(젯슨)에서 상시 추론** — 감지+투척 위치 추적+
-    쓰레기 종류 분류까지 전부 엣지에서 완결. **GPU 서버 호출 자체가 없음**(MVP 확정,
-    아래 "처리 위치" 참고)
+  * YOLO26 사용(변경 전 YOLOv8-Nano), **GPU 서버 `inference` 컨테이너에서 상시 추론** —
+    메인보드가 Jetson Orin Nano Super에서 라즈베리파이로 바뀌면서 라즈베리파이(엣지)는
+    캡처+RTSP 송신+GPIO/스피커만 담당, 추론은 GPU 서버로 이관됨(아래 "처리 위치" 참고)
   * 손 감지 조건 폐지 — 쓰레기 감지 자체가 트리거
   * 옆 카메라가 넘침 상태와 대상 물리 통(`binId`)을 감지 → 위 카메라 연동 없이 바로
     알림+DB 저장
-  * 위 카메라: 엣지 YOLO26이 쓰레기 감지 → 그 자리에서 쓰레기 종류까지 분류 → 투척 위치
-    추적 결과와 비교해 투기 이벤트 판정(전부 엣지에서 완결, 상세는
-    `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고)
+  * 위 카메라: GPU `inference`가 쓰레기 감지+추적+종류 분류를 프레임 단위로 계속 수행 →
+    투척 완료 시 분류 결과를 백엔드로 전송 → 백엔드가 통 상태/쿨다운과 종합해 투기 이벤트
+    판정(상세는 `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고)
 
 > `EventCreate`/`Event`에 `detectionId`, `trackingId`, `binId`, `binType`, `modelVersion`,
 > overflow 전용 필드가 반영되었다. `detectionId`는 MongoDB 유니크 인덱스로 중복 저장을
@@ -77,9 +77,11 @@
 
 * **처리 위치**
 
-  * MVP는 탐지·분류·판정 전부 **엣지(젯슨)에서 처리**, GPU 서버는 YOLO26 학습(`training`)만 담당
+  * MVP는 GPU 서버 `inference`가 탐지·추적·분류를 담당, 로컬 백엔드가 통 상태/쿨다운과
+    종합해 최종 판정. GPU 서버는 YOLO26 학습(`training`)도 같이 담당
   * 백엔드+DB는 로컬(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)에서 구동, GPU 서버가 아님
-  * 젯슨 나노는 영상 캡처, RTSP 송신, GPIO 알림 수신에 더해 **YOLO26 추론까지** 담당
+  * 라즈베리파이는 영상 캡처, RTSP 송신, GPIO/스피커 알림 출력만 담당(추론 없음) — YOLO26
+    추론은 GPU 서버 `inference`가 전담
 
 자세한 설계는 `.agentfiles/architecture.md`를 참고한다.
 
@@ -176,7 +178,7 @@ multipart/x-mixed-replace; boundary=frame
 ### 현재 구현 참고사항
 
 * `cameraId`는 `CameraId` Enum으로 검증한다.
-* `cameraId`마다 별도 카메라 관리자를 사용한다(카메라 1대당 독립 젯슨 나노 1대 구성).
+* `cameraId`마다 별도 카메라 관리자를 사용한다(카메라 1대당 독립 라즈베리파이 1대 구성).
 * 현재 개발용 카메라 소스는 `.env`의 `CAMERA_SOURCE_<ID>`(예: `CAMERA_SOURCE_ELEVTOP`)를 사용한다.
 * 소스가 설정되지 않은 `cameraId`는 HTTP 503이 발생할 수 있다.
 * 소스 값으로 웹캠 번호와 RTSP URL을 모두 처리한다. 배포 시 CameraId별 RTSP URL을 `.env`에
@@ -269,7 +271,7 @@ curl -X POST "http://localhost:8047/api/events" \
 
 * `misclassification`: `isMisclassified`가 `true`이고, 동일한 `cameraId`+`detectedClass` 조합으로 생성된 직전 이벤트로부터 5초 이상 경과
 * `overflow`: 유효한 요청이면 저장하며 `detectionId` 중복만 차단한다. `NORMAL`→`FULL` 전환
-  판정은 현재 호출자(엣지)의 책임이며, 백엔드는 `BIN_STATES`로 이를 검증하지 않는다.
+  판정은 현재 호출자(GPU `inference`)의 책임이며, 백엔드는 `BIN_STATES`로 이를 검증하지 않는다.
 
 ### 이벤트가 생성되지 않는 경우
 
@@ -677,8 +679,10 @@ GET /api/statistics?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
 
 ## EP-08. `POST /api/detection/start`
 
-엣지 모델이 탐지를 시작한 시점에 호출해 해당 카메라의 이벤트 녹화를 시작한다. 모델
-런타임(PyTorch/TensorRT)과 분리된 HTTP 연결부이며 모델 자체를 백엔드에서 실행하지 않는다.
+탐지 모델(GPU 서버 `inference`)이 탐지를 시작한 시점에 호출해 해당 카메라의 이벤트 녹화를
+시작한다. 모델 런타임(PyTorch/TensorRT)과 분리된 HTTP 연결부이며 모델 자체를 백엔드에서
+실행하지 않는다. 현재는 GPU `inference` 연동 전이라 `debug/detection/`의 수동 스크립트가
+대신 호출한다(EP-08/EP-09는 임시 스텁 — 아래 "0. 현재 구현 범위" 참고).
 
 ### Request Body
 
@@ -713,7 +717,7 @@ GET /api/statistics?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
 | `recordingId` | string | ✅ | EP-08에서 받은 녹화 ID |
 | `cameraId` | CameraId | ✅ | misclassification=`ELEV-TOP`, overflow=`ELEV-SIDE` |
 | `eventCategory` | EventCategory | 선택 | 생략 시 `misclassification` |
-| `detectionId` | string | ✅ | 엣지가 생성한 중복 방지 UUID |
+| `detectionId` | string | ✅ | 탐지 모델(GPU `inference`)이 생성한 중복 방지 UUID |
 | `trackingId` | integer | 선택 | misclassification 추적 ID |
 | `binId` | string | ✅ | 판정 대상 물리 쓰레기통 ID |
 | `binType` | BinType | ✅ | 판정 대상 쓰레기통 종류 |
@@ -1109,7 +1113,7 @@ camelCase를 유지한다.
 * 전구 점등
 * 경고음 출력
 * 알림만 전송
-* 젯슨 나노 GPIO 트리거
+* 라즈베리파이 GPIO 트리거
 * RPA 실패 상태 기록
 * 장치 연결 상태 확인
 

@@ -173,14 +173,17 @@ Orin Nano Super 발주는 취소, **라즈베리파이로 확정 대체**(YOLO26
 1. ~~`streaming/cameraManager.py`~~ **완료** — 카메라 1대당 독립 지점(`CameraId`), `/api/stream/{cameraId}`
    MJPEG 송출 구현됨. 메인보드 입고 후엔 `CAMERA_SOURCE_<CameraId>`를
    RTSP URL로 교체만 하면 됨(코드 변경 불필요). 저장/DB 연동은 아래 항목들이 선행돼야 함
-2. `services/detectionService.py` — 아직 미작성. **MVP는 YOLO26 단독**(상시감시+투척판단+
-   쓰레기 종류 분류까지)이지만 **GPU 서버 `inference` 컨테이너에서 돎**(라즈베리파이 엣지
-   아님, `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고) — 이 서비스는 GPU
-   `inference`가 보내는 감지 시작/판정 완료 API 신호를 받아 통 상태/쿨다운과 종합해서
-   최종 판정하는 역할(Qwen3-VL-8B는 고도화 단계 전용, 코드에 안 들어감). 완성되면 이벤트
-   시작/종료 시점마다 아래 3~5번 파이프라인(`recordingService.start`/`stop` →
-   `mediaService.saveClipAsGif` → `eventService.createEvent`)을 그대로 호출하면 됨(순서는
-   `debug/detection/simulateEventPipeline.py` 참고)
+2. `services/detectionService.py` — **MVP 시연용 임시 스텁만 존재**(`debug/detection/`의
+   스크립트로 수동 HTTP 요청을 보내 DB에 이벤트를 채워 넣는 용도, 실제 탐지 연동 아님).
+   **MVP는 YOLO26 단독**(상시감시+투척판단+쓰레기 종류 분류까지)이지만 **GPU 서버
+   `inference` 컨테이너에서 돎**(라즈베리파이 엣지 아님, `.agentfiles/architecture.md`의
+   "탐지 파이프라인" 참고) — 이 서비스는 앞으로 GPU `inference`가 보내는 감지 시작/판정
+   완료 API 신호를 받아 통 상태/쿨다운과 종합해서 최종 판정하는 역할로 교체될 예정
+   (Qwen3-VL-8B는 고도화 단계 전용, 코드에 안 들어감). 지금 스텁도 이벤트 시작/종료
+   시점마다 아래 3~5번 파이프라인(`recordingService.start`/`stop` →
+   `mediaService.saveClipAsGif` → `eventService.createEvent`)을 그대로 호출하므로, GPU
+   `inference` 연동 시 진입점만 바꾸면 됨(수동 검증은 `debug/detection/simulateEventPipeline.py`
+   또는 `testDetectionApi.http` 참고)
 3. ~~**이벤트 트리거 녹화**~~ **완료** — `services/recordingService.py`. 탐지 서비스가
    아직 없어서 고정 10초 대신, 시작/종료 두 신호(향후 탐지 파이프라인이 전달) 사이의
    실제 구간을 캡처하는 구조로 미리 구현. 2번이 없는 지금은 디버그 스크립트로 신호를
