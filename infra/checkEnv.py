@@ -31,6 +31,7 @@ requiredPackages = [
     ("pydantic==2.13.4", "pydantic"),
     ("pydantic-settings==2.15.0", "pydantic-settings"),
     ("motor==3.7.1", "motor"),
+    ("pymongo==4.9.2", "pymongo"),
     ("python-multipart==0.0.32", "python-multipart"),
     ("opencv-python==4.14.0.94", "opencv-python"),
     ("Pillow==11.1.0", "Pillow"),

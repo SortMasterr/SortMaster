@@ -61,15 +61,16 @@
 
 > 아래 파이프라인은 설계가 진행 중인 향후 구현 범위이며, 현재 v0.1 Mock API에는 AI 탐지 모델이 연결되어 있지 않다.
 
-* **탐지 모델(MVP)**
+* **탐지 모델**
 
-  * YOLO26 사용(변경 전 YOLOv8-Nano), **GPU 서버 `inference` 컨테이너에서 상시 추론** —
+  * TOP: YOLO26 사용(변경 전 YOLOv8-Nano), **GPU 서버 `inference` 컨테이너에서 상시 추론** —
     메인보드가 Jetson Orin Nano Super에서 라즈베리파이로 바뀌면서 라즈베리파이(엣지)는
     캡처+RTSP 송신+GPIO/스피커만 담당, 추론은 GPU 서버로 이관됨(아래 "처리 위치" 참고)
+  * SIDE: **룰 베이스**(딥러닝 모델 아님) — GPU 서버를 전혀 쓰지 않고 로컬 백엔드가 직접 판정
   * 손 감지 조건 폐지 — 쓰레기 감지 자체가 트리거
-  * 옆 카메라가 넘침 상태와 대상 물리 통(`binId`)을 감지 → 위 카메라 연동 없이 바로
-    알림+DB 저장
-  * 위 카메라: GPU `inference`가 쓰레기 감지+추적+종류 분류를 프레임 단위로 계속 수행 →
+  * 옆 카메라(SIDE, 룰 베이스)가 넘침 상태와 대상 물리 통(`binId`)을 감지 → 위 카메라 연동
+    없이 바로 알림+DB 저장
+  * 위 카메라(TOP): GPU `inference`가 쓰레기 감지+추적+종류 분류를 프레임 단위로 계속 수행 →
     투척 완료 시 분류 결과를 백엔드로 전송 → 백엔드가 통 상태/쿨다운과 종합해 투기 이벤트
     판정(상세는 `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고)
 
@@ -78,19 +79,22 @@
 > 방지한다. `BIN_STATES` 컬렉션과 상태 갱신/조회 API(EP-10/EP-11)는 구현 완료됐다 — 아래
 > "5-2. Overflow 이벤트 및 녹화 파이프라인"과 EP-10/EP-11 참고.
 
-* **LLM(Qwen3-VL-8B) — 고도화 단계 전용**
+* **LLM(Qwen3-VL-8B) — 실시간 탐지 경로엔 없음**
 
-  * MVP 실시간 경로엔 없음 — YOLO26이 쓰레기 종류 분류까지 전담하게 되면서 후순위로 밀림
-  * 고도화 단계에서 ①불확실한 분류 안정화(학습 시 검증) ②환경별 통 모양 인식 학습 데이터
-    생성, 두 가지 학습 보조 용도로만 사용 예정(`.agentfiles/architecture.md`의 "LLM 활용" 참고)
+  * 실시간 탐지(TOP/SIDE 둘 다)엔 안 씀 — TOP은 YOLO26이, SIDE는 룰 베이스가 전담
+  * 학습 준비 단계 용도로 사용: ①**자동 라벨링 검증(진행 중)** — 전처리+자동 라벨링 도구가
+    만든 1차 라벨 중 불확실한 것만 LLM이 검증/보정(베이스 모델+프롬프트, 파인튜닝은 미착수)
+    ②환경별 통 모양 인식 학습 데이터 생성(아직 미착수)(`.agentfiles/architecture.md`의
+    "LLM 활용" 참고)
 
 * **처리 위치**
 
-  * MVP는 GPU 서버 `inference`가 탐지·추적·분류를 담당, 로컬 백엔드가 통 상태/쿨다운과
-    종합해 최종 판정. GPU 서버는 YOLO26 학습(`training`)도 같이 담당
+  * GPU 서버 `inference`가 TOP의 탐지·추적·분류를 담당, 로컬 백엔드가 통 상태/쿨다운과
+    종합해 최종 판정. SIDE는 로컬 백엔드가 룰 베이스 판정부터 끝까지 직접 수행(GPU 미사용).
+    GPU 서버는 YOLO26 학습(`training`)+LLM 자동 라벨링 검증(`llm`)도 같이 담당
   * 백엔드+DB는 로컬(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)에서 구동, GPU 서버가 아님
-  * 라즈베리파이는 영상 캡처, RTSP 송신, GPIO/스피커 알림 출력만 담당(추론 없음) — YOLO26
-    추론은 GPU 서버 `inference`가 전담
+  * 라즈베리파이는 영상 캡처, RTSP 송신, GPIO/스피커 알림 출력만 담당(추론 없음) — TOP의
+    YOLO26 추론은 GPU 서버 `inference`가 전담, SIDE는 로컬 백엔드가 전담
 
 자세한 설계는 `.agentfiles/architecture.md`를 참고한다.
 
@@ -688,10 +692,11 @@ GET /api/statistics?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
 
 ## EP-08. `POST /api/detection/start`
 
-탐지 모델(GPU 서버 `inference`)이 탐지를 시작한 시점에 호출해 해당 카메라의 이벤트 녹화를
-시작한다. 모델 런타임(PyTorch/TensorRT)과 분리된 HTTP 연결부이며 모델 자체를 백엔드에서
-실행하지 않는다. 현재는 GPU `inference` 연동 전이라 `debug/detection/`의 수동 스크립트가
-대신 호출한다(EP-08/EP-09는 임시 스텁 — 아래 "0. 현재 구현 범위" 참고).
+탐지 주체(TOP=GPU 서버 `inference`, SIDE=로컬 백엔드 룰 베이스)가 탐지를 시작한 시점에
+호출해 해당 카메라의 이벤트 녹화를 시작한다. 모델 런타임(PyTorch/TensorRT)과 분리된 HTTP
+연결부이며 모델 자체를 백엔드에서 실행하지 않는다. 현재는 GPU `inference`/SIDE 룰 베이스
+연동 전이라 `debug/detection/`의 수동 스크립트가 대신 호출한다(EP-08/EP-09는 임시 스텁 —
+아래 "0. 현재 구현 범위" 참고).
 
 ### Request Body
 
@@ -726,7 +731,7 @@ GET /api/statistics?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
 | `recordingId` | string | ✅ | EP-08에서 받은 녹화 ID |
 | `cameraId` | CameraId | ✅ | misclassification=`ELEV-TOP`, overflow=`ELEV-SIDE` |
 | `eventCategory` | EventCategory | 선택 | 생략 시 `misclassification` |
-| `detectionId` | string | ✅ | 탐지 모델(GPU `inference`)이 생성한 중복 방지 UUID |
+| `detectionId` | string | ✅ | 탐지 모델이 생성한 중복 방지 UUID(misclassification=GPU `inference`, overflow=로컬 백엔드 룰 베이스) |
 | `trackingId` | integer | 선택 | misclassification 추적 ID |
 | `binId` | string | ✅ | 판정 대상 물리 쓰레기통 ID |
 | `binType` | BinType | ✅ | 판정 대상 쓰레기통 종류 |
