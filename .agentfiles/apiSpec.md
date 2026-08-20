@@ -41,8 +41,8 @@ Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory
 - overflow: 현재 백엔드는 시간 Cooldown이나 `BIN_STATES` 전환 검증 없이, 스키마가 유효하고
   `detectionId`가 새 값이면 저장한다. `NORMAL`→`FULL` 전환 시점에만 호출하는 것은 확정 설계이자
   호출자 책임이며 `BIN_STATES`는 아직 코드 미반영(`Docs/ERD.md` 참고)
-- 동일 `detectionId`: 새 문서를 만들지 않고 기존 Event를 200으로 반환한다. 현재 `MANAGE`
-  모드에서는 기존 이벤트도 WS로 다시 브로드캐스트되므로 알림 중복까지 막지는 않는다.
+- 동일 `detectionId`: 새 문서를 만들지 않고 기존 Event를 200으로 반환한다. 내부 생성 결과의
+  `created` 상태를 구분하므로, 기존 이벤트를 반환하는 재전송에서는 WS 알림도 다시 보내지 않는다.
 - `detectionId`는 비어 있지 않은 문자열, `binId`도 비어 있지 않은 문자열만 검증한다. UUID 형식,
   물리 통 ID 목록, `binId`와 `binType`의 일치는 아직 스키마에서 검증하지 않는다.
 
