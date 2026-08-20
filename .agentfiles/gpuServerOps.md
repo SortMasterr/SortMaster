@@ -61,35 +61,35 @@ docker info | grep -i rootless      # 값 나오면 성공
 
 ## 외부 접속 — SSH 터널 (2222 외 포트포워딩 불가)
 
-> **`-L`(GPU서버→로컬 보기)의 `llm` 포트는 실시간 경로용으로는 필요 없음** — LLM은 실시간
-> 탐지 경로엔 여전히 없음(`architecture.md`의 "탐지 파이프라인" 참고). 학습 준비 단계의
-> 자동 라벨링 검증은 `training`↔`llm`이 둘 다 GPU 서버 안에 있어서 이 `-L` 터널이 필요
-> 없음(컨테이너 간 통신으로 충분) — 향후 LLM을 실시간 경로에 쓰게 되면 그때부터 끊기면
-> 분류가 안 되는 상시 연결이 되므로 `autossh` 등 자동 재연결 방안 검토 필요.
+> **`-L`(GPU서버→로컬 보기)에 `inference` API 포트 추가 필요** — GPU 연동 방식이 "라즈베리
+> 파이→GPU 서버 RTSP 상시 전송"에서 "로컬 백엔드가 프레임을 샘플링해 GPU 추론 API를 호출"로
+> 바뀌면서(`architecture.md`의 "탐지 파이프라인" 참고), 로컬 백엔드가 GPU 서버의 `inference`
+> API 포트에 닿아야 함 — 방향이 `-R`이 아니라 `-L`(로컬이 GPU 서버 쪽을 보러 가는 방향).
+> 정확한 포트는 `inference` 컨테이너 구현 시 확정(TBD). `llm` 포트는 여전히 실시간
+> 경로용으로는 불필요(학습 준비 단계의 자동 라벨링 검증은 `training`↔`llm`이 둘 다 GPU
+> 서버 안에 있어서 컨테이너 간 통신으로 충분).
 > **`-R`(로컬→GPU서버 보내기)의 Mongo 포트는 상시 필요** — `training`이 학습용 원본
 > 이미지를 로컬 GridFS에서 직접 가져오기로 확정(`architecture.md`)했기 때문.
-> **`-R`의 RTSP 포트(8554, TOP 카메라만)는 상시 필요** — 메인보드를 라즈베리파이로
-> 전환하며 TOP 카메라의 YOLO26 추론을 GPU 서버 `inference`로 이관했기 때문에
-> (`architecture.md` 참고), 예전엔 "`training` 컨테이너 테스트용" 정도였던 이 포트가 지금은
-> **실시간 탐지의 필수 경로**가 됨 — 끊기면 탐지가 통째로 멈추는 단일 장애점이라 `llm`보다
-> 오히려 `autossh` 같은 자동 재연결이 더 시급함. **SIDE 카메라는 룰 베이스로 로컬 백엔드가
-> 직접 처리해서 GPU 서버로 안 보냄** — 포트는 TOP 1개만 필요(과거 2개로 잡았던 계획 정정).
-> 이 역터널을 라즈베리파이 자체에서 실행할지, 로컬 백엔드 호스트에서 실행할지는 TBD
+> **RTSP 포트(8554) 역터널은 더 이상 불필요** — 과거엔 TOP 카메라 RTSP를 GPU 서버
+> `inference`가 SSH 역터널로 직접 당겨받는 방식이었으나, 프레임 샘플링 API 호출 방식으로
+> 바뀌면서 라즈베리파이가 GPU 서버와 직접 연결될 일이 없어짐(`decisionLog.md` 참고) —
+> 이 역터널이 갖고 있던 "끊기면 탐지 전체가 멈추는 단일 장애점" 리스크가 해소됨. 로컬
+> 백엔드 → GPU API 연결(`-L`)은 여전히 끊기면 그 동안 AI 판정이 안 되므로, 재연결 전략
+> (`autossh` 등)은 이쪽으로 옮겨서 검토 필요.
 
 ```bash
-# GPU 서버 서비스를 노트북/로컬 백엔드에서 보기(-L). 8100(llm)은 실시간 경로에 안 쓰는 한 불필요
+# GPU 서버 서비스를 노트북/로컬 백엔드에서 보기(-L). inference API 포트는 컨테이너 구현
+# 후 추가(TBD), 8100(llm)은 실시간 경로에 안 쓰는 한 불필요
 ssh -p 2222 -L 8899:localhost:8899 -L 8100:localhost:8100 soma@<GPU_SERVER_IP>
-# 노트북/로컬 DB+카메라를 GPU 서버로 보내기(-R, 반대 방향). 27020은 로컬 MongoDB(학습용
-# 원본 이미지 조회), 8554는 TOP(ELEV-TOP) 라즈베리파이의 RTSP
-# (GPU `inference` 상시 추론에 필수 — training 테스트용이 아니라 실서비스 경로. SIDE는
-# 로컬 백엔드에서만 처리하므로 여기 포함 안 함)
-ssh -p 2222 -R 27020:localhost:27020 -R 8554:localhost:8554 soma@<GPU_SERVER_IP>
+# 노트북/로컬 DB를 GPU 서버로 보내기(-R, 반대 방향). 27020은 로컬 MongoDB(학습용 원본
+# 이미지 조회, training이 사용)
+ssh -p 2222 -R 27020:localhost:27020 soma@<GPU_SERVER_IP>
 ```
-`-R`로 받은 스트림은 컨테이너 안에서 호스트의 `localhost`에 직접 못 닿으므로, GPU 서버의
-`inference`/`training` 서비스에도 `backend`와 동일하게
-`extra_hosts: ["host.docker.internal:host-gateway"]`를 적용하고 카메라 소스는
-`rtsp://host.docker.internal:8554/ELEV-TOP`처럼 지정. 사설 IP(`192.168.0.x`)
-카메라 소스는 GPU 서버가 그 네트워크에 속하지 않아 직접 라우팅이 안 되므로 반드시 이 방식 필요.
+`-R`로 받은 포트는 컨테이너 안에서 호스트의 `localhost`에 직접 못 닿으므로, `training`
+서비스에 `extra_hosts: ["host.docker.internal:host-gateway"]`를 적용하고 MongoDB 접속
+주소를 `host.docker.internal:27020`처럼 지정(과거엔 `inference`의 RTSP 카메라 소스에도
+이 방식이 필요했으나, 프레임 샘플링 API 호출 방식으로 바뀌면서 `inference`는 더 이상
+해당 없음 — RTSP 자체를 안 받으므로).
 
 ## 팀 공유 MongoDB 계정 (GPU 서버로 이전 시) — 현재 보류
 
@@ -116,8 +116,9 @@ Jetson Orin Nano Super(icbanq 무료 렌탈) 발주 건은 **완전히 취소** 
 애초에 해당 없음.
 
 **라즈베리파이는 추론을 하지 않음** — 캡처+RTSP 송신+GPIO(전구 릴레이)+스피커(경고음)만
-담당. **TOP 카메라만** 위 "외부 접속" 절의 8554 역터널로 GPU 서버까지 RTSP가 도달(SIDE는
-룰 베이스라 로컬 백엔드까지만 가면 됨, GPU 서버 무관). YOLO26 상시 추론(감지+추적+분류)은
-GPU 서버 `inference` 컨테이너가 TOP 카메라만 전담하고, 학습 가중치(`.pt`)는 `training`→
-`inference` 둘 다 GPU 서버 안에 있으므로 원격 배포 없이 로컬 파일/볼륨 공유로 충분(과거
-"젯슨에 SCP로 배포" 문제 자체가 사라짐).
+담당. **TOP/SIDE 둘 다 로컬 백엔드로만** RTSP를 보내면 됨(GPU 서버와 직접 연결되는
+라즈베리파이는 없음 — 과거 "TOP만 8554 역터널로 GPU까지 도달" 방식 폐기, `decisionLog.md`
+참고). TOP 카메라의 YOLO26 추론(감지+추적+분류)은 로컬 백엔드가 프레임을 샘플링해서 GPU
+서버 `inference` 컨테이너의 API를 호출하는 방식으로 이루어짐. 학습 가중치(`.pt`)는
+`training`→`inference` 둘 다 GPU 서버 안에 있으므로 원격 배포 없이 로컬 파일/볼륨 공유로
+충분(과거 "젯슨에 SCP로 배포" 문제 자체가 사라짐).
