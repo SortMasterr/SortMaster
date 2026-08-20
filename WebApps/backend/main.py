@@ -13,6 +13,7 @@ from controllers.views import (
 from controllers.webSocket import (
     router as webSocketRouter,
 )
+from repositories.binStateRepository import binStateRepository
 from repositories.eventRepository import eventRepository
 from repositories.mongoClient import (
     closeMongoClient,
@@ -33,6 +34,7 @@ async def lifespan(_app: FastAPI):
             timeout=mongoStartupTimeoutSeconds,
         )
         await eventRepository.ensureIndexes()
+        await binStateRepository.ensureIndexes()
         yield
     finally:
         try:

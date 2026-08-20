@@ -75,3 +75,13 @@
   GPU/LLM 실시간 호출 없음"이었던 과거 전제가 깨짐 — MVP부터 GPU 서버가 실시간 경로에
   들어오지만 LLM은 여전히 미사용. 상세는 `architecture.md`의 "탐지 파이프라인"/"배포
   전략"/"메인보드(라즈베리파이) 엣지 코드" 참고
+- **`BIN_STATES` 코드 구현(EP-10/EP-11) 완료** → 설계만 확정돼 있던 `BIN_STATES`를
+  `schemas/binState.py`/`repositories/binStateRepository.py`/`services/binStateService.py`로
+  구현. `GET /api/binStates`(EP-10)는 대시보드가 지금 어느 통이 가득 찼는지 보여줄 수 있게
+  `binId`당 최신 상태 1행을 반환하고, `POST /api/binStates`(EP-11)는 GPU `inference`가 주기
+  호출할 상태 갱신 엔드포인트로, 저장된 값과 `currentState`가 달라질 때만 전환으로 처리해
+  `NORMAL`→`FULL` 순간에만 `eventService`로 overflow `EVENT`를 만든다(EP-02와 동일한
+  `detectionId` 중복 방지 로직 재사용). `FULL`→`NORMAL` 복귀는 `EVENT` 없이
+  `activeOverflowEventId`만 리셋 — `Docs/ERD.md`에 이미 확정돼 있던 설계 그대로 구현, 값 자체가
+  달라진 건 없음. `EP-02`/`EP-09`로 직접 만드는 overflow는 여전히 상태 전환 검증 없는 수동/
+  디버그 경로로 남겨둠(상세는 `Docs/API_SPEC.md`의 EP-10/EP-11, `.agentfiles/apiSpec.md` 참고)

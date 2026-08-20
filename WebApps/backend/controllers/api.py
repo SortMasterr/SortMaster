@@ -9,6 +9,7 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 
+from schemas.binState import BinState, BinStateUpdate
 from schemas.detection import (
     DetectionStart,
     DetectionStartResponse,
@@ -26,6 +27,7 @@ from schemas.mode import (
     ModeUpdate,
 )
 from schemas.statistics import Statistics
+from services.binStateService import binStateService
 from services.detectionService import detectionService
 from services.errors import (
     CameraUnavailableError,
@@ -241,6 +243,36 @@ async def getStatistics(
         fromDate=fromDate,
         toDate=toDate,
     )
+
+
+@router.get(
+    "/binStates",
+    response_model=list[BinState],
+)
+async def getBinStates() -> list[BinState]:
+    return await binStateService.getBinStates()
+
+
+@router.post(
+    "/binStates",
+    response_model=BinState,
+)
+async def updateBinState(
+    binStateUpdate: BinStateUpdate,
+) -> BinState:
+    (
+        binState,
+        eventResult,
+    ) = await binStateService.applyUpdate(
+        binStateUpdate
+    )
+
+    if eventResult is not None and eventResult.created:
+        await _broadcastIfManageMode(
+            eventResult.event
+        )
+
+    return binState
 
 
 @router.post(

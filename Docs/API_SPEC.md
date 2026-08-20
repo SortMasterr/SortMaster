@@ -34,6 +34,9 @@
 * 이벤트 트리거 녹화 → GIF 인코딩 → GridFS 업로드 파이프라인(`recordingService`/
   `mediaService`/`mediaRepository`) — 실제 탐지 서비스가 아직 없어 `debug/detection/
   simulateEventPipeline.py`로 시작/종료 신호를 흉내내 검증
+* `BIN_STATES` 스키마·저장소·상태 갱신/조회 API(EP-10/EP-11) — `binId`당 최신 상태 1행을
+  upsert로 유지하고, `NORMAL`→`FULL` 전환 순간에만 overflow 이벤트를 생성한다
+  (`schemas/binState.py`, `repositories/binStateRepository.py`, `services/binStateService.py`)
 
 ### 현재 Mock 또는 미구현
 
@@ -47,8 +50,10 @@
 * 이벤트 상세 페이지 미구현
 * `imageFileId`의 GridFS GIF를 내려받는 외부 API 미정의 — 새 API이므로 CTO 승인 필요
 * 인증 및 권한 미구현
-* `BIN_STATES` 스키마·저장소·상태 변경/조회 API 미구현 — 현재 백엔드는 overflow의
-  `NORMAL`→`FULL` 전환 여부를 검증하지 않고 유효한 요청을 이벤트로 바로 저장
+* EP-02/EP-09로 직접 만드는 overflow 이벤트는 여전히 `BIN_STATES` 전환 검증을 거치지 않는다
+  (호출자가 유효한 스키마+새 `detectionId`만 보내면 바로 저장). GPU `inference`가 상태
+  전환 기준으로 overflow를 만들려면 EP-11(`POST /api/binStates`)을 쓰는 쪽이 확정 설계와
+  일치한다 — EP-02/EP-09는 수동/디버그 경로로 계속 남겨둔다.
 
 ---
 
@@ -70,7 +75,8 @@
 
 > `EventCreate`/`Event`에 `detectionId`, `trackingId`, `binId`, `binType`, `modelVersion`,
 > overflow 전용 필드가 반영되었다. `detectionId`는 MongoDB 유니크 인덱스로 중복 저장을
-> 방지한다. `BIN_STATES` 컬렉션과 상태 변경 API는 아직 미구현이다.
+> 방지한다. `BIN_STATES` 컬렉션과 상태 갱신/조회 API(EP-10/EP-11)는 구현 완료됐다 — 아래
+> "5-2. Overflow 이벤트 및 녹화 파이프라인"과 EP-10/EP-11 참고.
 
 * **LLM(Qwen3-VL-8B) — 고도화 단계 전용**
 
@@ -844,6 +850,111 @@ wss://서버주소/ws/events
 
 ---
 
+## EP-10. `GET /api/binStates`
+
+물리 쓰레기통 4개의 현재 상태(`BIN_STATES`)를 조회한다. 통계·이전기록과 달리 이력이 아니라
+`binId`당 최신 상태 1행만 반환한다(대시보드에서 "지금 어느 통이 가득 찼는지" 표시용).
+
+### 요청
+
+파라미터 없음.
+
+### 정상 응답 — `list[BinState]`(HTTP 200)
+
+| 필드                    | 타입           | 설명                                             |
+| --------------------- | ------------ | ---------------------------------------------- |
+| `binId`               | string       | 물리 쓰레기통 ID                                     |
+| `cameraId`             | CameraId     | 항상 `ELEV-SIDE`                                 |
+| `binType`              | BinType      | 통 종류                                           |
+| `sessionId`            | string       | 넘침 감지 모델 프로세스 세션 ID(재시작마다 갱신)                 |
+| `currentState`         | string       | `NORMAL` 또는 `FULL`                             |
+| `confidenceScore`      | float        | 최근 판정 신뢰도(0.0~1.0)                             |
+| `overflowDuration`     | float        | 현재 `FULL` 상태로 유지된 시간(초)                        |
+| `lastChangedAt`        | datetime     | `NORMAL`↔`FULL` 마지막 전환 시각(ISO 8601)             |
+| `activeOverflowEventId` | string\|null | 현재 `FULL`을 유발한 `EVENT.eventId`. `NORMAL` 복귀 시 `null` |
+
+### 요청 예시
+
+```http
+GET /api/binStates
+```
+
+### 응답 예시
+
+```json
+[
+  {
+    "binId": "BIN-GENERAL",
+    "cameraId": "ELEV-SIDE",
+    "binType": "general",
+    "sessionId": "8f2e...",
+    "currentState": "FULL",
+    "confidenceScore": 0.97,
+    "overflowDuration": 12.4,
+    "lastChangedAt": "2026-08-19T02:10:03.512000+00:00",
+    "activeOverflowEventId": "5c3a..."
+  }
+]
+```
+
+---
+
+## EP-11. `POST /api/binStates`
+
+GPU 서버 `inference`(또는 디버그 스크립트)가 통별 넘침 감지 결과를 주기적으로 보내는
+상태 갱신 엔드포인트다. 이전 저장값 대비 `currentState`가 바뀔 때만 상태 전환으로 처리한다.
+
+* `NORMAL`→`FULL` 전환: `overflow` `EVENT`를 새로 생성(EP-02와 동일한 `eventService` 로직 —
+  `detectionId` 중복 방지 포함)하고, 생성된 `eventId`를 `activeOverflowEventId`에 기록한다.
+  `MANAGE` 모드면 `BIN_OVERFLOW_DETECTED`를 WebSocket으로 브로드캐스트한다(EP-07 참고).
+* `FULL`→`NORMAL` 전환: `EVENT`를 만들지 않고 `activeOverflowEventId`만 `null`로 리셋한다.
+* 상태 유지(같은 값 반복 수신): `EVENT`도 새로 만들지 않고 `confidenceScore`/`overflowDuration`
+  등 값만 최신화한다. `lastChangedAt`은 실제 전환이 있었을 때만 갱신된다.
+
+### Request Body — `BinStateUpdate`
+
+| 필드                  | 타입      | 필수 | 제약 조건        | 설명                                    |
+| ------------------- | ------- | -- | ------------ | ------------------------------------- |
+| `binId`             | string  | ✅  | 비어 있지 않음     | 물리 쓰레기통 ID                            |
+| `cameraId`           | CameraId | 선택(기본 `ELEV-SIDE`) | `ELEV-SIDE`만 허용 | 다른 값이면 422           |
+| `binType`            | BinType | ✅  | Enum 값       | 통 종류                                  |
+| `sessionId`          | string  | ✅  | 비어 있지 않음     | 넘침 감지 모델 세션 ID                        |
+| `currentState`       | string  | ✅  | `NORMAL`\|`FULL` | 이번에 관측된 상태                          |
+| `confidenceScore`    | float   | ✅  | 0.0~1.0      | 판정 신뢰도                                |
+| `overflowDuration`   | float   | ✅  | 0 이상         | 현재 `FULL` 유지 시간(초), `NORMAL`이면 0 전달   |
+| `overflowThreshold`  | float   | 선택 | 0 이상         | `FULL` 판정 기준시간. 전환 시 생성되는 `EVENT`에만 사용 |
+| `detectionId`        | string  | ✅  | 비어 있지 않음, DB unique | `NORMAL`→`FULL` 전환 시 생성되는 `EVENT`의 중복 방지 키. 전환이 아니면 사용되지 않지만 매 호출 필수(전환 시점에만 갑자기 없어서 실패하는 상황 방지) |
+| `modelVersion`       | string  | ✅  | 비어 있지 않음     | 판정 모델 버전                              |
+
+### 요청 예시
+
+```json
+{
+  "binId": "BIN-GENERAL",
+  "cameraId": "ELEV-SIDE",
+  "binType": "general",
+  "sessionId": "8f2e...",
+  "currentState": "FULL",
+  "confidenceScore": 0.97,
+  "overflowDuration": 12.4,
+  "overflowThreshold": 5.0,
+  "detectionId": "GPU 서버가 생성한 UUID",
+  "modelVersion": "overflow-mvp-1"
+}
+```
+
+### 정상 응답 — `BinState`(HTTP 200)
+
+EP-10 응답 항목과 동일한 단일 객체.
+
+### 에러 응답
+
+| 상태 코드 | 발생 조건                                  |
+| ----- | -------------------------------------- |
+| 422   | 스키마 불일치, Enum 값 오류, `cameraId != ELEV-SIDE` |
+
+---
+
 # 2. 페이지 라우트 (`controllers/views.py`)
 
 페이지 라우트는 JSON이 아닌 Jinja2 `TemplateResponse`를 반환한다.
@@ -1087,10 +1198,11 @@ WebSocket 메시지:
 
 현재 구현과 확정 설계를 구분하면 다음과 같다.
 
-* 현재 백엔드는 overflow에 시간 Cooldown을 적용하지 않는다. 서로 다른 `detectionId`이면 연속
-  요청도 각각 저장된다.
-* 확정 설계는 `BIN_STATES.currentState`가 `NORMAL`→`FULL`로 바뀌는 순간에만 호출/저장하는
-  방식이지만, `BIN_STATES` 코드가 아직 없어 백엔드가 이 전환을 강제하지 않는다.
+* `EP-02`/`EP-09`로 직접 만드는 overflow는 시간 Cooldown이 없다. 서로 다른 `detectionId`이면
+  연속 요청도 각각 저장된다 — 상태 전환 검증이 필요 없는 수동/디버그 호출용 경로다.
+* 확정 설계(`BIN_STATES.currentState`가 `NORMAL`→`FULL`로 바뀌는 순간에만 저장)는 `EP-10`/`EP-11`
+  (`GET`/`POST /api/binStates`, `services/binStateService.py`)로 구현 완료됐다. GPU `inference`가
+  이 엔드포인트로 상태를 보고하면 전환 시점에만 `EVENT`가 생성된다.
 * `actionTaken`은 다른 이벤트와 동일하게 `MANAGE=lightAndSound`, `COLLECT=none`으로 저장된다.
   실제 RPA 장치 동작은 미구현이다.
 * 통계는 `overflowCount`와 `totalEventCount`에 overflow를 포함한다. 클래스별 `counts`에서는
@@ -1110,7 +1222,7 @@ In-memory 저장소를 Motor 기반 MongoDB 저장소로 교체 완료했다(`re
 | 컨테이너 Port    | `27017`                      |
 | Python 드라이버  | `motor`                      |
 | 파일 저장        | GridFS(`topMedia`/`sideMedia` 버킷), GIF |
-| 저장 대상        | 이벤트(`events` 컬렉션), 이벤트 클립(GridFS). `binStates`는 설계만 확정되고 미구현 |
+| 저장 대상        | 이벤트(`events` 컬렉션), 이벤트 클립(GridFS), 통 상태(`binStates` 컬렉션, `binId`당 최신 1행) |
 
 이벤트 목록과 통계는 현재 필수 필드·Enum 계약을 만족하는 문서만 대상으로 한다. 과거 raw insert
 등으로 필드가 빠졌거나 Enum·timestamp·선택 필드 타입이 다른 문서는 의미를 임의로 만들어
@@ -1161,7 +1273,6 @@ camelCase를 유지한다.
   * `limit`/`offset`
   * `page`/`pageSize`
   * Cursor 방식
-* `BIN_STATES` 상태 변경 API 및 조회 API 형태
 * 카메라 상태 조회 API 추가 여부
 * 모드 조회용 `GET /api/mode` 추가 여부
 * 실제 RPA 통신 방식
@@ -1184,6 +1295,8 @@ camelCase를 유지한다.
 | EP-07   | WebSocket 모드·오분류·넘침 알림 | 구현됨             |
 | EP-08   | 탐지 시작 및 이벤트 녹화 시작 | 구현됨             |
 | EP-09   | 탐지 종료·GIF·이벤트 저장     | 구현됨(misclassification/overflow) |
+| EP-10   | BIN_STATES 조회           | 구현됨             |
+| EP-11   | BIN_STATES 갱신(전환 시 overflow 이벤트 생성) | 구현됨 |
 | PG-01   | 모니터링 페이지              | 구현됨             |
 | PG-02   | 이전기록 페이지              | 구현됨             |
 | PG-03   | 통계 대시보드               | 구현됨             |
@@ -1191,7 +1304,7 @@ camelCase를 유지한다.
 | DB-02   | 카메라별 GridFS 영상 저장     | 구현됨             |
 | AI-01   | YOLO 탐지 연동            | 미구현             |
 | EVT-01  | Overflow 이벤트 저장·통계    | 구현됨             |
-| BIN-01  | BIN_STATES 상태 관리       | 미구현             |
+| BIN-01  | BIN_STATES 상태 관리       | 구현됨             |
 | RPA-01  | 실제 전구·경고음 연동          | 미구현             |
 | AUTH-01 | 인증 및 권한               | 미구현             |
 

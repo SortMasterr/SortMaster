@@ -31,6 +31,8 @@ v0.1(MVP), 구현 기준일 2026-08-18. Base URL `http://localhost:8047`(배포 
 | EP-06 | POST /api/mode | 모드 전환 | Body: mode(Mode) | 200/422 | 성공 시 전체 WS 클라이언트에 MODE_CHANGED 브로드캐스트 |
 | EP-08 | POST /api/detection/start | 녹화 시작(탐지 시작 신호) | Body: cameraId(CameraId) | 200/422/503 | `recordingService.start` 호출, recordingId 반환. 카메라 미설정/연결 실패 시 503 |
 | EP-09 | POST /api/detection/stop | 녹화 종료+GIF 업로드+이벤트 저장(탐지 종료 결과 신호) | Body: recordingId, cameraId, eventCategory(생략 시 misclassification), detectionId, binId, binType, modelVersion + 카테고리별 필드 | 200/400/404/422 | misclassification/overflow 공통. EP-02와 동일한 저장·Cooldown·WS 부수효과 적용. recordingId 없으면 404, 캡처된 프레임 없으면 400 |
+| EP-10 | GET /api/binStates | BIN_STATES 전체 조회(binId당 최신 1행, 대시보드용) | 없음 | 200 | 없음 |
+| EP-11 | POST /api/binStates | BIN_STATES 갱신(GPU `inference`가 주기 호출) | Body: binId, cameraId(기본 ELEV-SIDE), binType, sessionId, currentState(NORMAL/FULL), confidenceScore, overflowDuration, overflowThreshold?, detectionId, modelVersion | 200/422 | `currentState`가 이전 저장값과 다를 때만 전환 처리. NORMAL→FULL: EP-02와 동일한 `eventService`로 overflow EVENT 생성(detectionId 중복 방지 포함)+`activeOverflowEventId` 기록+MANAGE 모드 시 WS 브로드캐스트. FULL→NORMAL: EVENT 생성 없이 `activeOverflowEventId`만 null로 리셋. 상태 유지 시 값만 갱신 |
 
 ### EP-02. POST /api/events — 이벤트 생성
 
@@ -100,5 +102,9 @@ sidebar.html은 라우트 아님 — 각 페이지에 공통 포함되는 사이
 - EP-03/EP-05 페이지네이션(limit/offset) 여부
 - 인증/권한 (P3, 현재 없음)
 - PG-03 템플릿(이벤트 상세 페이지) 미구현
-- `BIN_STATES` 조회용 엔드포인트 필요 여부(현재 통별 실시간 상태를 노출하는 API 없음, `Docs/ERD.md` 참고)
-- `BIN_STATES` 상태 변경 API 및 조회 API 형태(CTO 검토 필요)
+
+## 해결된 TBD
+
+- `BIN_STATES` 조회/갱신 API → EP-10(`GET /api/binStates`)/EP-11(`POST /api/binStates`)로 구현
+  완료(`schemas/binState.py`, `repositories/binStateRepository.py`, `services/binStateService.py`).
+  EP-02/EP-09로 직접 만드는 overflow 이벤트는 여전히 상태 전환 검증 없는 수동/디버그 경로로 남음

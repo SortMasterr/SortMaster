@@ -1,6 +1,6 @@
 # ERD — CCTV 기반 분리수거 오분류 탐지·자동 경고 시스템
 
-> 버전: MVP 기준. `repositories/eventRepository.py`가 motor(비동기 MongoDB 드라이버) 기반으로 구현됨(in-memory Mock 제거 완료) — `WebApps/backend/schemas/event.py`의 Pydantic 모델을 근거로 작성. **`detectionId`/`trackingId`/`binId`/`binType`/`modelVersion`과 카메라별 GridFS 버킷은 코드 반영 완료. `BIN_STATES`만 아직 코드 반영 전임.**
+> 버전: MVP 기준. `repositories/eventRepository.py`가 motor(비동기 MongoDB 드라이버) 기반으로 구현됨(in-memory Mock 제거 완료) — `WebApps/backend/schemas/event.py`의 Pydantic 모델을 근거로 작성. **`detectionId`/`trackingId`/`binId`/`binType`/`modelVersion`과 카메라별 GridFS 버킷은 코드 반영 완료. `BIN_STATES`도 `schemas/binState.py`/`repositories/binStateRepository.py`/`services/binStateService.py`로 코드 반영 완료(`Docs/API_SPEC.md`의 EP-10/EP-11 참고) — 이 ERD 문서의 필드 구성 그대로 구현됨.**
 > 실제 영속화되는 것은 MongoDB `events`/`binStates`(신규) 컬렉션 + GridFS뿐. `CAMERA`/`SystemState`는 현재 DB 컬렉션이 아니라 Enum·런타임 상태라 참고용으로만 표시.
 > 손 감지 조합 판정은 폐지되고 쓰레기 감지 자체가 트리거로 바뀜 — 옆 카메라(`ELEV-SIDE`)는
 > 물리 쓰레기통 4개(일반/플라스틱·캔/커피컵/종이)의 상태를 `BIN_STATES`로 지속 추적하다가
@@ -81,7 +81,10 @@ erDiagram
   지속 추적하는 컬렉션 — 기존엔 없던 개념. `EVENT`처럼 시점성 로그가 아니라 **각 `binId`당
   최신 상태 1행만 유지**(upsert, 확정 — 이력은 `EVENT`가 담당). `currentState`가
   `NORMAL`→`FULL`로 바뀌는 순간 `EVENT`(overflow)를 생성하고 그 `eventId`를
-  `activeOverflowEventId`에 기록. 아직 `schemas/`·`repositories/`에 코드 없음(설계만 확정)
+  `activeOverflowEventId`에 기록, `FULL`→`NORMAL` 복귀 시 `activeOverflowEventId`만 `null`로
+  리셋(`EVENT` 생성 없음). `schemas/binState.py`/`repositories/binStateRepository.py`/
+  `services/binStateService.py`로 코드 반영 완료 — 조회는 `GET /api/binStates`(EP-10), 갱신은
+  `POST /api/binStates`(EP-11, `Docs/API_SPEC.md` 참고)
 - **MEDIA_FILE**: MongoDB GridFS 구조, **버킷을 카메라별로 2개 분리**(`topMedia`/`sideMedia` —
   각각 `<bucket>.files`+`<bucket>.chunks`, 기본 버킷명 `fs` 하나만 쓰던 걸 카메라별로 나눔).
   저장 시 `EVENT.cameraId`(위 카메라→`topMedia`, 옆 카메라→`sideMedia`) 기준으로 버킷 선택,

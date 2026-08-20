@@ -437,6 +437,17 @@ async def predict(
             annotated = cv2.resize(annotated, state.frameSize)
 
         writer.write(annotated)
+        
+    if state.finalOverflow:
+        # Pydantic v2 / CamelModel 호환 모델 생성 (규칙 14-2)
+        event_data = EventCreate(
+            cameraId=sessionId,       # Enum CameraId 교체 가능
+            detectedClass="overflow",
+            isMisclassified=True,
+            confidenceScore=confidence
+        )
+        # EventService를 통한 비동기 적재 및 WebSocket 브로드캐스트 수행 (규칙 12)
+        await event_service.handle_detection(event_data)
 
     return PredictResponse(
         sessionId=sessionId,
