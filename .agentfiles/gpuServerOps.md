@@ -79,8 +79,8 @@ docker info | grep -i rootless      # 값 나오면 성공
 
 ```bash
 # GPU 서버 서비스를 노트북/로컬 백엔드에서 보기(-L). inference API 포트는 컨테이너 구현
-# 후 추가(TBD), 8100(llm)은 실시간 경로에 안 쓰는 한 불필요
-ssh -p 2222 -L 8899:localhost:8899 -L 8100:localhost:8100 soma@<GPU_SERVER_IP>
+# 후 추가(TBD), 8099(llm)은 실시간 경로에 안 쓰는 한 불필요
+ssh -p 2222 -L 8899:localhost:8899 -L 8099:localhost:8099 soma@<GPU_SERVER_IP>
 # 노트북/로컬 DB를 GPU 서버로 보내기(-R, 반대 방향). 27020은 로컬 MongoDB(학습용 원본
 # 이미지 조회, training이 사용)
 ssh -p 2222 -R 27020:localhost:27020 soma@<GPU_SERVER_IP>

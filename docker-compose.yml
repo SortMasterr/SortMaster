@@ -41,7 +41,7 @@ services:
     profiles: ["llm"]
     restart: unless-stopped
     ports:
-      - "${LLM_PORT:-8100}:8000"
+      - "${LLM_PORT:-8099}:8000"
     env_file:
       - .env
     environment:
