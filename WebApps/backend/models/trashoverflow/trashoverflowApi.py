@@ -90,7 +90,7 @@ logging.basicConfig(level=logging.INFO)
 # 설정
 # ============================================================
 
-MODELPATH = "./bestSide2.pt"   # MobileNet_V3_Small로 학습된 체크포인트 경로로 교체 필요
+MODELPATH = "./bestSide.pt"   # MobileNet_V3_Small로 학습된 체크포인트 경로로 교체 필요
 ROIFILE = "./roi.json"
 IMAGESIZE = 224
 
