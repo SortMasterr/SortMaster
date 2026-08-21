@@ -20,6 +20,21 @@ def gateService(cameraManager=None):
 
 
 class PresenceGateServiceTest(unittest.IsolatedAsyncioTestCase):
+    async def testBackgroundHistoryScalesWithPollInterval(self):
+        with patch(
+            "services.presenceGateService.pollIntervalSeconds",
+            0.2,
+        ):
+            service = gateService()
+
+        # 20초(backgroundHistorySeconds) / 0.2초 폴링 = 100프레임 안에 배경 모델이
+        # 수렴해야 함 — cv2 기본값(500)을 그대로 쓰면 실제로 100초가 걸려 실기기에서
+        # 재시작 직후 오탐이 재현됐던 문제(폴링 주기 미반영)를 회귀 방지
+        self.assertEqual(
+            100,
+            service.presenceDetector._backgroundSubtractor.getHistory(),
+        )
+
     async def testSingleTickAboveThresholdStaysAbsent(self):
         service = gateService()
 

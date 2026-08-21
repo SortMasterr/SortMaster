@@ -18,6 +18,9 @@ import os
 import time
 from enum import Enum
 
+import cv2
+import numpy as np
+
 from detection.presenceDetector import PersonPresenceDetector
 from schemas.event import CameraId
 from services.detectionService import detectionService
@@ -37,6 +40,12 @@ entryConfirmSeconds = float(os.getenv("PRESENCE_ENTRY_CONFIRM_SECONDS", "0.5"))
 exitGraceSeconds = float(os.getenv("PRESENCE_EXIT_GRACE_SECONDS", "3.0"))
 # 카메라 재오픈 재시도 간격 — 튜닝 노브가 아니라 구현 디테일이라 .env로 노출하지 않음
 cameraStartRetryIntervalSeconds = 5.0
+# MOG2 배경 모델이 "빈 화면"을 다시 학습하는 데 걸리는 대략적 시간 — cv2 기본값(history=500)은
+# 30fps 기준(약 16초)이라, 우리 폴링 주기(pollIntervalSeconds)로 환산하면 실제로는 훨씬 오래
+# 걸림(0.2초 간격이면 100초!). 백엔드가 재시작될 때마다 그만큼 오탐(사람이 없어도 PRESENT로
+# 잘못 판단하거나, 사람이 나가도 ABSENT로 안 돌아오는 문제)이 재현됐던 것 — 실기기 테스트로
+# 확인됨. 폴링 주기에 맞춰 history를 계산해서 항상 이 정도 시간 안에 수렴하게 한다.
+backgroundHistorySeconds = 20.0
 
 
 class PresenceState(str, Enum):
@@ -48,7 +57,12 @@ class PresenceGateService:
     def __init__(self, cameraId: CameraId, cameraManagers: dict):
         self.cameraId = cameraId
         self.cameraManagers = cameraManagers
-        self.presenceDetector = PersonPresenceDetector()
+        self.presenceDetector = PersonPresenceDetector(
+            history=max(
+                1,
+                round(backgroundHistorySeconds / pollIntervalSeconds),
+            )
+        )
         self.state = PresenceState.ABSENT
         self.recordingId: str | None = None
         self.aboveThresholdSince: float | None = None
@@ -92,11 +106,16 @@ class PresenceGateService:
             while not self.stopped.is_set():
                 frame = await cameraManager.readFrame()
                 now = time.monotonic()
+                decoded = (
+                    await asyncio.to_thread(self._decodeFrame, frame)
+                    if frame is not None
+                    else None
+                )
 
-                if frame is not None:
+                if decoded is not None:
                     ratio = await asyncio.to_thread(
                         self.presenceDetector.foregroundRatio,
-                        frame,
+                        decoded,
                     )
                     await self._handleRatio(ratio, now)
                 else:
@@ -116,6 +135,16 @@ class PresenceGateService:
                 "[presenceGateService] '%s' 폴링 루프가 예기치 않게 종료됨",
                 self.cameraId.value,
             )
+
+    @staticmethod
+    def _decodeFrame(frame: bytes):
+        # cameraManager.readFrame()은 항상 JPEG bytes를 반환함(RTSP/로컬 웹캠 공통) —
+        # 배경 차분(PersonPresenceDetector)은 numpy 배열을 기대하므로 다시 디코딩한다.
+        decoded = cv2.imdecode(
+            np.frombuffer(frame, dtype=np.uint8),
+            cv2.IMREAD_COLOR,
+        )
+        return decoded if decoded is not None else None
 
     async def _handleNoFrame(self, now: float) -> None:
         if (
