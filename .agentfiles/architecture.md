@@ -61,8 +61,14 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
   게이팅 + 프레임 샘플링 + GPU 추론 API 호출 + 백엔드 판정):
   1. 위 카메라 라즈베리파이가 보낸 RTSP를 **로컬 백엔드가 상시 수신**(SIDE와 동일한 경로,
      `cameraManager.py`) → **사람이 통 근처에 감지되면** 이 시점부터 녹화 시작(DB 저장용)
-     + GPU 프레임 전송 시작. 사람 존재 감지는 가벼운 방식(YOLO 불필요, 배경 차분/실루엣
-     감지 수준)으로 로컬에서 수행 — 정확한 구현 방식은 TBD
+     + GPU 프레임 전송 시작. 사람 존재 감지는 YOLO 없이 로컬에서 가벼운 방식으로
+     구현됨(**구현 완료**) — `cv2.createBackgroundSubtractorMOG2` 배경 차분으로
+     프레임별 전경 픽셀 비율을 구하고(`detection/presenceDetector.py`), 임계값+
+     디바운스(진입 확인 시간/이탈 유예 시간)를 적용한 상태 머신(`services/
+     presenceGateService.py`, ABSENT/PRESENT 2상태)으로 게이팅 신호를 만듦. 진입 시
+     `detectionService.startDetection`으로 녹화 시작, 이탈(약 3초 유예 후) 시
+     `recordingService.stop`을 직접 호출해 녹화만 종료(GPU 판정 결과가 없어 `Event`
+     미생성 — `inference` 연동 전까지의 중간 단계, 아래 "TBD" 참고)
   2. **사람이 감지되는 동안만** 로컬 백엔드가 `cameraManager.readFrame()`으로 **5~10fps
      정도 샘플링**해서 GPU `inference`의 추론 API로 전송(사람이 없으면 아예 안 보냄 —
      `recordingService.py`가 이미 5fps로 자체 샘플링하는 패턴에 존재 감지 게이팅을 더한
@@ -77,7 +83,7 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
   - 로컬 백엔드 ↔ GPU `inference` 통신은 원본 RTSP가 아니라 **샘플링된 프레임(이미지)+
     소형 JSON**이라, 예전처럼 영상 자체가 상시로 GPU 서버까지 나갈 필요가 없어짐(아래
     "배포 전략" 참고). 사람이 없는 대부분의 시간엔 이 통신 자체가 없음. 실제 API 스펙
-    (요청/응답 형식, 세션 관리, 사람 존재 감지 구현 방식)은 TBD
+    (요청/응답 형식, 세션 관리)은 TBD — 사람 존재 감지 자체는 구현 완료(위 참고)
 - **역할 분담**:
   - **라즈베리파이(엣지, TOP+SIDE 공통)**: 캡처+RTSP 송신+GPIO(전구 릴레이)+스피커(경고음) —
     **추론 없음, RTSP는 로컬 백엔드로만 전송**(TOP/SIDE 둘 다 GPU 서버와 직접 연결 안 함)
@@ -202,7 +208,7 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
   테스트하는 사람만 필요해서 `checkEnv.py`와는 별도 유지(`debug/db/`와 같은 패턴).
   WebApps/backend·docker-compose.yml과 무관 — 백엔드는 수정 없이 그대로 RTSP 수신
 
-## 메인보드(라즈베리파이) 엣지 코드 (미착수)
+## 메인보드(라즈베리파이) 엣지 코드 (실기기 초기 셋업 완료, RTSP 송신 검증됨)
 
 > **Jetson Orin Nano Super 발주 건은 완전히 취소, 라즈베리파이로 확정 대체.** 이유: 애초
 > Orin을 쓰려던 목적(YOLO26 엣지 상시 추론)이 라즈베리파이로는 성능상 불가능해서, YOLO26을
@@ -212,16 +218,22 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 
 **추론 없음, 캡처+송신+RPA 출력만 담당**(위 "탐지 파이프라인"의 "역할 분담" 참고):
 
-1. 웹캠(또는 카메라 모듈)→RTSP 송신: GStreamer 또는 ffmpeg. 라즈베리파이는 표준 Linux
-   배포판(Raspberry Pi OS)이라 별도 SDK 제약 없음(TOP/SIDE 둘 다 동일)
+1. **웹캠(테스트용, USB)→RTSP 송신: 실기기(`elev-top`)에서 ffmpeg+MediaMTX 조합으로 검증
+   완료** — Windows 로컬 시뮬레이터(`debug/streaming/startRtspSim.py`)와 동일한 패턴(캡처
+   백엔드만 dshow→v4l2로 차이), 노트북에서 VLC로 수신 확인함. 실전 절차/트러블슈팅(cloud-init
+   설정, Wi-Fi 대역 이슈, systemd 서비스화 등 남은 작업 포함)은 `piSetupOps.md` 참고 —
+   **아직 `nohup` 수동 실행 상태라 재부팅 시 자동 기동 안 됨(TODO)**. 카메라 모듈(CSI)
+   연동은 미착수(지금은 USB 웹캠으로만 검증)
 2. **TOP/SIDE 둘 다 로컬 백엔드로만** RTSP 전송(LAN, 관리자 웹 송출과 겸용) — GPU 서버와
    직접 연결되는 라즈베리파이는 없음(과거 "TOP만 SSH 역터널로 GPU에도 노출" 방식 폐기,
    `decisionLog.md` 참고). TOP 카메라의 GPU 연동(프레임 샘플링+API 호출)은 로컬 백엔드가
-   전담
+   전담. **단, 로컬 백엔드와 라즈베리파이가 서로 다른 네트워크 세그먼트에 있으면 mDNS
+   (`.local`)도 안 통하고 이 RTSP 수신 자체가 안 됨 — 실제 설치 위치의 네트워크가 로컬
+   백엔드와 같은 세그먼트인지 확인 필요(아래 TBD 참고)**
 3. 로컬 백엔드로부터 RPA 트리거 신호 수신 → **GPIO(릴레이 경유 전구 점등)** + **스피커
    (USB 또는 3.5mm 오디오잭, Python에서 `aplay` 서브프로세스 등으로 경고음 재생)** 출력.
    `RPAs/alertController.py`는 현재 중앙에서 Mock 처리 중, 라즈베리파이 쪽으로 이전 예정.
-   신호 전달 방식(MQTT/HTTP/WS) TBD
+   신호 전달 방식(MQTT/HTTP/WS) TBD — **아직 미착수**
 
 라즈베리파이(Raspberry Pi OS)는 표준 최신 Python(3.11+)을 쓸 수 있어 `WebApps/backend`와
 문법 호환성 문제 없음 — 과거 Jetson Nano 4GB의 Python 3.6 제약 이슈는 애초에 해당 없음.
@@ -289,10 +301,19 @@ Detect → Create Event → Save Event → Check mode
 
 ## TBD
 
-- **사람 존재 감지 구현 방식** — TOP 카메라에서 GPU 프레임 전송을 켜고 끄는 게이팅 신호를
-  로컬에서 어떻게 만들지(배경 차분/실루엣 감지 등 YOLO 없는 가벼운 방식으로 예상) 구체
-  구현 미착수. 모션(움직임) 감지는 투척 시작 순간을 놓칠 수 있어 게이팅 기준에서 제외
-  확정(`decisionLog.md` 참고) — "사람이 있냐 없냐"처럼 더 관대하고 안정적인 신호를 씀
+- **로컬 백엔드와 라즈베리파이의 네트워크 세그먼트 일치 여부** — RTSP 수신(로컬 백엔드↔
+  라즈베리파이)은 mDNS(`.local`) 이름 해석에 의존 중인데, 이건 **같은 네트워크 세그먼트
+  안에서만** 동작함(멀티캐스트가 세그먼트를 못 넘어감). 실제 설치 위치(12층 엘리베이터
+  앞)의 라즈베리파이가 로컬 백엔드(`<LOCAL_BACKEND_IP>`)와 같은 세그먼트에 붙는지 미확인 —
+  다르면 `.local` 접속 자체가 안 되고 라우팅(양쪽 네트워크 관리자 권한 필요) 또는 터널
+  (GPU 서버처럼 SSH 터널 등) 방식을 추가로 정해야 함. 실전 셋업 중 발견, 상세는
+  `piSetupOps.md` 참고
+- **사람 존재 감지 임계값/디바운스 타이밍 실측 튜닝** — 구현 방식 자체는 확정+구현
+  완료(배경 차분 기반 전경 비율 + 진입 확인/이탈 유예 디바운스, 위 "탐지 파이프라인"
+  참고). 단, 전경 비율 임계값(`PRESENCE_FOREGROUND_RATIO_THRESHOLD`)/진입 확인 시간
+  (`PRESENCE_ENTRY_CONFIRM_SECONDS`)/이탈 유예 시간(`PRESENCE_EXIT_GRACE_SECONDS`,
+  스펙상 3초) 수치 자체는 실제 TOP 카메라 설치 위치/거리 기준 실측 후 조정 필요 —
+  `README.md`의 "오탐 confidence threshold"와 같은 성격의 수치 튜닝 TBD
 - **GPU 추론 API 스펙 설계** — 로컬 백엔드가 프레임을 어떤 형식으로 보내고(단건 vs 세션
   기반), 투척 궤적처럼 프레임 간 연속성이 필요한 상태를 GPU 쪽에서 세션으로 어떻게
   유지할지(세션 시작/프레임 전송/종료 API 형태로 예상) 구체 스펙 미정

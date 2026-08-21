@@ -24,3 +24,5 @@ DB 스키마/ERD는 `Docs/ERD.md` 참고 (DB 관련 작업 시에만 열어볼 �
 과거 결정 이력("왜 이렇게 정했는지")은 `.agentfiles/decisionLog.md` 참고 (이유가 궁금할 때만 열어볼 것, 자동 로드 안 함)
 
 학습 데이터셋 클래스/구조는 `Docs/DATASET_DESCRIPTION.md` 참고 (라벨링/학습 관련 작업 시에만 열어볼 것, 자동 로드 안 함)
+
+라즈베리파이 실기기 셋업 절차/트러블슈팅은 `.agentfiles/piSetupOps.md` 참고 (라즈베리파이 관련 작업 시에만 열어볼 것, 자동 로드 안 함)
