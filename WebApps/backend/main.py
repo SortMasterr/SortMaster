@@ -19,6 +19,9 @@ from repositories.mongoClient import (
     closeMongoClient,
     pingMongo,
 )
+from services.overflowDetectionService import (
+    overflowDetectionService,
+)
 from services.recordingService import recordingService
 from streaming.cameraManager import cameraManagers
 
@@ -35,22 +38,26 @@ async def lifespan(_app: FastAPI):
         )
         await eventRepository.ensureIndexes()
         await binStateRepository.ensureIndexes()
+        await overflowDetectionService.start()
         yield
     finally:
         try:
-            await recordingService.shutdown()
+            await overflowDetectionService.stop()
         finally:
             try:
-                await asyncio.gather(
-                    *(
-                        cameraManager.stop()
-                        for cameraManager
-                        in cameraManagers.values()
-                    ),
-                    return_exceptions=True,
-                )
+                await recordingService.shutdown()
             finally:
-                closeMongoClient()
+                try:
+                    await asyncio.gather(
+                        *(
+                            cameraManager.stop()
+                            for cameraManager
+                            in cameraManagers.values()
+                        ),
+                        return_exceptions=True,
+                    )
+                finally:
+                    closeMongoClient()
 
 
 app = FastAPI(

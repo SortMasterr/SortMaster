@@ -101,11 +101,13 @@ docker compose up --build
   `CameraId`는 `ELEV-TOP`/`ELEV-SIDE`로 확정 및 코드 반영 완료 — 설치 위치는 12층
   엘리베이터 앞 쓰레기통 1개뿐이라 지점 번호가 필요 없음 — `.agentfiles/architecture.md` 참고
 - **탐지**: 아직 미착수(수동 HTTP 스텁으로만 검증 중). **TOP은 YOLO26**(상시감시+투척판단+
-  쓰레기 종류 분류까지), **SIDE는 룰 베이스**(딥러닝 모델 아님)로 역할이 나뉨(상세는
-  `.agentfiles/architecture.md`, `.agentfiles/apiSpec.md` 참고). 메인보드를 Jetson Orin
+  쓰레기 종류 분류까지), **SIDE는 경량 딥러닝 모델(MobileNet_V3_Small)**로 역할이 나뉨(상세는
+  `.agentfiles/architecture.md`, `.agentfiles/apiSpec.md` 참고 — SIDE는 원래 룰 베이스로
+  확정했다가 재전환, 이유는 `.agentfiles/decisionLog.md` 참고). 메인보드를 Jetson Orin
   Nano Super→**라즈베리파이**로 전환하면서 **TOP의 YOLO26 추론 위치도 엣지→GPU 서버
   (`inference` 컨테이너, 신규)로 이관**(라즈베리파이는 캡처+RTSP 송신+GPIO/스피커만 담당,
-  추론 없음). **SIDE는 GPU 서버에 아예 관여하지 않고 로컬 백엔드가 룰 베이스로 직접 판정**.
+  추론 없음). **SIDE는 GPU 서버에 아예 관여하지 않고 로컬 백엔드가 MobileNet_V3_Small을
+  CPU로 직접 실행해 판정**(모델이 가벼워서 GPU 불필요, `models/trashoverflow/` 참고).
   Qwen3-VL-8B(LLM)는 실시간 경로엔 안 쓰고 학습 준비 단계의 자동 라벨링 검증에 **이미
   사용 중**(베이스 모델+프롬프트, 파인튜닝은 필요성 확인되면 착수 — 통 모양 인식 데이터
   생성은 아직 미착수). 트리거 조건은 손 감지 조합이 아니라 **쓰레기 감지 자체**로 변경됨 —
@@ -141,8 +143,9 @@ docker compose up --build
 > **GPU 서버는 YOLO26 학습+추론(TOP)+LLM 자동 라벨링 검증** 담당(GPU 서버는 타 팀과 공유하는
 > 자원이라 부담 경감 목적). LLM은 실시간 탐지 경로엔 여전히 안 씀 — 학습 준비 단계 검증용으로만
 > 이미 사용 중. **메인보드를 Jetson Orin Nano Super→라즈베리파이로 전환하며 TOP의 YOLO26
-> 추론도 엣지→GPU 서버로 이관**(라즈베리파이는 추론 성능 부족). **SIDE는 룰 베이스라 GPU
-> 서버에 안 감**, 로컬 백엔드가 직접 처리. 상세는 `.agentfiles/architecture.md` 참고.
+> 추론도 엣지→GPU 서버로 이관**(라즈베리파이는 추론 성능 부족). **SIDE는 경량 모델
+> (MobileNet_V3_Small)이라 GPU 서버에 안 감**, 로컬 백엔드가 CPU로 직접 처리. 상세는
+> `.agentfiles/architecture.md` 참고.
 
 - **개발**: Windows 노트북에서 Docker로 진행(로컬 웹캠 테스트)
 - **배포**: `backend`+`mongo`는 로컬 `<LOCAL_BACKEND_IP>`(실제 값은 Notion 참고)에서 `docker compose up backend mongo`로
@@ -152,8 +155,9 @@ docker compose up --build
   `docker compose up inference`(TOP 카메라 YOLO26 상시 추론, 상시 기동)
 - 다른 팀들과 서버를 공유하기 때문에 4장 중 **1장만 할당**받아 사용. **TOP 카메라 YOLO26
   상시 추론은 GPU 서버 `inference` 컨테이너가 담당**(라즈베리파이는 추론 없이 캡처+RTSP+
-  GPIO만, SIDE는 로컬 백엔드 룰 베이스라 GPU 자체를 안 씀, `.agentfiles/architecture.md`
-  참고). GPU 패스스루는 `nvidia-docker`(NVIDIA Container Toolkit) 필요.
+  GPIO만, SIDE는 로컬 백엔드에서 MobileNet_V3_Small을 CPU로 돌려서 GPU 자체를 안 씀,
+  `.agentfiles/architecture.md` 참고). GPU 패스스루는 `nvidia-docker`(NVIDIA Container
+  Toolkit) 필요.
 - 로컬(웹캠)과 GPU 서버 배포(RTSP 수신/샘플 영상) 간 영상 소스는 `.env`의
   `CAMERA_SOURCE` 값만 다르게 관리(코드 변경 없음).
 
@@ -182,16 +186,20 @@ Orin Nano Super 발주는 취소, **라즈베리파이로 확정 대체**(YOLO26
 2. `services/detectionService.py` — **데모용 임시 스텁만 존재**(`debug/detection/`의
    스크립트로 수동 HTTP 요청을 보내 DB에 이벤트를 채워 넣는 용도, 실제 탐지 연동 아님).
    **TOP은 YOLO26**(상시감시+투척판단+쓰레기 종류 분류까지)이 **GPU 서버 `inference`
-   컨테이너에서 돎**(라즈베리파이 엣지 아님), **SIDE는 룰 베이스로 로컬 백엔드가 직접
+   컨테이너에서 돎**(라즈베리파이 엣지 아님, GPU 서버 하드웨어/컨테이너 자체가 아직
+   미착수라 당장 연동 불가), **SIDE는 MobileNet_V3_Small로 로컬 백엔드가 직접
    판정**(`.agentfiles/architecture.md`의 "탐지 파이프라인" 참고) — 이 서비스는 앞으로
    TOP은 GPU `inference`가 보내는 감지 시작/판정 완료 API 신호를 받아 통 상태/쿨다운과
-   종합해서 최종 판정하는 역할로, SIDE는 로컬 백엔드의 룰 베이스 판정 로직 호출로 교체될
-   예정(Qwen3-VL-8B는 실시간 경로엔 안 들어감, 학습 준비 단계 자동 라벨링 검증에만 사용).
-   지금 스텁도 이벤트 시작/종료
+   종합해서 최종 판정하는 역할로, SIDE는 로컬 백엔드의 MobileNet_V3_Small 판정 로직 호출로
+   교체될 예정(Qwen3-VL-8B는 실시간 경로엔 안 들어감, 학습 준비 단계 자동 라벨링 검증에만
+   사용). SIDE는 GPU/라즈베리파이 없이도 웹캠만으로 지금 바로 연동 가능한 부분이라
+   **TOP보다 먼저 진행**. 지금 스텁도 이벤트 시작/종료
    시점마다 아래 3~5번 파이프라인(`recordingService.start`/`stop` →
    `mediaService.saveClipAsGif` → `eventService.createEvent`)을 그대로 호출하므로, GPU
-   `inference` 연동 시 진입점만 바꾸면 됨(수동 검증은 `debug/detection/simulateEventPipeline.py`
-   또는 `testDetectionApi.http` 참고)
+   `inference`/SIDE 모델 연동 시 진입점만 바꾸면 됨(수동 검증은
+   `debug/detection/simulateEventPipeline.py` 또는 `testDetectionApi.http` 참고). SIDE
+   모델 가중치(`bestSide.pt`)는 `.gitignore` 대상이라 레포에 없음 — 실제 추론 테스트는
+   가중치 파일을 팀원에게 받아 `models/trashoverflow/`에 둬야 가능
 3. ~~**이벤트 트리거 녹화**~~ **완료** — `services/recordingService.py`. 탐지 서비스가
    아직 없어서 고정 10초 대신, 시작/종료 두 신호(향후 탐지 파이프라인이 전달) 사이의
    실제 구간을 캡처하는 구조로 미리 구현. 2번이 없는 지금은 디버그 스크립트로 신호를

@@ -125,3 +125,16 @@
   걱정도, GPU 자원을 상시로 낭비하는 문제도 둘 다 해소됨(SIDE의 룰 베이스 판정과 마찬가지로
   "완전 자동화 이전에 사람이 실제로 관여하는 순간에만 무거운 연산을 쓴다"는 원칙과도 일치).
   구체적인 사람 존재 감지 구현 방식은 TBD. 상세는 `architecture.md`의 "탐지 파이프라인" 참고
+- **SIDE(넘침) 판정을 룰 베이스에서 경량 딥러닝 모델(MobileNet_V3_Small)로 재전환** → 위
+  "SIDE는 룰 베이스로 확정" 결정을 다시 뒤집음. `models/trashoverflow/trashoverflowApi.py`
+  (`ukjin`, 커밋 `9cee215`/`653f13e`)가 이미 이 모델로 구현·푸시된 상태라 이걸 실제 SIDE
+  판정으로 채택하기로 확정. **단, "GPU 서버 미사용" 원칙은 그대로 유지** — MobileNet_V3_Small은
+  경량 모델이라 로컬 백엔드에서 CPU로 추론 가능(`torch.cuda.is_available()`로 GPU 있으면
+  쓰고 없으면 CPU로 자동 폴백하도록 이미 구현됨), SIDE가 GPU 서버와 연결될 필요는 여전히
+  없음. 원래 트랜드오프였던 "룰 베이스라 가볍다"는 이제 "모델이 가벼워서 로컬 CPU로 충분하다"로
+  대체됨. 기존 독립 실행형 FastAPI 앱(`models/trashoverflow/trashoverflowApi.py`)은 `main.py`에
+  마운트되지 않고 이벤트 저장도 TODO로 비어있던 상태라, 실제 통합은 `services/`로 옮겨
+  `cameraManager`(ELEV-SIDE 프레임)+`eventService`(이벤트 저장/WS 브로드캐스트)와 연결하는
+  작업이 별도로 필요(상세는 `architecture.md`의 "탐지 파이프라인" 참고). 모델 가중치
+  파일(`bestSide.pt`)은 `.gitignore` 대상이라 레포에 없음 — 실제 추론 테스트는 가중치 파일
+  확보 후 가능
