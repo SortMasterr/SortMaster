@@ -1,5 +1,9 @@
 # piSetupOps.md
 
+전체 가이드(준비물/단계별 절차 포함): `Docs/skills/piSetupOps/README.md` (원본). 이 문서는
+그 요약본 — AI가 참고할 핵심 트러블슈팅/명령어 위주로만 추림, 팀원이 처음부터 따라할
+땐 원본을 볼 것.
+
 라즈베리파이(메인보드) 실기기 셋업 실전 절차/트러블슈팅. `architecture.md`가 "뭘 하기로
 했는지"라면 이 문서는 "실제로 어떻게 하는지"(`gpuServerOps.md`와 같은 성격). **자동 로드
 안 함** — 라즈베리파이 셋업/재현이 필요할 때만 열어볼 것.
@@ -7,7 +11,8 @@
 ## SD카드 굽기 (Raspberry Pi Imager)
 
 - OS: Raspberry Pi OS 64-bit (Bookworm 이후 cloud-init 기반, NoCloud datasource)
-- 사용자 지정(⚙️)에서 호스트이름/계정/SSH/Wi-Fi 미리 설정 → 완전 헤드리스 부팅 가능(모니터/키보드 불필요)
+- 사용자 지정(Imager 톱니바퀴 메뉴)에서 호스트이름/계정/SSH/Wi-Fi 미리 설정 → 완전 헤드리스
+  부팅 가능(모니터/키보드 불필요)
 - 지점(`CameraId`)당 보드 1대 원칙 유지 — 호스트이름은 `elev-top`/`elev-side`처럼 카메라
   지점명과 맞춤(계정명은 GPU 서버 팀 계정과 헷갈리지 않게 별도로, 예: `sortmaster`)
 - sudo는 기본 `null`(권한 없음)로 구워짐 — 패키지 설치 등 필요하면 Imager 설정 단계에서
@@ -82,7 +87,7 @@ Windows 시뮬레이터(`debug/streaming/startRtspSim.py`)와 동일한 패턴�
 # MediaMTX 설치 (arm64) — 최신 릴리스 자산명은 그때그때 확인
 curl -s https://api.github.com/repos/bluenviron/mediamtx/releases/latest \
   | grep browser_download_url | grep linux_arm64 | cut -d '"' -f 4
-# 위에서 나온 linux_arm64.tar.gz(암복호X, "arm64v8" 아님) 다운로드+압축 해제
+# 위에서 나온 linux_arm64.tar.gz(그냥 arm64, "arm64v8" 아님) 다운로드+압축 해제
 
 # 실행
 nohup ./mediamtx > mediamtx.log 2>&1 &
@@ -105,6 +110,37 @@ Wi-Fi 구간에서 RTSP를 UDP로 받으면(VLC 기본값) 패킷 유실로 화�
 사용" 체크). 백엔드(`WebApps/backend/streaming/cameraManager.py`)는 이미
 `OPENCV_FFMPEG_CAPTURE_OPTIONS`로 `rtsp_transport;tcp`를 강제하고 있어서 **코드 수정
 불필요** — 이 문제는 VLC 등으로 수동 테스트할 때만 해당.
+
+## 스트림 상태(fps) 확인
+
+- **수신 쪽(VLC)**: 재생 중 도구(T) → 미디어 정보(I) → 통계 탭 → 실시간 수신 fps 표시
+- **송신 쪽(라즈베리파이 ffmpeg 로그)**: `tail -f ~/ffmpeg.log` — `frame=... fps=XX ...
+  speed=1.03x` 형태로 갱신됨. `speed`가 1.0 근처면 설정한 fps를 실시간으로 잘 따라가는
+  중, 많이 낮으면(예 0.7x) 인코딩이 밀려서 실제 전송 fps가 떨어지고 있다는 신호
+
+## IP 재확인 (공유기 재시작 등으로 바뀌었을 때)
+
+`.env`에 IP를 직접 박아두지 않고 `elev-top.local`(호스트이름)으로 넣어뒀으면 이 작업 자체가
+불필요함(mDNS가 새 IP로 자동으로 다시 풀어줌) — 아래는 호스트이름 접속이 안 통할 때나
+직접 확인이 필요할 때만.
+
+노트북 PowerShell에서 본인 서브넷(`ipconfig`로 확인) 기준으로 전체 스캔 후 라즈베리파이
+제조사 MAC 대역(OUI)으로 필터링:
+
+```powershell
+$tasks = 1..254 | ForEach-Object {
+    $ip = "192.168.0.$_"   # 본인 서브넷에 맞게 앞 3자리 수정
+    $p = New-Object System.Net.NetworkInformation.Ping
+    [PSCustomObject]@{ IP = $ip; Task = $p.SendPingAsync($ip, 400) }
+}
+[System.Threading.Tasks.Task]::WaitAll($tasks.Task)
+$alive = $tasks | Where-Object { $_.Task.Result.Status -eq 'Success' } | Select-Object -ExpandProperty IP
+$piPrefixes = 'b8-27-eb','dc-a6-32','e4-5f-01','28-cd-c1','d8-3a-dd','2c-cf-67','3a-35-41'
+arp -a | Select-String -Pattern ($alive -join '|') | Select-String -Pattern ($piPrefixes -join '|')
+```
+
+여러 대(TOP/SIDE 등)가 동시에 잡히면 MAC 뒷자리로 구분 — 라즈베리파이에서 `ip addr`로
+실제 MAC 확인 후 대조.
 
 ## TBD / 남은 작업
 
