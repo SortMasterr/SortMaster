@@ -101,10 +101,13 @@ sidebar.html은 라우트 아님 — 각 페이지에 공통 포함되는 사이
 - EP-07 detectedClass 필드 추가 여부
 - EP-03/EP-05 페이지네이션(limit/offset) 여부
 - 인증/권한 (P3, 현재 없음)
-- PG-03 템플릿(이벤트 상세 페이지) 미구현
 
 ## 해결된 TBD
 
 - `BIN_STATES` 조회/갱신 API → EP-10(`GET /api/binStates`)/EP-11(`POST /api/binStates`)로 구현
   완료(`schemas/binState.py`, `repositories/binStateRepository.py`, `services/binStateService.py`).
   EP-02/EP-09로 직접 만드는 overflow 이벤트는 여전히 상태 전환 검증 없는 수동/디버그 경로로 남음
+- **PG-03 "이벤트 상세 페이지 미구현"** → PG 번호가 재배치되면서(PG-03은 현재 통계 페이지)
+  안 지워지고 남아있던 흔적이었음. 상세 페이지 자체는 애초에 별도 라우트를 안 만들기로
+  확정된 설계(`GET /events/{id}` 라우트 없음, `/events`의 모달이 EP-04 호출해 표시) —
+  "미구현"이 아니라 처음부터 이 방식으로 확정된 것이라 TBD에서 제거
