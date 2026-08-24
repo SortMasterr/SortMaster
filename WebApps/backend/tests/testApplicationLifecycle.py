@@ -22,6 +22,21 @@ class ApplicationLifecycleTest(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(),
             ) as ensureIndexes,
             patch.object(
+                main.binStateRepository,
+                "ensureIndexes",
+                AsyncMock(),
+            ) as ensureBinStateIndexes,
+            patch.object(
+                main.presenceGateService,
+                "start",
+                AsyncMock(),
+            ) as startPresenceGate,
+            patch.object(
+                main.presenceGateService,
+                "shutdown",
+                AsyncMock(),
+            ) as shutdownPresenceGate,
+            patch.object(
                 main.recordingService,
                 "shutdown",
                 AsyncMock(),
@@ -39,7 +54,10 @@ class ApplicationLifecycleTest(unittest.IsolatedAsyncioTestCase):
             async with main.lifespan(main.app):
                 pingMongo.assert_awaited_once_with()
                 ensureIndexes.assert_awaited_once_with()
+                ensureBinStateIndexes.assert_awaited_once_with()
+                startPresenceGate.assert_awaited_once_with()
 
+            shutdownPresenceGate.assert_awaited_once_with()
             shutdownRecording.assert_awaited_once_with()
             cameraManager.stop.assert_awaited_once_with()
             closeMongoClient.assert_called_once_with()
@@ -61,6 +79,16 @@ class ApplicationLifecycleTest(unittest.IsolatedAsyncioTestCase):
                 "ensureIndexes",
                 AsyncMock(),
             ) as ensureIndexes,
+            patch.object(
+                main.presenceGateService,
+                "start",
+                AsyncMock(),
+            ) as startPresenceGate,
+            patch.object(
+                main.presenceGateService,
+                "shutdown",
+                AsyncMock(),
+            ) as shutdownPresenceGate,
             patch.object(
                 main.recordingService,
                 "shutdown",
@@ -84,6 +112,8 @@ class ApplicationLifecycleTest(unittest.IsolatedAsyncioTestCase):
                     self.fail("lifespan should not start")
 
             ensureIndexes.assert_not_awaited()
+            startPresenceGate.assert_not_awaited()
+            shutdownPresenceGate.assert_awaited_once_with()
             shutdownRecording.assert_awaited_once_with()
             cameraManager.stop.assert_awaited_once_with()
             closeMongoClient.assert_called_once_with()
@@ -103,6 +133,16 @@ class ApplicationLifecycleTest(unittest.IsolatedAsyncioTestCase):
                 "ensureIndexes",
                 AsyncMock(),
             ),
+            patch.object(
+                main.presenceGateService,
+                "start",
+                AsyncMock(),
+            ),
+            patch.object(
+                main.presenceGateService,
+                "shutdown",
+                AsyncMock(),
+            ) as shutdownPresenceGate,
             patch.object(
                 main.recordingService,
                 "shutdown",
@@ -127,6 +167,62 @@ class ApplicationLifecycleTest(unittest.IsolatedAsyncioTestCase):
                 async with main.lifespan(main.app):
                     pass
 
+            shutdownPresenceGate.assert_awaited_once_with()
+            cameraManager.stop.assert_awaited_once_with()
+            closeMongoClient.assert_called_once_with()
+
+    async def testMongoClosesEvenIfPresenceGateShutdownFails(self):
+        cameraManager = Mock()
+        cameraManager.stop = AsyncMock()
+
+        with (
+            patch.object(
+                main,
+                "pingMongo",
+                AsyncMock(),
+            ),
+            patch.object(
+                main.eventRepository,
+                "ensureIndexes",
+                AsyncMock(),
+            ),
+            patch.object(
+                main.presenceGateService,
+                "start",
+                AsyncMock(),
+            ),
+            patch.object(
+                main.presenceGateService,
+                "shutdown",
+                AsyncMock(
+                    side_effect=RuntimeError(
+                        "presence gate shutdown failed"
+                    )
+                ),
+            ),
+            patch.object(
+                main.recordingService,
+                "shutdown",
+                AsyncMock(),
+            ) as shutdownRecording,
+            patch.object(
+                main,
+                "cameraManagers",
+                {"ELEV-TOP": cameraManager},
+            ),
+            patch.object(
+                main,
+                "closeMongoClient",
+            ) as closeMongoClient,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "presence gate shutdown failed",
+            ):
+                async with main.lifespan(main.app):
+                    pass
+
+            shutdownRecording.assert_awaited_once_with()
             cameraManager.stop.assert_awaited_once_with()
             closeMongoClient.assert_called_once_with()
 
@@ -154,6 +250,16 @@ class ApplicationLifecycleTest(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(),
             ) as ensureIndexes,
             patch.object(
+                main.presenceGateService,
+                "start",
+                AsyncMock(),
+            ) as startPresenceGate,
+            patch.object(
+                main.presenceGateService,
+                "shutdown",
+                AsyncMock(),
+            ),
+            patch.object(
                 main.recordingService,
                 "shutdown",
                 AsyncMock(),
@@ -173,6 +279,7 @@ class ApplicationLifecycleTest(unittest.IsolatedAsyncioTestCase):
                     self.fail("lifespan should time out")
 
             ensureIndexes.assert_not_awaited()
+            startPresenceGate.assert_not_awaited()
             closeMongoClient.assert_called_once_with()
 
 

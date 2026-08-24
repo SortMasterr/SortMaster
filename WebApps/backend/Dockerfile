@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir \
         "pydantic==2.13.4" \
         "pydantic-settings==2.15.0" \
         "motor==3.7.1" \
+        "pymongo==4.9.2" \
         "python-multipart==0.0.32" \
         "opencv-python==4.14.0.94" \
         "Pillow==11.1.0" \
