@@ -97,8 +97,8 @@ cat ffmpeg.log
 `<CameraId>`는 `ELEV-TOP`/`ELEV-SIDE`처럼 대문자 하이픈 값(스트림 경로, `schemas/event.py`의
 `CameraId` 값과 동일).
 
-**미완**: 위 두 프로세스는 `nohup`으로 수동 실행 중 — 재부팅하면 자동으로 안 뜸. 정식 배포
-전 systemd 서비스화 필요(아래 "남은 작업" 참고).
+위 `nohup` 방식은 최초 수동 검증용 — 정식 운영은 재부팅 시 자동 기동되도록 systemd
+서비스로 등록해서 쓴다(아래 "systemd 서비스화" 참고, 실제 재부팅 테스트로 검증 완료).
 
 ### 스트림 확인
 
@@ -111,6 +111,61 @@ vlc rtsp://<호스트이름>.local:8554/<CameraId> --rtsp-tcp
 
 fps 확인은 VLC 도구 → 미디어 정보 → 통계 탭, 또는 라즈베리파이 쪽 `tail -f ~/ffmpeg.log`의
 `speed=` 값(1.0 근처면 정상 실시간 처리).
+
+### systemd 서비스화 (정식 배포)
+
+`nohup`으로 수동 검증이 끝났으면, 재부팅 시 자동 기동되도록 두 프로세스를 systemd
+서비스로 등록한다. `/etc/systemd/system/mediamtx.service`(경로는 실제 설치 위치에 맞출 것):
+
+```ini
+[Unit]
+Description=MediaMTX RTSP server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sortmaster
+WorkingDirectory=/home/sortmaster
+ExecStart=/home/sortmaster/mediamtx
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`/etc/systemd/system/elevtop-rtsp-push.service`(`<CameraId>`는 실제 카메라 값으로,
+`ExecStart`는 `which ffmpeg`로 확인한 절대 경로 사용):
+
+```ini
+[Unit]
+Description=ELEV-TOP webcam -> RTSP push
+After=mediamtx.service
+Requires=mediamtx.service
+
+[Service]
+Type=simple
+User=sortmaster
+ExecStart=/usr/bin/ffmpeg -f v4l2 -input_format yuyv422 -video_size 640x480 -framerate 20 -i /dev/video0 -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 10 -rtsp_transport tcp -f rtsp rtsp://localhost:8554/<CameraId>
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+```
+
+등록/기동 및 검증:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now mediamtx.service
+sudo systemctl enable --now elevtop-rtsp-push.service
+systemctl status mediamtx.service --no-pager
+systemctl status elevtop-rtsp-push.service --no-pager
+```
+두 서비스 다 `active (running)`이면 성공. 로그는 `journalctl -u <서비스명> -f`로 확인
+(기존 `mediamtx.log`/`ffmpeg.log` 파일 대신 journal로 통합됨). 마지막으로 `sudo reboot` 후
+다시 접속해서 수동 기동 없이 두 서비스가 저절로 떠있는지 확인하면 검증 끝.
 
 ## 4단계 — 백엔드 연동
 
@@ -155,6 +210,14 @@ CAMERA_SOURCE_ELEVTOP=rtsp://elev-top.local:8554/ELEV-TOP
    arp -a | Select-String -Pattern ($alive -join '|') | Select-String -Pattern ($piPrefixes -join '|')
    ```
    여러 대가 동시에 잡히면 라즈베리파이에서 `ip addr`로 실제 MAC 확인 후 대조
+5. **`ping <호스트이름>.local`은 되는데 `ssh`만 타임아웃날 때**: 방화벽/AP 격리 문제가
+   아니라, mDNS가 IPv6 링크-로컬 주소(`fe80::...`)를 먼저 돌려주는데 그 주소는 zone
+   ID(`%5`처럼 인터페이스 번호)가 있어야 라우팅되고 ssh는 호스트이름만으로 이걸 자동으로
+   못 붙여서 생기는 문제일 수 있음(`ping <호스트이름>.local`로 나온 주소가 `fe80::`로
+   시작하면 이 케이스) — ssh에 IPv4를 강제하면 해결:
+   ```powershell
+   ssh -4 sortmaster@<호스트이름>.local
+   ```
 
 ### IP가 자꾸 바뀔 때 (공유기 재시작, 다른 네트워크로 이동 등)
 
@@ -207,9 +270,14 @@ Wi-Fi 구간에서 RTSP를 UDP로 받으면(VLC 기본값) 패킷 유실로 화�
 `rtsp_transport;tcp`를 강제하고 있어 코드 수정은 불필요 — 이 이슈는 VLC 등으로 수동
 테스트할 때만 해당.
 
+### systemd 서비스 등록 시 `ExecStart=` 오타
+
+`ExecStart=` 뒤 `=`을 빠뜨리면(`ExecStart/경로...`) `systemctl daemon-reload`는 그냥
+통과하지만, 시작 시 "Unit has a bad unit file setting"으로 실패함. `journalctl -xeu
+<서비스명>`에 "Missing '=', ignoring line" 문구가 보이면 이 오타부터 의심.
+
 ## 남은 작업 (TBD)
 
-- MediaMTX/ffmpeg push를 systemd 서비스화(재부팅 시 자동 시작)
 - 로컬 백엔드와 라즈베리파이가 다른 네트워크 세그먼트에 있는 경우의 연결 방식(라우팅/터널)
   확정
 - Wi-Fi 5GHz 불안정 현상의 정확한 원인 규명(현재는 2.4GHz 우회로만 대응)

@@ -220,10 +220,10 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 
 1. **웹캠(테스트용, USB)→RTSP 송신: 실기기(`elev-top`)에서 ffmpeg+MediaMTX 조합으로 검증
    완료** — Windows 로컬 시뮬레이터(`debug/streaming/startRtspSim.py`)와 동일한 패턴(캡처
-   백엔드만 dshow→v4l2로 차이), 노트북에서 VLC로 수신 확인함. 실전 절차/트러블슈팅(cloud-init
-   설정, Wi-Fi 대역 이슈, systemd 서비스화 등 남은 작업 포함)은 `piSetupOps.md` 참고 —
-   **아직 `nohup` 수동 실행 상태라 재부팅 시 자동 기동 안 됨(TODO)**. 카메라 모듈(CSI)
-   연동은 미착수(지금은 USB 웹캠으로만 검증)
+   백엔드만 dshow→v4l2로 차이), 노트북에서 VLC로 수신 확인함. **systemd 서비스로 등록
+   완료**(재부팅 시 자동 기동, 실제 재부팅 테스트로 검증됨) — 실전 절차/트러블슈팅
+   (cloud-init 설정, Wi-Fi 대역 이슈 등)은 `piSetupOps.md` 참고. 카메라 모듈(CSI) 연동은
+   미착수(지금은 USB 웹캠으로만 검증)
 2. **TOP/SIDE 둘 다 로컬 백엔드로만** RTSP 전송(LAN, 관리자 웹 송출과 겸용) — GPU 서버와
    직접 연결되는 라즈베리파이는 없음(과거 "TOP만 SSH 역터널로 GPU에도 노출" 방식 폐기,
    `decisionLog.md` 참고). TOP 카메라의 GPU 연동(프레임 샘플링+API 호출)은 로컬 백엔드가

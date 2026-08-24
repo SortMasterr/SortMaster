@@ -78,29 +78,73 @@ GPU 서버(`gpuServerOps.md`)와 마찬가지로 22 안 되면 2222로도 시도
 - 640x480 무압축이면 대역폭은 문제없는 수준(초당 ~12MB), CPU(libx264 소프트웨어 인코딩)도
   40%대로 여유 있었음
 
-## RTSP 송신 구조 (MediaMTX + ffmpeg push)
+## RTSP 송신 구조 (MediaMTX + ffmpeg push) — systemd 서비스화 완료
 
 Windows 시뮬레이터(`debug/streaming/startRtspSim.py`)와 동일한 패턴을 라즈베리파이에서도
-그대로 사용 — 캡처 백엔드만 dshow(Windows) 대신 v4l2(Linux)로 다름:
+그대로 사용 — 캡처 백엔드만 dshow(Windows) 대신 v4l2(Linux)로 다름. 최초 설치(바이너리
+다운로드)는 수동, 실행은 재부팅 시 자동 기동되도록 **systemd 서비스로 등록 완료**(재부팅
+테스트로 검증됨):
 
 ```bash
-# MediaMTX 설치 (arm64) — 최신 릴리스 자산명은 그때그때 확인
+# MediaMTX 설치 (arm64) — 최초 1회, 최신 릴리스 자산명은 그때그때 확인
 curl -s https://api.github.com/repos/bluenviron/mediamtx/releases/latest \
   | grep browser_download_url | grep linux_arm64 | cut -d '"' -f 4
 # 위에서 나온 linux_arm64.tar.gz(그냥 arm64, "arm64v8" 아님) 다운로드+압축 해제
-
-# 실행
-nohup ./mediamtx > mediamtx.log 2>&1 &
-
-# 웹캠 push (해상도/포맷은 카메라마다 다르니 --list-formats-ext로 확인 후 맞출 것)
-nohup ffmpeg -f v4l2 -input_format yuyv422 -video_size 640x480 -framerate 20 -i /dev/video0 \
-  -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 10 \
-  -rtsp_transport tcp -f rtsp rtsp://localhost:8554/ELEV-TOP \
-  > ffmpeg.log 2>&1 &
+# ~/mediamtx(바이너리)가 나오는 위치 기준으로 아래 서비스 파일 작성
 ```
 
-**미완: 아직 `nohup`으로 수동 실행 중** — 재부팅하면 자동으로 안 뜸. 정식 배포 전 systemd
-서비스화 필요(TODO, 아래 TBD 참고).
+`/etc/systemd/system/mediamtx.service`:
+```ini
+[Unit]
+Description=MediaMTX RTSP server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sortmaster
+WorkingDirectory=/home/sortmaster
+ExecStart=/home/sortmaster/mediamtx
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`/etc/systemd/system/elevtop-rtsp-push.service`(해상도/포맷은 카메라마다 다르니
+`--list-formats-ext`로 확인 후 맞출 것):
+```ini
+[Unit]
+Description=ELEV-TOP webcam -> RTSP push
+After=mediamtx.service
+Requires=mediamtx.service
+
+[Service]
+Type=simple
+User=sortmaster
+ExecStart=/usr/bin/ffmpeg -f v4l2 -input_format yuyv422 -video_size 640x480 -framerate 20 -i /dev/video0 -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 10 -rtsp_transport tcp -f rtsp rtsp://localhost:8554/ELEV-TOP
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+```
+
+등록/기동:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now mediamtx.service
+sudo systemctl enable --now elevtop-rtsp-push.service
+systemctl status mediamtx.service --no-pager
+systemctl status elevtop-rtsp-push.service --no-pager
+```
+
+로그 확인은 `journalctl -u elevtop-rtsp-push.service -f`(기존 `ffmpeg.log`/`mediamtx.log`
+파일 대신 journal로 통합됨). **자주 하는 실수**: unit 파일에 `ExecStart=` 쓸 때 `=`을
+빠뜨리면(`ExecStart/경로...`) `systemctl daemon-reload`는 통과하지만 시작 시
+"Unit has a bad unit file setting"으로 실패함 — `journalctl -xeu <서비스명>`으로
+"Missing '=', ignoring line" 같은 문구가 보이면 이 오타부터 의심.
 
 ## RTSP 재생 시 화면 깨짐 (UDP 패킷 유실)
 
@@ -142,10 +186,22 @@ arp -a | Select-String -Pattern ($alive -join '|') | Select-String -Pattern ($pi
 여러 대(TOP/SIDE 등)가 동시에 잡히면 MAC 뒷자리로 구분 — 라즈베리파이에서 `ip addr`로
 실제 MAC 확인 후 대조.
 
+## `ssh elev-top.local`이 타임아웃(`ping`은 되는데)
+
+`ping elev-top.local`(IPv4 강제 없이)은 성공했는데 바로 이어서 `ssh sortmaster@elev-top.local`은
+`Connection timed out`(포트 22/2222 둘 다)나는 사례 있음 — 방화벽/AP 격리 문제가 아니라
+**mDNS가 IPv6 링크-로컬 주소(`fe80::...`)를 먼저 돌려주는데, 그 주소는 zone ID(`%5`처럼
+인터페이스 번호)가 있어야 라우팅되고 ssh가 호스트이름만으로는 이걸 자동으로 못 붙여서
+생기는 문제**였음(직접 그 IPv6 주소를 리터럴로 넣으면 zone ID 없이도 실패). 확인: `ping
+elev-top.local`(IPv4 강제 없이)로 나온 주소가 `fe80::`로 시작하면 이 케이스.
+
+→ ssh에 IPv4를 강제하면 해결:
+```powershell
+ssh -4 sortmaster@elev-top.local
+```
+
 ## TBD / 남은 작업
 
-- **MediaMTX/ffmpeg push를 systemd 서비스화** — 지금은 `nohup`으로 수동 실행, 재부팅 시
-  자동 시작 안 됨
 - **로컬 백엔드와 라즈베리파이가 다른 네트워크 세그먼트에 있을 경우** — mDNS(`.local`)는
   같은 세그먼트에서만 동작. 다른 세그먼트면 라우팅(양쪽 다 관리자 권한 있어야) 또는
   터널(GPU 서버처럼 SSH 터널 등) 필요, 아직 미정. 실제 배포 시 라즈베리파이 설치 위치의

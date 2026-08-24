@@ -167,8 +167,9 @@ GPU 서버로 이관하면서 메인보드엔 고성능 추론이 더 이상 필
 1. **웹캠 캡처 → RTSP 송신**: **실기기(`elev-top`)에서 ffmpeg+MediaMTX로 검증 완료**(USB
    웹캠 기준, 카메라 모듈은 미착수). RTSP는 로컬 백엔드(LAN)로만 수신(GPU 서버는 RTSP를
    직접 안 받음 — TOP 카메라도 로컬 백엔드가 프레임을 샘플링해서 GPU에 API로 전달하는
-   구조로 확정됨, `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고). 실전 셋업
-   절차/트러블슈팅은 `.agentfiles/piSetupOps.md` 참고 — 재부팅 시 자동 기동은 아직 미완(TODO)
+   구조로 확정됨, `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고). systemd 서비스로
+   등록해 재부팅 시 자동 기동되도록 완료(재부팅 테스트로 검증됨) — 실전 셋업
+   절차/트러블슈팅은 `.agentfiles/piSetupOps.md` 참고
 2. **중앙 서버 알림 신호 수신 → GPIO/스피커 트리거**: 아직 설계 전. 현재 `RPAs/`는
    중앙 백엔드 안에서 Mock 처리 중인 자리만 잡아둔 상태 — 실제로는 라즈베리파이 쪽
    리스너로 옮겨야 할 가능성 높음(GPIO 릴레이로 전구, USB/오디오잭으로 스피커).
