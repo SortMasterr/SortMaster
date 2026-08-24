@@ -135,12 +135,12 @@ RestartSec=2
 WantedBy=multi-user.target
 ```
 
-`/etc/systemd/system/elevtop-rtsp-push.service`(`<CameraId>`는 실제 카메라 값으로,
-`ExecStart`는 `which ffmpeg`로 확인한 절대 경로 사용):
+`/etc/systemd/system/webcam-rtsp-push.service`(서비스 이름은 보드마다 물리적으로 분리돼
+있어서 겹칠 일이 없어 공통 이름 사용, `<CameraId>`만 실제 카메라 값으로 교체):
 
 ```ini
 [Unit]
-Description=ELEV-TOP webcam -> RTSP push
+Description=Webcam RTSP push to local MediaMTX
 After=mediamtx.service
 Requires=mediamtx.service
 
@@ -148,8 +148,8 @@ Requires=mediamtx.service
 Type=simple
 User=sortmaster
 ExecStart=/usr/bin/ffmpeg -f v4l2 -input_format yuyv422 -video_size 640x480 -framerate 20 -i /dev/video0 -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 10 -rtsp_transport tcp -f rtsp rtsp://localhost:8554/<CameraId>
-Restart=always
-RestartSec=2
+Restart=on-failure
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
@@ -159,22 +159,99 @@ WantedBy=multi-user.target
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now mediamtx.service
-sudo systemctl enable --now elevtop-rtsp-push.service
+sudo systemctl enable --now webcam-rtsp-push.service
 systemctl status mediamtx.service --no-pager
-systemctl status elevtop-rtsp-push.service --no-pager
+systemctl status webcam-rtsp-push.service --no-pager
 ```
 두 서비스 다 `active (running)`이면 성공. 로그는 `journalctl -u <서비스명> -f`로 확인
 (기존 `mediamtx.log`/`ffmpeg.log` 파일 대신 journal로 통합됨). 마지막으로 `sudo reboot` 후
-다시 접속해서 수동 기동 없이 두 서비스가 저절로 떠있는지 확인하면 검증 끝.
+다시 접속해서 수동 기동 없이 두 서비스가 저절로 떠있는지 확인하면 검증 끝 — **TOP/SIDE
+둘 다 이 방식으로 재부팅 검증 완료**.
+
+### 고정 IP 설정 (Docker로 배포할 경우 사실상 필수)
+
+**mDNS(`.local`)는 Docker 컨테이너 안에서는 기본적으로 안 통함** — 컨테이너 안에 mDNS
+리졸버(`libnss-mdns`)가 없어서, Windows 호스트나 `uvicorn` 로컬 실행에선 잘 되던
+`elev-top.local`이 `docker compose`로 띄운 백엔드 컨테이너 안에선 해석이 안 돼 스트림이
+안 뜸(실전에서 확인됨 — TOP을 호스트이름으로 바꾸고 Docker에서 빌드했더니 화면이 안
+나오고, IP를 그대로 쓴 SIDE는 정상 작동했음). Docker로 배포한다면 호스트이름 대신
+**라즈베리파이 자체에 고정 IP**를 설정하는 게 현실적인 해법.
+
+공유기 관리자 권한이 없어도(학원 공유망 등) 라즈베리파이 쪽에서 직접 설정 가능. Bookworm
+이후 Raspberry Pi OS는 NetworkManager+netplan 조합을 씀 — 연결 프로필 이름 확인:
+
+```bash
+nmcli connection show
+```
+
+`netplan-wlan0-<SSID>`처럼 나오는 항목의 UUID로 원본 설정 파일 위치를 찾음(실제 적용되는
+파일은 `/run/NetworkManager/system-connections/`에 있지만 **이건 재부팅하면 사라지는
+임시 파일** — 반드시 `/etc/netplan/90-NM-<UUID>.yaml`을 고쳐야 영구 반영됨):
+
+```bash
+sudo cat /etc/netplan/90-NM-<UUID>.yaml   # 기존 내용(Wi-Fi 비밀번호 등) 확인 후 그대로 유지
+```
+
+기존 내용에서 `dhcp4: true`를 `false`로 바꾸고 `addresses`/`routes`/`nameservers`를
+추가(다른 필드는 그대로 유지 — 특히 `access-points`의 `password`는 그대로 복사):
+
+```bash
+sudo tee /etc/netplan/90-NM-<UUID>.yaml > /dev/null <<'EOF'
+network:
+  version: 2
+  wifis:
+    wlan0:
+      renderer: NetworkManager
+      match: {}
+      dhcp4: false
+      addresses:
+        - 192.168.0.201/24
+      routes:
+        - to: default
+          via: 192.168.0.1
+      nameservers:
+        addresses: [192.168.0.1, 8.8.8.8]
+      access-points:
+        "<SSID>":
+          auth:
+            key-management: "psk"
+            password: "<기존 파일에서 그대로 복사한 값>"
+          networkmanager:
+            uuid: "<UUID>"
+            name: "netplan-wlan0-<SSID>"
+            passthrough:
+              proxy._: ""
+      networkmanager:
+        uuid: "<UUID>"
+        name: "netplan-wlan0-<SSID>"
+EOF
+sudo netplan apply
+```
+
+적용 중 SSH 세션이 잠깐 끊기는 게 정상(IP가 바뀌는 순간이라) — 새 IP로 재접속해서
+`ip addr show wlan0`로 확인. 고정 IP로 고를 값은 사전에 `ping -c 2 <후보IP>`로
+"Destination Host Unreachable"이 나오는지(=비어있는지) 확인하고 쓸 것. TOP/SIDE 각각
+다른 고정 IP를 부여(예: TOP `.201`, SIDE `.202`) — 재부팅 후에도 유지되는지 반드시
+검증할 것(`sudo reboot` → 재접속 → `ip addr show`).
+
+**주의: SD카드를 전원 켜진 채로 뽑지 말 것**: 이 작업 중 SD카드를 라즈베리파이 전원이 켜진
+상태로 그냥 뽑았다가 `/etc/netplan/*.yaml` 파일 2개가 통째로 빈 파일이 돼버린 사례가
+있음(방금 `tee`로 쓴 내용이 디스크에 완전히 반영되기 전에 저장장치가 사라지면서 발생한
+것으로 추정). 그 결과 wlan0/eth0 프로필이 NetworkManager 목록에서 아예 사라지고 SSH도
+완전히 불통이 됐음 — 복구는 (1) 안 건드린 인터페이스(이 경우 eth0)로 랜선 연결 후 재부팅해서
+해당 인터페이스로 재접속, (2) 깨진 netplan 파일들을 SSH로 다시 써넣기, 순으로 진행. **SD카드를
+분리해야 하면 반드시 전원(케이블)부터 끈 다음에 뽑을 것** — 전원 케이블만 뽑는 건(SD카드는
+꽂아둔 채) `fsck.repair=yes` 덕에 훨씬 안전하니 일상적으로는 문제없음.
 
 ## 4단계 — 백엔드 연동
 
-`WebApps/backend`의 `.env`에 아래처럼 추가(IP 대신 호스트이름 사용 — 이유는 트러블슈팅
-"IP가 자꾸 바뀔 때" 참고). 키는 `CameraId`에서 하이픈을 빼고 대문자로 바꾼 형태
-(`streaming/cameraManager.py`의 `_envKeyForCameraId` 규칙), 예를 들어 `ELEV-TOP`이면:
+`WebApps/backend`의 `.env`에 아래처럼 추가. 키는 `CameraId`에서 하이픈을 빼고 대문자로
+바꾼 형태(`streaming/cameraManager.py`의 `_envKeyForCameraId` 규칙), 예를 들어
+`ELEV-TOP`이면:
 
 ```
-CAMERA_SOURCE_ELEVTOP=rtsp://elev-top.local:8554/ELEV-TOP
+CAMERA_SOURCE_ELEVTOP=rtsp://elev-top.local:8554/ELEV-TOP   # 로컬 uvicorn 직접 실행 시
+CAMERA_SOURCE_ELEVTOP=rtsp://192.168.0.201:8554/ELEV-TOP    # Docker로 배포 시(위 "고정 IP 설정" 참고)
 ```
 
 백엔드 재시작 후 `GET /api/stream/<CameraId>`로 확인. RTSP를 TCP로 강제하는 옵션은
@@ -221,17 +298,22 @@ CAMERA_SOURCE_ELEVTOP=rtsp://elev-top.local:8554/ELEV-TOP
 
 ### IP가 자꾸 바뀔 때 (공유기 재시작, 다른 네트워크로 이동 등)
 
-DHCP로 받는 이상 네트워크가 바뀌면 IP도 바뀌는 게 정상 — 막으려면 공유기 관리자 권한으로
-MAC 고정 예약이 필요한데, 관리자 권한이 없는 네트워크(학원 등)에선 불가능. **`.env`에
-IP 대신 호스트이름(`<호스트이름>.local`)을 넣어두면 이 문제 자체가 사라짐** — mDNS가 그
-순간의 실제 IP로 자동으로 다시 풀어줌. 실전에서 공유기 재시작으로 전체 IP가 초기화된
-뒤에도 호스트이름 접속은 그대로 동작 확인함.
+DHCP로 받는 이상 네트워크가 바뀌면 IP도 바뀌는 게 정상. 대응 방법은 백엔드를 어떻게
+돌리느냐에 따라 다름:
+
+- **로컬 `uvicorn`으로 직접 실행**: `.env`에 IP 대신 호스트이름(`<호스트이름>.local`)을
+  넣어두면 이 문제 자체가 사라짐 — mDNS가 그 순간의 실제 IP로 자동으로 다시 풀어줌.
+  공유기 관리자 권한 불필요. 실전에서 공유기 재시작으로 전체 IP가 초기화된 뒤에도
+  호스트이름 접속은 그대로 동작 확인함
+- **Docker로 배포**: 컨테이너 안에서는 mDNS가 안 통해서 호스트이름 방식이 안 먹힘(위
+  "고정 IP 설정" 참고) — 라즈베리파이 자체에 고정 IP를 설정해서 아예 IP가 안 바뀌게 하는
+  방식으로 대응. 공유기 관리자 권한 없어도 가능
 
 단, mDNS는 **같은 네트워크 세그먼트 안에서만** 동작(멀티캐스트가 라우팅 경계를 못 넘음).
 로컬 백엔드와 라즈베리파이가 서로 다른 네트워크 세그먼트에 있으면 호스트이름 접속 자체가
-안 되고, 그때는 라우팅(양쪽 네트워크 관리자 권한 필요) 또는 터널(SSH 터널 등, GPU 서버
-연동과 같은 방식) 중 하나를 선택해야 함 — 실제 설치 위치와 로컬 백엔드가 같은 네트워크인지
-사전에 확인할 것.
+안 되고(고정 IP를 쓰더라도 마찬가지 — IP 자체가 다른 네트워크에서는 안 보임), 그때는
+라우팅(양쪽 네트워크 관리자 권한 필요) 또는 터널(SSH 터널 등, GPU 서버 연동과 같은 방식)
+중 하나를 선택해야 함 — 실제 설치 위치와 로컬 백엔드가 같은 네트워크인지 사전에 확인할 것.
 
 ### SD카드 설정을 고쳤는데 재부팅해도 반영이 안 될 때
 

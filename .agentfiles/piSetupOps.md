@@ -104,19 +104,19 @@ Wants=network-online.target
 Type=simple
 User=sortmaster
 WorkingDirectory=/home/sortmaster
-ExecStart=/home/sortmaster/mediamtx
-Restart=always
-RestartSec=2
+ExecStart=/home/sortmaster/mediamtx /home/sortmaster/mediamtx.yml
+Restart=on-failure
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-`/etc/systemd/system/elevtop-rtsp-push.service`(해상도/포맷은 카메라마다 다르니
-`--list-formats-ext`로 확인 후 맞출 것):
+`/etc/systemd/system/webcam-rtsp-push.service`(서비스 이름은 보드마다 물리적으로 분리돼
+있어 공통 이름 사용, 해상도/포맷/CameraId는 카메라·보드마다 다르니 맞출 것):
 ```ini
 [Unit]
-Description=ELEV-TOP webcam -> RTSP push
+Description=Webcam RTSP push to local MediaMTX
 After=mediamtx.service
 Requires=mediamtx.service
 
@@ -124,8 +124,8 @@ Requires=mediamtx.service
 Type=simple
 User=sortmaster
 ExecStart=/usr/bin/ffmpeg -f v4l2 -input_format yuyv422 -video_size 640x480 -framerate 20 -i /dev/video0 -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -g 10 -rtsp_transport tcp -f rtsp rtsp://localhost:8554/ELEV-TOP
-Restart=always
-RestartSec=2
+Restart=on-failure
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
@@ -135,12 +135,13 @@ WantedBy=multi-user.target
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now mediamtx.service
-sudo systemctl enable --now elevtop-rtsp-push.service
+sudo systemctl enable --now webcam-rtsp-push.service
 systemctl status mediamtx.service --no-pager
-systemctl status elevtop-rtsp-push.service --no-pager
+systemctl status webcam-rtsp-push.service --no-pager
 ```
+TOP/SIDE 둘 다 재부팅 검증 완료.
 
-로그 확인은 `journalctl -u elevtop-rtsp-push.service -f`(기존 `ffmpeg.log`/`mediamtx.log`
+로그 확인은 `journalctl -u webcam-rtsp-push.service -f`(기존 `ffmpeg.log`/`mediamtx.log`
 파일 대신 journal로 통합됨). **자주 하는 실수**: unit 파일에 `ExecStart=` 쓸 때 `=`을
 빠뜨리면(`ExecStart/경로...`) `systemctl daemon-reload`는 통과하지만 시작 시
 "Unit has a bad unit file setting"으로 실패함 — `journalctl -xeu <서비스명>`으로
@@ -162,11 +163,79 @@ Wi-Fi 구간에서 RTSP를 UDP로 받으면(VLC 기본값) 패킷 유실로 화�
   speed=1.03x` 형태로 갱신됨. `speed`가 1.0 근처면 설정한 fps를 실시간으로 잘 따라가는
   중, 많이 낮으면(예 0.7x) 인코딩이 밀려서 실제 전송 fps가 떨어지고 있다는 신호
 
-## IP 재확인 (공유기 재시작 등으로 바뀌었을 때)
+## Docker 컨테이너 안에서는 mDNS(`.local`)가 안 통함
+
+`.env`에 호스트이름(`elev-top.local`)을 넣으면 **로컬 `uvicorn` 직접 실행**이나 SSH 같은
+Windows 호스트 명령에선 잘 되지만, **`docker compose`로 띄운 백엔드 컨테이너 안에서는
+해석이 안 됨**(컨테이너에 mDNS 리졸버가 기본적으로 없음) — 실전에서 TOP을 호스트이름으로
+바꾸고 Docker에서 빌드했더니 화면이 안 나왔고, IP를 그대로 쓴 SIDE는 정상 작동했음으로
+확인됨. **Docker로 배포한다면 호스트이름 대신 라즈베리파이 자체에 고정 IP를 설정**할 것
+(아래 "고정 IP 설정" 참고) — 공유기 관리자 권한 없어도 가능.
+
+## 고정 IP 설정 (netplan, 공유기 관리자 권한 불필요)
+
+Bookworm 이후 Raspberry Pi OS는 NetworkManager+netplan 조합. 연결 프로필 확인:
+```bash
+nmcli connection show
+```
+`netplan-wlan0-<SSID>` 항목의 UUID로 원본 파일 위치 특정. **주의: 실제 적용 파일은
+`/run/NetworkManager/system-connections/`(재부팅하면 사라지는 임시 파일)에 있음 — 반드시
+`/etc/netplan/90-NM-<UUID>.yaml`을 고쳐야 영구 반영됨.**
+
+```bash
+sudo cat /etc/netplan/90-NM-<UUID>.yaml   # 기존 내용(Wi-Fi 비밀번호 등) 먼저 확인
+```
+
+`dhcp4: true`를 `false`로, `addresses`/`routes`/`nameservers` 추가(다른 필드, 특히
+`access-points`의 `password`는 그대로 유지):
+```bash
+sudo tee /etc/netplan/90-NM-<UUID>.yaml > /dev/null <<'EOF'
+network:
+  version: 2
+  wifis:
+    wlan0:
+      renderer: NetworkManager
+      match: {}
+      dhcp4: false
+      addresses:
+        - 192.168.0.201/24
+      routes:
+        - to: default
+          via: 192.168.0.1
+      nameservers:
+        addresses: [192.168.0.1, 8.8.8.8]
+      access-points:
+        "<SSID>":
+          auth:
+            key-management: "psk"
+            password: "<기존 파일에서 그대로 복사>"
+          networkmanager:
+            uuid: "<UUID>"
+            name: "netplan-wlan0-<SSID>"
+            passthrough:
+              proxy._: ""
+      networkmanager:
+        uuid: "<UUID>"
+        name: "netplan-wlan0-<SSID>"
+EOF
+sudo netplan apply
+```
+적용 중 SSH 잠깐 끊기는 게 정상 — 새 IP로 재접속. 후보 IP는 `ping -c 2 <IP>`로
+"Destination Host Unreachable" 나오는지(=비어있는지) 미리 확인. TOP/SIDE 각각 다른
+고정 IP 부여(`.201`/`.202` 사용), `sudo reboot` 후에도 유지되는지 재검증 완료.
+
+**주의: 이 작업 중 SD카드를 전원 켜진 채로 뽑으면 안 됨** — `tee`로 쓴 내용이 디스크에
+완전히 반영되기 전에 저장장치가 사라지면서 `/etc/netplan/*.yaml` 파일이 통째로 빈 파일이
+돼버린 사례 있음(wlan0/eth0 프로필이 NetworkManager에서 아예 사라지고 SSH 완전 불통).
+복구는 안 건드린 인터페이스(예: eth0)로 랜선 연결 후 재부팅해서 재접속 → 깨진 netplan
+파일들 다시 써넣기. **SD카드 분리 전엔 반드시 전원부터 끌 것** — 전원 케이블만 뽑는 건
+(SD카드는 꽂아둔 채) `fsck.repair=yes` 덕에 훨씬 안전해서 일상적으로 문제없음.
+
+## IP 재확인 (공유기 재시작 등으로 바뀌었을 때, 호스트이름/mDNS 방식 쓸 때만 필요)
 
 `.env`에 IP를 직접 박아두지 않고 `elev-top.local`(호스트이름)으로 넣어뒀으면 이 작업 자체가
-불필요함(mDNS가 새 IP로 자동으로 다시 풀어줌) — 아래는 호스트이름 접속이 안 통할 때나
-직접 확인이 필요할 때만.
+불필요함(mDNS가 새 IP로 자동으로 다시 풀어줌, 단 로컬 uvicorn 실행 한정 — 위 Docker 관련
+항목 참고) — 아래는 호스트이름 접속이 안 통할 때나 직접 확인이 필요할 때만.
 
 노트북 PowerShell에서 본인 서브넷(`ipconfig`로 확인) 기준으로 전체 스캔 후 라즈베리파이
 제조사 MAC 대역(OUI)으로 필터링:
