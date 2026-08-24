@@ -6,7 +6,7 @@ import shutil
 import cv2
 import yaml
 
-from common.pipelineUtilities import imageExtensions, readManifest
+from common.pipelineUtilities import imageExtensions, iterateManifest
 
 
 class BuildDatasetStage:
@@ -36,10 +36,12 @@ class BuildDatasetStage:
         마지막으로 클래스 이름과 각 split 경로가 들어 있는 data.yaml을 생성합니다.
         manual_review와 rejected 데이터는 명시적으로 승인되기 전까지 포함하지 않습니다.
         """
-        rows = [
-            row for row in readManifest(self.reviews_manifest)
+        # 승인 행을 list가 아닌 generator로 유지해 데이터셋 규모만큼 RAM을 점유하지 않는다.
+        approvedRows = (
+            row for row in iterateManifest(self.reviews_manifest)
             if row["review"]["decision"] == "approved"
-        ]
+        )
+        approvedCount = 0
         cfg = self.config["dataset"]
         classes = cfg["classes"]
         if self.dataset_root.exists():
@@ -75,7 +77,8 @@ class BuildDatasetStage:
                 target_label.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
         # 같은 영상이 여러 split에 섞이지 않도록 video 단위로 분리한다.
-        for row in rows:
+        for row in approvedRows:
+            approvedCount += 1
             split = self._split_for_video(
                 row["video"], float(cfg["train_ratio"]), float(cfg["val_ratio"])
             )
@@ -100,7 +103,7 @@ class BuildDatasetStage:
         }
         with (self.dataset_root / "data.yaml").open("w", encoding="utf-8") as file:
             yaml.safe_dump(data_yaml, file, allow_unicode=True, sort_keys=False)
-        print(f"[BUILD] 승인 신규 데이터 {len(rows)}개 병합: {self.dataset_root}")
+        print(f"[BUILD] 승인 신규 데이터 {approvedCount}개 병합: {self.dataset_root}")
 
 
 def buildDataset(pipeline: BuildDatasetStage) -> None:

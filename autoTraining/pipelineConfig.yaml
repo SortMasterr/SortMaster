@@ -4,7 +4,8 @@ paths:
   videos: autoTraining/inputVideos
   workspace: autoTraining/workspace
   base_dataset: autoTraining/baseDataset
-  base_model: autoTraining/models/baseModel.pt
+  baseAutolabelModel: autoTraining/models/baseAutolabel/best.pt
+  newAutolabelModel: autoTraining/models/newAutolabel/best.pt
   deployed_model: autoTraining/promotedModels/current.pt
 
 frames:

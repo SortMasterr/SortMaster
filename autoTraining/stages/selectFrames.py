@@ -1,66 +1,39 @@
-"""2단계: 추출 프레임에서 자동 라벨링 후보를 선별합니다."""
-
-from pathlib import Path
+"""2단계: 자동 라벨링 후보 프레임을 선별합니다."""
 import shutil
-
+from pathlib import Path
 import cv2
-
-from common.pipelineUtilities import calculateBlurScore, calculateBrightnessScore, readManifest, writeManifest
-
+from common.pipelineUtilities import ManifestWriter,calculateBlurScore,calculateBrightnessScore,iterateManifest,manifestHasRows
 
 class SelectFramesStage:
-    """프레임 품질과 샘플링 기준을 적용하는 실제 구현입니다."""
-
-    def select(self) -> None:
-        """추출된 전체 프레임에서 자동 라벨링할 학습 후보를 고릅니다.
-
-        frames.jsonl을 읽고 프레임 간격, Laplacian 분산 기반 선명도, 평균 밝기를 검사합니다.
-        조건을 통과한 이미지만 workspace/candidates로 복사하며 candidates.jsonl에 선택 이유와
-        측정값을 기록합니다. 탈락한 원본은 frames_all에 그대로 남아 있으므로 복구 가능합니다.
-        이 단계는 거의 동일한 연속 프레임을 모두 라벨링하는 비용을 줄이기 위한 과정입니다.
-        """
-        rows = readManifest(self.frames_manifest)
-        if not rows:
+    def select(self)->None:
+        if not manifestHasRows(self.frames_manifest):
             raise RuntimeError("먼저 extract 단계를 실행하세요.")
+        frameConfig=self.config["frames"]
+        candidateEvery=max(1,int(frameConfig["candidate_every_n"]))
+        minimumBlur=float(frameConfig["min_laplacian_variance"])
+        minimumBrightness=float(frameConfig["min_brightness"])
+        maximumBrightness=float(frameConfig["max_brightness"])
+        totalCount=selectedCount=0
+        # 한 번에 이미지 한 장만 읽고 판정하여 전체 프레임 배열이 RAM에 쌓이지 않게 한다.
+        with ManifestWriter(self.candidates_manifest) as writer:
+            for sourceRow in iterateManifest(self.frames_manifest):
+                totalCount+=1
+                image=cv2.imread(sourceRow["image_path"])
+                if image is None:
+                    continue
+                blurScore=calculateBlurScore(image)
+                brightness=calculateBrightnessScore(image)
+                if int(sourceRow["frame_index"])%candidateEvery or blurScore<minimumBlur or not minimumBrightness<=brightness<=maximumBrightness:
+                    continue
+                row=dict(sourceRow)
+                row.update({"blur_score":blurScore,"brightness":brightness,"candidate":True,"selection_reasons":[]})
+                targetPath=self.candidates_root/str(row["video"])/Path(row["image_path"]).name
+                targetPath.parent.mkdir(parents=True,exist_ok=True)
+                shutil.copy2(row["image_path"],targetPath)
+                row["candidate_path"]=str(targetPath.resolve())
+                writer.write(row)
+                selectedCount+=1
+        print(f"[SELECT] 라벨 후보 {selectedCount}/{totalCount}개")
 
-        cfg = self.config["frames"]
-        every = max(1, int(cfg["candidate_every_n"]))
-        min_blur = float(cfg["min_laplacian_variance"])
-        min_brightness = float(cfg["min_brightness"])
-        max_brightness = float(cfg["max_brightness"])
-        selected: list[dict[str, Any]] = []
-
-        for row in rows:
-            image = cv2.imread(row["image_path"])
-            if image is None:
-                continue
-            blur = calculateBlurScore(image)
-            brightness = calculateBrightnessScore(image)
-            row = dict(row)
-            row.update({"calculateBlurScore": blur, "brightness": brightness})
-
-            reasons = []
-            if row["frame_index"] % every != 0:
-                reasons.append("sampling_stride")
-            if blur < min_blur:
-                reasons.append("too_blurry_for_label_target")
-            if not min_brightness <= brightness <= max_brightness:
-                reasons.append("brightness_out_of_range")
-
-            row["candidate"] = not reasons
-            row["selection_reasons"] = reasons
-            if row["candidate"]:
-                target = self.candidates_root / row["video"] / Path(row["image_path"]).name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(row["image_path"], target)
-                row["candidate_path"] = str(target.resolve())
-                selected.append(row)
-
-        writeManifest(self.candidates_manifest, selected)
-        print(f"[SELECT] 라벨 후보 {len(selected)}/{len(rows)}개")
-        print("[SELECT] 제외된 흐린 프레임도 frames_all에 시간 문맥으로 남아 있습니다.")
-
-
-def selectFrames(pipeline: SelectFramesStage) -> None:
-    """오케스트레이터에서 후보 선별 단계를 실행합니다."""
+def selectFrames(pipeline: SelectFramesStage)->None:
     pipeline.select()

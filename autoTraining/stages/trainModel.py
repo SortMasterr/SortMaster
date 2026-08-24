@@ -1,6 +1,8 @@
 """6단계: 병합 데이터셋으로 후보 YOLO 모델을 추가 학습합니다."""
 
 import json
+import os
+import shutil
 from datetime import datetime
 
 from stages.autoLabeling import loadYoloModel
@@ -22,7 +24,7 @@ class TrainModelStage:
             raise RuntimeError("먼저 build 단계를 실행하세요.")
         cfg = self.config["training"]
         run_name = "auto_finetune_" + datetime.now().strftime("%Y%m%d_%H%M%S")
-        model = loadYoloModel(self.base_model)
+        model = loadYoloModel(self.baseAutolabelModel)
         model.train(
             data=str(data_yaml),
             epochs=int(cfg["epochs"]),
@@ -37,9 +39,23 @@ class TrainModelStage:
             exist_ok=False,
         )
         best_path = self.runs_root / run_name / "weights" / "best.pt"
-        result = {"run_name": run_name, "best_model": str(best_path.resolve())}
+        if not best_path.is_file():
+            raise FileNotFoundError(f"학습 결과 모델이 없습니다: {best_path}")
+
+        # 실행별 best.pt는 runs에 보존하고, 다음 단계가 참조하는 고정 경로에도 복사합니다.
+        self.newAutolabelModel.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = self.newAutolabelModel.with_suffix(".pt.new")
+        shutil.copy2(best_path, temporary_path)
+        os.replace(temporary_path, self.newAutolabelModel)
+
+        result = {
+            "runName": run_name,
+            "trainingArtifact": str(best_path.resolve()),
+            "bestModel": str(self.newAutolabelModel.resolve()),
+        }
         self.training_result.write_text(json.dumps(result, indent=2), encoding="utf-8")
-        print(f"[TRAIN] 새 모델: {best_path}")
+        print(f"[TRAIN] 실행 결과: {best_path}")
+        print(f"[TRAIN] 신규 모델 저장: {self.newAutolabelModel}")
 
 
 def trainModel(pipeline: TrainModelStage) -> None:

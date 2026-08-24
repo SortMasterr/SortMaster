@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any, Sequence
+from collections.abc import Iterator, Sequence
+from typing import Any
 
-from common.pipelineUtilities import readManifest, writeManifest
+from common.pipelineUtilities import ManifestWriter, iterateManifest, manifestHasRows
 
 import cv2
 import numpy as np
@@ -190,7 +191,7 @@ def main() -> None:
         imageSize=args.imageSize,
         device=args.device,
     )
-    print(f"자동 라벨링 완료: {len(results)}개 이미지")
+    print(f"자동 라벨링 완료: {sum(1 for _ in results)}개 이미지")
 
 
 if __name__ == "__main__":
@@ -200,72 +201,39 @@ class AutoLabelingStage:
     """3단계 자동 라벨링의 실제 파이프라인 구현입니다."""
 
     def label(self) -> None:
-        """현재 기준 모델을 이용해 후보 이미지의 초안 라벨을 생성합니다.
-
-        input_mode가 causal이면 시간 채널 이미지를, rgb이면 원본 이미지를 모델에 전달합니다.
-        결과는 workspace/auto_labels의 YOLO txt 파일로 저장하고, 사람이 쉽게 확인하도록
-        bbox와 클래스·신뢰도를 그린 이미지를 workspace/annotated에 별도로 저장합니다.
-        labels.jsonl은 원본 이미지, 라벨, 시각화 이미지, 탐지 결과를 하나의 레코드로 연결합니다.
-        이 라벨은 아직 확정 라벨이 아니며 반드시 review 단계를 거쳐야 합니다.
-        """
-        rows = readManifest(self.candidates_manifest)
-        if not rows:
+        """후보 이미지를 한 장씩 추론하고 즉시 기록합니다."""
+        if not manifestHasRows(self.candidates_manifest):
             raise RuntimeError("먼저 select 단계를 실행하세요.")
-        if not self.base_model.exists():
-            raise FileNotFoundError(f"기존 모델이 없습니다: {self.base_model}")
-
-        cfg = self.config["inference"]
-        classes = self.config["dataset"]["classes"]
-        allowed_ids = set(range(len(classes)))
-        model = loadYoloModel(self.base_model)
-        output_rows = []
-
-        for number, row in enumerate(rows, 1):
-            raw = cv2.imread(row["image_path"])
-            if raw is None:
-                continue
-            if cfg["input_mode"] == "causal":
-                model_input = self._make_causal_input(row)
-            else:
-                model_input = raw
-
-            result = predictImage(
-                model=model,
-                imageSource=model_input,
-                confidence=float(cfg["confidence"]),
-                imageSize=int(cfg["imgsz"]),
-                device=cfg.get("device"),
-            )
-            label_path = self.auto_labels_root / row["video"] / f"{row['id']}.txt"
-            detections = writeYoloLabel(
-                labelPath=label_path,
-                result=result,
-                allowedClassIds=allowed_ids,
-            )
-
-            annotated = drawDetections(
-                image=raw,
-                detections=detections,
-                classNames=classes,
-            )
-            annotated_path = self.annotated_root / row["video"] / f"{row['id']}.jpg"
-            annotated_path.parent.mkdir(parents=True, exist_ok=True)
-            cv2.imwrite(str(annotated_path), annotated)
-
-            output = dict(row)
-            output.update({
-                "label_path": str(label_path.resolve()),
-                "annotated_path": str(annotated_path.resolve()),
-                "detections": detections,
-            })
-            output_rows.append(output)
-            if number % 100 == 0:
-                print(f"[LABEL] {number}/{len(rows)}")
-
-        writeManifest(self.labels_manifest, output_rows)
-        print(f"[LABEL] {len(output_rows)}개 자동 라벨 생성")
-
-
+        if not self.baseAutolabelModel.exists():
+            raise FileNotFoundError(f"기본 모델이 없습니다: {self.baseAutolabelModel}")
+        inferenceConfig=self.config["inference"]
+        classes=self.config["dataset"]["classes"]
+        allowedClassIds=set(range(len(classes)))
+        model=loadYoloModel(self.baseAutolabelModel)
+        processedCount=0
+        # 후보와 추론 결과를 리스트에 보관하지 않고 이미지별 처리가 끝날 때 즉시 기록한다.
+        with ManifestWriter(self.labels_manifest) as writer:
+            for row in iterateManifest(self.candidates_manifest):
+                rawImage=cv2.imread(row["image_path"])
+                if rawImage is None:
+                    continue
+                modelInput=self._make_causal_input(row) if inferenceConfig["input_mode"]=="causal" else rawImage
+                result=predictImage(model,modelInput,float(inferenceConfig["confidence"]),int(inferenceConfig["imgsz"]),inferenceConfig.get("device"))
+                labelPath=self.auto_labels_root/row["video"]/f"{row['id']}.txt"
+                detections=writeYoloLabel(labelPath,result,allowedClassIds)
+                annotatedImage=drawDetections(rawImage,detections,classes)
+                annotatedPath=self.annotated_root/row["video"]/f"{row['id']}.jpg"
+                annotatedPath.parent.mkdir(parents=True,exist_ok=True)
+                if not cv2.imwrite(str(annotatedPath),annotatedImage):
+                    raise OSError(f"검수 이미지 저장 실패: {annotatedPath}")
+                output=dict(row)
+                output.update({"label_path":str(labelPath.resolve()),"annotated_path":str(annotatedPath.resolve()),"detections":detections})
+                writer.write(output)
+                processedCount+=1
+                if processedCount%100==0:
+                    print(f"[LABEL] {processedCount}개 처리")
+        del model
+        print(f"[LABEL] {processedCount}개 자동 라벨 생성")
 def autoLabel(pipeline: AutoLabelingStage) -> None:
     """오케스트레이터에서 자동 라벨링 단계를 실행합니다."""
     pipeline.label()

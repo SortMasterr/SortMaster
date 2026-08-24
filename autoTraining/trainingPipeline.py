@@ -38,6 +38,7 @@ class TrainingPipeline(
     """모든 stage가 공유하는 설정과 파일 경로를 초기화합니다."""
 
     def __init__(self, configPath: Path):
+        self.projectRoot = projectRoot
         self.configPath = configPath
         self.config = loadConfig(configPath)
         paths = self.config["paths"]
@@ -45,19 +46,21 @@ class TrainingPipeline(
         self.videos_dir = resolvePath(projectRoot, paths["videos"])
         self.workspace = resolvePath(projectRoot, paths["workspace"])
         self.base_dataset = resolvePath(projectRoot, paths["base_dataset"])
-        self.base_model = resolvePath(projectRoot, paths["base_model"])
+        self.baseAutolabelModel = resolvePath(projectRoot, paths["baseAutolabelModel"])
+        self.newAutolabelModel = resolvePath(projectRoot, paths["newAutolabelModel"])
         self.deployed_model = resolvePath(projectRoot, paths["deployed_model"])
 
         self.frames_root = self.workspace / "frames_all"
         self.candidates_root = self.workspace / "candidates"
         self.auto_labels_root = self.workspace / "auto_labels"
         self.annotated_root = self.workspace / "annotated"
-        self.reviews_root = self.workspace / "llm_review"
         self.approved_root = self.workspace / "approved"
         self.manual_root = self.workspace / "manual_review"
         self.rejected_root = self.workspace / "rejected"
         self.dataset_root = self.workspace / "dataset_current"
         self.runs_root = self.workspace / "runs"
+
+        self._frameIndexCache = None
 
         self.frames_manifest = self.workspace / "frames.jsonl"
         self.candidates_manifest = self.workspace / "candidates.jsonl"

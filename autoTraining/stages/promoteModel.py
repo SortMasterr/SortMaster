@@ -38,7 +38,7 @@ class PromoteModelStage:
         candidate_path = Path(result["candidate_model"])
         if not candidate_path.exists():
             raise FileNotFoundError(candidate_path)
-        backup_root = resolvePath(cfg["backup_directory"])
+        backup_root = resolvePath(self.projectRoot, cfg["backup_directory"])
         backup_root.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         if self.deployed_model.exists():

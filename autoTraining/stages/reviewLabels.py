@@ -9,7 +9,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from common.pipelineUtilities import chinesePattern, readManifest, writeManifest
+from common.pipelineUtilities import ManifestWriter, chinesePattern, iterateManifest, manifestHasRows
 
 
 class ReviewLabelsStage:
@@ -152,73 +152,44 @@ class ReviewLabelsStage:
         return self._validate_review(response["message"]["content"])
 
     def review(self) -> None:
-        """labels.jsonl의 자동 라벨을 Qwen-VL로 검수하고 상태별 폴더로 분류합니다.
-
-        approved는 조건을 만족하면 build에 포함될 수 있는 데이터입니다. manual_review는
-        클래스나 bbox를 사람이 확인·수정해야 하므로 자동 학습에서 제외됩니다. rejected는
-        흐림, 잘못된 객체 등 학습에 부적합한 데이터입니다. API 실패나 잘못된 응답도 무리하게
-        승인하지 않고 재시도한 뒤 manual_review로 보내는 보수적인 정책을 사용합니다.
-        전체 판단 결과는 reviews.jsonl에 남겨 검수 근거를 추적할 수 있습니다.
-        """
-        rows = readManifest(self.labels_manifest)
-        if not rows:
+        """라벨을 한 행씩 검수하고 결과를 즉시 기록합니다."""
+        if not manifestHasRows(self.labels_manifest):
             raise RuntimeError("먼저 label 단계를 실행하세요.")
-        model = self._resolve_ollama_model()
-        retries = int(self.config["ollama"]["retries"])
-        minimum = float(self.config["ollama"]["minimum_review_confidence"])
-        outputs = []
-
-        for number, row in enumerate(rows, 1):
-            review = None
-            errors = []
-            for attempt in range(retries + 1):
-                try:
-                    review = self._review_one(model, row)
-                    break
-                except (ValueError, RuntimeError, KeyError, json.JSONDecodeError) as error:
-                    errors.append(f"attempt {attempt + 1}: {error}")
-                    time.sleep(min(2 ** attempt, 5))
-
-            if review is None:
-                review = {
-                    "decision": "manual_review",
-                    "predicted_class": "none",
-                    "issues": ["bad_bbox"],
-                    "confidence": 0.0,
-                }
-            if review["confidence"] < minimum:
-                review["decision"] = "manual_review"
-            if any(issue in {
-                "wrong_class", "bad_bbox", "missing_object", "extra_box", "multiple_objects"
-            }
-                   for issue in review["issues"]):
-                review["decision"] = "manual_review"
-
-            output = dict(row)
-            output.update({"review": review, "review_errors": errors, "ollama_model": model})
-            outputs.append(output)
-
-            queue_root = {
-                "approved": self.approved_root,
-                "rejected": self.rejected_root,
-                "manual_review": self.manual_root,
-            }[review["decision"]]
-            queue_dir = queue_root / row["video"]
-            queue_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(row["image_path"], queue_dir / f"{row['id']}.jpg")
-            shutil.copy2(row["annotated_path"], queue_dir / f"{row['id']}__annotated.jpg")
-            shutil.copy2(row["label_path"], queue_dir / f"{row['id']}.txt")
-
-            if number % 25 == 0:
-                print(f"[REVIEW] {number}/{len(rows)}")
-
-        writeManifest(self.reviews_manifest, outputs)
-        counts = {name: 0 for name in ("approved", "rejected", "manual_review")}
-        for row in outputs:
-            counts[row["review"]["decision"]] += 1
+        model=self._resolve_ollama_model()
+        retries=int(self.config["ollama"]["retries"])
+        minimum=float(self.config["ollama"]["minimum_review_confidence"])
+        counts={name:0 for name in ("approved","rejected","manual_review")}
+        processedCount=0
+        # Qwen-VL 응답을 즉시 기록하여 긴 영상에서도 검수 결과 전체가 RAM에 누적되지 않게 한다.
+        with ManifestWriter(self.reviews_manifest) as writer:
+            for row in iterateManifest(self.labels_manifest):
+                review=None
+                errors=[]
+                for attempt in range(retries+1):
+                    try:
+                        review=self._review_one(model,row)
+                        break
+                    except (ValueError,RuntimeError,KeyError,json.JSONDecodeError) as error:
+                        errors.append(f"attempt {attempt+1}: {error}")
+                        time.sleep(min(2**attempt,5))
+                if review is None:
+                    review={"decision":"manual_review","predicted_class":"none","issues":["bad_bbox"],"confidence":0.0}
+                if review["confidence"]<minimum or any(issue in {"wrong_class","bad_bbox","missing_object","extra_box","multiple_objects"} for issue in review["issues"]):
+                    review["decision"]="manual_review"
+                output=dict(row)
+                output.update({"review":review,"review_errors":errors,"ollama_model":model})
+                writer.write(output)
+                counts[review["decision"]]+=1
+                queueRoot={"approved":self.approved_root,"rejected":self.rejected_root,"manual_review":self.manual_root}[review["decision"]]
+                queueDirectory=queueRoot/row["video"]
+                queueDirectory.mkdir(parents=True,exist_ok=True)
+                shutil.copy2(row["image_path"],queueDirectory/f"{row['id']}.jpg")
+                shutil.copy2(row["annotated_path"],queueDirectory/f"{row['id']}__annotated.jpg")
+                shutil.copy2(row["label_path"],queueDirectory/f"{row['id']}.txt")
+                processedCount+=1
+                if processedCount%25==0:
+                    print(f"[REVIEW] {processedCount}개 처리")
         print(f"[REVIEW] {counts}")
-
-
 def reviewLabels(pipeline: ReviewLabelsStage) -> None:
     """오케스트레이터에서 자동 검수 단계를 실행합니다."""
     pipeline.review()

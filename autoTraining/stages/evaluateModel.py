@@ -42,11 +42,11 @@ class EvaluateModelStage:
         if not self.training_result.exists():
             raise RuntimeError("먼저 train 단계를 실행하세요.")
         training = json.loads(self.training_result.read_text(encoding="utf-8"))
-        candidate_model = Path(training["best_model"])
+        candidate_model = Path(training["bestModel"])
         result = {
-            "baseline_model": str(self.base_model.resolve()),
+            "baseline_model": str(self.baseAutolabelModel.resolve()),
             "candidate_model": str(candidate_model.resolve()),
-            "baseline": self._evaluate_model(self.base_model),
+            "baseline": self._evaluate_model(self.baseAutolabelModel),
             "candidate": self._evaluate_model(candidate_model),
         }
         self.evaluation_result.write_text(
