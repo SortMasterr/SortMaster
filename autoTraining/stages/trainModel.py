@@ -1,37 +1,47 @@
-"""후보 YOLO 모델 학습 단계를 외부에서 호출하기 위한 얇은 어댑터입니다.
+"""6단계: 병합 데이터셋으로 후보 YOLO 모델을 추가 학습합니다."""
 
-실제 처리 로직과 상태는 trainingPipeline.TrainingPipeline이 소유합니다.
-이 파일은 오케스트레이터가 각 단계를 명시적인 함수로 연결할 수 있게 해 줍니다.
-단계별 파일을 분리하면 나중에 테스트, 작업 큐, 스케줄러 또는 별도 컨테이너가
-메인 클래스의 내부 구현을 알지 않고도 같은 진입점을 호출할 수 있습니다.
-"""
+import json
+from datetime import datetime
 
-from typing import Protocol
+from stages.autoLabeling import loadYoloModel
 
 
-class PipelineContext(Protocol):
-    """이 단계가 요구하는 최소 메서드만 선언한 구조적 타입입니다.
-
-    Protocol은 실제 객체를 생성하지 않습니다. TrainingPipeline 전체에 강하게 결합하지 않고,
-    해당 메서드를 제공하는 객체라면 테스트용 가짜 객체도 전달할 수 있게 하는 타입 힌트입니다.
-    """
+class TrainModelStage:
+    """Ultralytics 학습 실행과 best.pt 위치 기록을 담당합니다."""
 
     def train(self) -> None:
-        """TrainingPipeline.train 메서드와 동일한 계약입니다."""
-        ...
+        """기준 모델을 초기 가중치로 사용하여 후보 YOLO 모델을 추가 학습합니다.
+
+        epochs, image size, batch, GPU device, workers, AMP, patience는 pipelineConfig.yaml에서
+        읽습니다. 학습 결과는 실행 시각이 포함된 workspace/runs 하위 폴더에 저장됩니다.
+        이후 단계가 정확한 best.pt를 찾을 수 있도록 training_result.json에 절대 경로를 기록합니다.
+        이 단계는 운영 모델을 직접 변경하지 않습니다.
+        """
+        data_yaml = self.dataset_root / "data.yaml"
+        if not data_yaml.exists():
+            raise RuntimeError("먼저 build 단계를 실행하세요.")
+        cfg = self.config["training"]
+        run_name = "auto_finetune_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+        model = loadYoloModel(self.base_model)
+        model.train(
+            data=str(data_yaml),
+            epochs=int(cfg["epochs"]),
+            imgsz=int(cfg["imgsz"]),
+            batch=int(cfg["batch"]),
+            workers=int(cfg["workers"]),
+            device=cfg["device"],
+            amp=bool(cfg["amp"]),
+            patience=int(cfg["patience"]),
+            project=str(self.runs_root),
+            name=run_name,
+            exist_ok=False,
+        )
+        best_path = self.runs_root / run_name / "weights" / "best.pt"
+        result = {"run_name": run_name, "best_model": str(best_path.resolve())}
+        self.training_result.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        print(f"[TRAIN] 새 모델: {best_path}")
 
 
-def trainModel(pipeline: PipelineContext) -> None:
-    """병합된 데이터셋과 기준 가중치를 사용해 새 후보 모델을 학습합니다.
-
-    Args:
-        pipeline: 실제 단계 로직과 설정, 작업 경로를 가진 TrainingPipeline 호환 객체.
-
-    Returns:
-        없음. 처리 결과는 pipelineConfig.yaml에 지정된 workspace와 manifest에 저장됩니다.
-
-    Raises:
-        파일 누락, 설정 오류, 모델 추론 실패 등 실제 단계에서 발생한 예외를 그대로 전달합니다.
-        예외를 숨기지 않아 자동 실행 시스템이 실패를 감지하고 해당 단계부터 재시도할 수 있습니다.
-    """
+def trainModel(pipeline: TrainModelStage) -> None:
+    """오케스트레이터에서 모델 학습 단계를 실행합니다."""
     pipeline.train()
