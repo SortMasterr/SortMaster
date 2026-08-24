@@ -1,7 +1,6 @@
 import asyncio
 from datetime import datetime, timezone
 
-import cv2
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -308,31 +307,30 @@ async def updateMode(
 async def generateMjpegFrames(
     cameraManager,
 ):
+    lastFrame = None
+
     while True:
         frame = (
             await cameraManager.readFrame()
         )
 
-        if frame is None:
-            await asyncio.sleep(0.05)
+        # readFrame()이 캐시된 최신 프레임을 즉시 반환하는 논블로킹 방식이라,
+        # 아무 제한 없이 그냥 계속 yield하면 프레임이 안 바뀐 사이에도 초당
+        # 수천 번씩 같은 프레임을 재전송하게 됨 — 그 중복 전송이 네트워크 큐를
+        # 채워서 실제 최신 프레임 도착이 오히려 늦어지는 지연을 만듦(실사용 중
+        # 확인됨). 그래서 실제로 바뀐 프레임만 전송한다(is 비교 — 새 프레임마다
+        # cameraManager 쪽에서 새 bytes 객체를 만들어서 저장하므로 충분).
+        if frame is None or frame is lastFrame:
+            await asyncio.sleep(0.03)
             continue
 
-        encoded, buffer = (
-            await asyncio.to_thread(
-                cv2.imencode,
-                ".jpg",
-                frame,
-            )
-        )
-
-        if not encoded:
-            continue
+        lastFrame = frame
 
         yield (
             b"--frame\r\n"
             b"Content-Type: "
             b"image/jpeg\r\n\r\n"
-            + buffer.tobytes()
+            + frame
             + b"\r\n"
         )
 

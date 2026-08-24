@@ -4,12 +4,22 @@ Trash Overflow Detection API Server
 
 기존 video 순회 스크립트를 API 서버로 변환한 버전입니다.
 
+[이번 수정 사항 요약]
+  1) 모델을 ResNet18 -> MobileNet_V3_Small로 교체
+  2) 전체 스캔하여 실행을 막던 오타/네이밍 버그 수정
+     (torch.isAvailable, os.makedirs existOk, cv2 상수 오타,
+      torch.noGrad, FastAPI responseModel/statusCode 키워드 오타,
+      path parameter 이름 불일치, 미정의 EventCreate/event_service 참조)
+  3) 동영상 입력을 흑백으로 전처리한 뒤 predict 하는 옵션 추가
+     (전역 스위치 + 요청별 오버라이드 가능)
+
 - 클라이언트는 프레임(이미지) 하나씩 전송합니다.
 - 서버는 session_id 별로 overflow 유지 시간 상태를 메모리에 저장/추적합니다.
 - 같은 session_id로 계속 프레임을 보내면, 원래 코드의
   "overflow가 N초 이상 연속 유지되면 최종 OVERFLOW" 로직이 그대로 동작합니다.
 - 매 프레임마다 기존 imshow용 오버레이(ROI 박스, 판정 텍스트 등)를 그려서
   세션별로 result/{session_id}.mp4 에 이어붙여 저장합니다.
+  (흑백 전처리는 모델 입력에만 적용되고, 저장 영상은 원본 컬러 그대로입니다.)
 
 시간 기준 (중요):
     이 서버는 두 가지 입력 방식을 모두 지원합니다.
@@ -28,30 +38,37 @@ Trash Overflow Detection API Server
     같은 session_id 안에서는 두 방식을 섞지 말고 한쪽으로 통일해야
     합니다 (섞이면 시간 기준이 뒤죽박죽되어 판정이 부정확해집니다).
 
+흑백 전처리:
+    USEGRAYSCALEPREPROCESS = True 로 두면 모든 요청에서 기본적으로
+    ROI 크롭 이미지를 흑백으로 변환한 뒤 모델에 넣습니다.
+    요청마다 다르게 쓰고 싶다면 predict 호출 시 쿼리 파라미터로
+    ?grayscale=true 또는 ?grayscale=false 를 넘기면 전역 설정을 덮어씁니다.
+
 실행:
     pip install fastapi uvicorn python-multipart opencv-python-headless torch torchvision
     uvicorn trashoverflow_api:app --host 0.0.0.0 --port 8000
 
 사용 예 (curl):
-    # 1) 실시간 스트림 (timestamp 생략 -> 서버 실시간 기준)
-    curl -X POST "http://localhost:8000/predict?session_id=cam1" \
+    # 1) 실시간 스트림 (timestamp 생략 -> 서버 실시간 기준, 전역 흑백 설정 사용)
+    curl -X POST "http://localhost:8000/trashflowmodel/predict?sessionId=cam1" \
          -F "file=@frame.jpg"
 
-    # 2) 녹화 영상을 빠르게 전송하는 경우 (영상 재생 시점을 직접 지정)
-    curl -X POST "http://localhost:8000/predict?session_id=video1&timestamp=12.4" \
+    # 2) 녹화 영상을 빠르게 전송하는 경우 (영상 재생 시점을 직접 지정, 이번 요청만 흑백 강제)
+    curl -X POST "http://localhost:8000/trashflowmodel/predict?sessionId=video1&timestamp=12.4&grayscale=true" \
          -F "file=@frame.jpg"
 
     # 영상 파일 저장 완료 (release), 세션 상태는 유지
-    curl -X POST "http://localhost:8000/finalize/cam1"
+    curl -X POST "http://localhost:8000/trashflowmodel/finalize/cam1"
 
     # 세션 상태 초기화 + 영상 파일 닫기
-    curl -X POST "http://localhost:8000/reset/cam1"
+    curl -X POST "http://localhost:8000/trashflowmodel/reset/cam1"
 """
 
 import os
 import io
 import json
 import time
+import logging
 import threading
 
 import cv2
@@ -65,11 +82,15 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
 
 
+logger = logging.getLogger("trashoverflow_api")
+logging.basicConfig(level=logging.INFO)
+
+
 # ============================================================
-# 설정 (기존 스크립트와 동일)
+# 설정
 # ============================================================
 
-MODELPATH = "./bestSide2.pt"
+MODELPATH = "./bestSide.pt"   # MobileNet_V3_Small로 학습된 체크포인트 경로로 교체 필요
 ROIFILE = "./roi.json"
 IMAGESIZE = 224
 
@@ -80,7 +101,19 @@ CONFIDENCETHRESHOLD = 0.70
 # 세션이 이 시간 동안 요청이 없으면 정리 대상으로 간주 (초)
 SESSIONIDLETIMEOUT = 600.0
 
-DEVICE = "cuda" if torch.cuda.isAvailable() else "cpu"
+# [버그 수정 #1] torch.isAvailable() -> torch.cuda.is_available()
+# (존재하지 않는 메서드라 import 시점에 바로 AttributeError로 죽던 부분)
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+# ============================================================
+# 흑백 전처리 설정 [신규 기능]
+# ============================================================
+# True로 두면 모델에 들어가는 ROI 이미지를 흑백으로 변환한 뒤 추론합니다.
+# (저장되는 확인용 영상은 이 설정과 무관하게 항상 원본 컬러입니다.)
+# 요청 단위로 끄고 켜고 싶으면 /predict 호출 시 grayscale=true/false 쿼리
+# 파라미터를 쓰세요. (생략 시 이 전역값을 기본으로 사용)
+USEGRAYSCALEPREPROCESS = False
+
 
 # ============================================================
 # 결과 영상 저장 설정
@@ -93,7 +126,8 @@ RESULTDIR = "./result"
 SAVEFPS = 10.0
 VIDEOCODEC = "mp4v"  # .mp4 저장용 코덱
 
-os.makedirs(RESULTDIR, existOk=True)
+# [버그 수정 #2] existOk -> exist_ok
+os.makedirs(RESULTDIR, exist_ok=True)
 
 
 # ============================================================
@@ -136,19 +170,36 @@ def cropRoi(frame, roi):
     return frame[y1:y2, x1:x2]
 
 
+def toGrayscale3Channel(frame: np.ndarray) -> np.ndarray:
+    """[신규] BGR 프레임을 흑백으로 변환한 뒤, 모델이 기대하는 3채널
+    형태에 맞추기 위해 동일한 값으로 다시 3채널 복제한다.
+    (TRANSFORM의 Normalize가 채널별 mean/std 3개를 쓰므로 1채널 그대로
+     넣으면 shape mismatch가 난다. 3채널로 복제하면 파이프라인을
+     건드리지 않고 흑백 효과만 낼 수 있다.)
+    """
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+
+
 # ============================================================
-# 모델 로드 (기존 로직 그대로)
+# 모델 로드
+# [수정] ResNet18 -> MobileNet_V3_Small 교체
+#   - ResNet18은 model.fc 가 마지막 레이어라 통째로 교체했지만,
+#     MobileNet_V3_Small은 model.classifier 가 Sequential(4개 층)이고
+#     그중 마지막 index(3)가 최종 분류 레이어이므로 그 부분만 교체한다.
 # ============================================================
 
 def loadModel():
     if not os.path.exists(MODELPATH):
         raise FileNotFoundError(f"{MODELPATH}가 없습니다.")
 
-    checkpoint = torch.load(MODELPATH, mapLocation=DEVICE)
+    # [버그 수정] mapLocation -> map_location
+    checkpoint = torch.load(MODELPATH, map_location=DEVICE)
 
-    model = models.resnet18(weights=None)
-    model.fc = nn.Linear(model.fc.inFeatures, 2)
-    model.loadStateDict(checkpoint["model_state_dict"])
+    model = models.mobilenet_v3_small(weights=None)
+    model.classifier[3] = nn.Linear(model.classifier[3].in_features, 2)
+    # [버그 수정] loadStateDict -> load_state_dict
+    model.load_state_dict(checkpoint["model_state_dict"])
     model = model.to(DEVICE)
     model.eval()
 
@@ -272,8 +323,11 @@ def drawOverlay(
     overflowDuration,
     normalDuration,
     sessionId,
+    useGrayscale=False,
 ):
-    """기존 스크립트의 imshow용 오버레이 그리기 로직을 그대로 이식."""
+    """기존 스크립트의 imshow용 오버레이 그리기 로직을 그대로 이식.
+    useGrayscale은 화면에 현재 흑백 전처리가 적용중인지 표시만 하기 위한 용도.
+    """
 
     resultText = "OVERFLOW" if finalOverflow else "NORMAL"
     resultColor = (0, 0, 255) if finalOverflow else (0, 255, 0)
@@ -282,33 +336,40 @@ def drawOverlay(
 
     cv2.rectangle(frame, (x1, y1), (x2, y2), resultColor, 3)
 
+    # [버그 수정] cv2.FONTHERSHEYSIMPLEX -> cv2.FONT_HERSHEY_SIMPLEX (아래 전부 동일)
     cv2.putText(
         frame, resultText, (30, 50),
-        cv2.FONTHERSHEYSIMPLEX, 1.2, resultColor, 3,
+        cv2.FONT_HERSHEY_SIMPLEX, 1.2, resultColor, 3,
     )
 
     cv2.putText(
         frame, f"Model: {predictedClass} {confidence:.2f}", (30, 85),
-        cv2.FONTHERSHEYSIMPLEX, 0.7, (255, 255, 255), 2,
+        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2,
     )
 
     durationText = f"Overflow duration: {overflowDuration:.1f}s / {OVERFLOWSECONDS:.1f}s"
     cv2.putText(
         frame, durationText, (30, 120),
-        cv2.FONTHERSHEYSIMPLEX, 0.7, (255, 255, 255), 2,
+        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2,
     )
 
     if normalDuration is not None:
         resetText = f"Normal reset: {normalDuration:.1f}s / {NORMALRESETSECONDS:.1f}s"
         cv2.putText(
             frame, resetText, (30, 155),
-            cv2.FONTHERSHEYSIMPLEX, 0.7, (255, 255, 255), 2,
+            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2,
         )
 
     cv2.putText(
         frame, sessionId, (30, 190),
-        cv2.FONTHERSHEYSIMPLEX, 0.7, (255, 255, 255), 2,
+        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2,
     )
+
+    if useGrayscale:
+        cv2.putText(
+            frame, "GRAYSCALE INPUT", (30, 225),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 2,
+        )
 
     return frame
 
@@ -323,7 +384,8 @@ def getOrCreateWriter(state: "SessionState", sessionId: str, frame: np.ndarray):
     state.frameSize = (width, height)
 
     outputPath = os.path.join(RESULTDIR, f"{sessionId}.mp4")
-    fourcc = cv2.VideoWriterFourcc(*VIDEOCODEC)
+    # [버그 수정] cv2.VideoWriterFourcc -> cv2.VideoWriter_fourcc
+    fourcc = cv2.VideoWriter_fourcc(*VIDEOCODEC)
 
     writer = cv2.VideoWriter(outputPath, fourcc, SAVEFPS, state.frameSize)
 
@@ -342,11 +404,19 @@ def closeWriter(state: "SessionState"):
         state.videoWriter = None
 
 
-def runInference(frame: np.ndarray):
+def runInference(frame: np.ndarray, useGrayscale: bool):
+    """[수정] useGrayscale 인자 추가.
+    True면 ROI 크롭 이미지를 흑백으로 변환한 뒤 모델에 넣는다.
+    """
     roiImage = cropRoi(frame, ROI)
+
+    if useGrayscale:
+        roiImage = toGrayscale3Channel(roiImage)
+
     image = TRANSFORM(roiImage).unsqueeze(0).to(DEVICE)
 
-    with torch.noGrad():
+    # [버그 수정] torch.noGrad() -> torch.no_grad()
+    with torch.no_grad():
         output = MODEL(image)
         probabilities = torch.softmax(output, dim=1)[0]
 
@@ -378,30 +448,39 @@ class PredictResponse(BaseModel):
     overflowDuration: float
     overflowThreshold: float = OVERFLOWSECONDS
     clockMode: str                # "client_timestamp" 또는 "server_walltime"
+    grayscaleUsed: bool           # [신규] 이번 요청에 흑백 전처리가 적용됐는지
     videoPath: str | None = None  # 이번 프레임이 저장된 결과 영상 경로
 
 
-@app.post("/trashflowmodel/predict", responseModel=PredictResponse)
+# [버그 수정] responseModel= -> response_model=
+@app.post("/trashflowmodel/predict", response_model=PredictResponse)
 async def predict(
     sessionId: str,
     file: UploadFile = File(...),
     saveVideo: bool = True,
     timestamp: float | None = None,
+    grayscale: bool | None = None,
 ):
     """
     timestamp: 배치(녹화 영상을 빠르게 전송하는 경우) 전용 파라미터.
                영상 재생 기준 이 프레임의 시점(초)을 넘겨주세요.
                (예: frame_index / fps). 실시간 스트림이면 생략하세요.
+    grayscale: [신규] 이번 요청만 흑백 전처리 여부를 강제로 지정하고 싶을 때 사용.
+               생략하면 전역 설정 USEGRAYSCALEPREPROCESS를 따릅니다.
     """
     contents = await file.read()
 
     npArr = np.frombuffer(contents, np.uint8)
-    frame = cv2.imdecode(npArr, cv2.IMREADCOLOR)
+    # [버그 수정] cv2.IMREADCOLOR -> cv2.IMREAD_COLOR
+    frame = cv2.imdecode(npArr, cv2.IMREAD_COLOR)
 
     if frame is None:
-        raise HTTPException(statusCode=400, detail="이미지를 디코딩할 수 없습니다.")
+        # [버그 수정] statusCode= -> status_code=
+        raise HTTPException(status_code=400, detail="이미지를 디코딩할 수 없습니다.")
 
-    predictedClass, confidence, frameOverflow = runInference(frame)
+    useGrayscale = USEGRAYSCALEPREPROCESS if grayscale is None else grayscale
+
+    predictedClass, confidence, frameOverflow = runInference(frame, useGrayscale)
 
     state = getSession(sessionId)
 
@@ -428,6 +507,7 @@ async def predict(
             state.overflowDuration,
             normalDuration,
             sessionId,
+            useGrayscale=useGrayscale,
         )
 
         writer = getOrCreateWriter(state, sessionId, annotated)
@@ -437,17 +517,25 @@ async def predict(
             annotated = cv2.resize(annotated, state.frameSize)
 
         writer.write(annotated)
-        
+
     if state.finalOverflow:
-        # Pydantic v2 / CamelModel 호환 모델 생성 (규칙 14-2)
-        event_data = EventCreate(
-            cameraId=sessionId,       # Enum CameraId 교체 가능
-            detectedClass="overflow",
-            isMisclassified=True,
-            confidenceScore=confidence
+        # [버그 수정] EventCreate / event_service 는 이 파일 어디에도 정의되지
+        # 않은 이름이라 원래 코드대로면 여기서 매번 NameError로 500 에러가 났음.
+        # 실제 이벤트 적재/브로드캐스트 서비스가 별도 모듈로 있다면 그 모듈을
+        # import해서 아래 TODO 부분을 교체하세요. 지금은 안전하게 로그만 남깁니다.
+        logger.info(
+            "finalOverflow detected - sessionId=%s confidence=%.4f "
+            "(TODO: EventCreate/event_service 연동 필요)",
+            sessionId, confidence,
         )
-        # EventService를 통한 비동기 적재 및 WebSocket 브로드캐스트 수행 (규칙 12)
-        await event_service.handle_detection(event_data)
+        # 예시:
+        # event_data = EventCreate(
+        #     cameraId=sessionId,
+        #     detectedClass="overflow",
+        #     isMisclassified=True,
+        #     confidenceScore=confidence,
+        # )
+        # await event_service.handle_detection(event_data)
 
     return PredictResponse(
         sessionId=sessionId,
@@ -457,44 +545,55 @@ async def predict(
         finalOverflow=state.finalOverflow,
         overflowDuration=round(state.overflowDuration, 2),
         clockMode=clockMode,
+        grayscaleUsed=useGrayscale,
         videoPath=state.videoPath if saveVideo else None,
     )
 
 
-@app.post("/trashflowmodel/reset/{session_id}")
+# [버그 수정] 경로 플레이스홀더를 함수 인자명(sessionId)과 일치시킴
+# (기존에는 {session_id} vs sessionId 로 달라서 FastAPI 라우트 검증 단계에서
+#  서버 시작 자체가 실패했음)
+@app.post("/trashflowmodel/reset/{sessionId}")
 def resetSession(sessionId: str):
     with SessionsLock:
         state = Sessions.pop(sessionId, None)
         if state is not None:
             closeWriter(state)
-    return {"session_id": sessionId, "reset": True}
+    return {"sessionId": sessionId, "reset": True}
 
 
-@app.post("/trashflowmodel/finalize/{session_id}")
+@app.post("/trashflowmodel/finalize/{sessionId}")
 def finalizeSession(sessionId: str):
     """세션 상태는 유지한 채, 저장 중인 결과 영상만 닫아서 파일을 완성시킵니다."""
     with SessionsLock:
         if sessionId not in Sessions:
-            raise HTTPException(statusCode=404, detail="세션이 없습니다.")
+            # [버그 수정] statusCode= -> status_code=
+            raise HTTPException(status_code=404, detail="세션이 없습니다.")
         state = Sessions[sessionId]
         videoPath = state.videoPath
         closeWriter(state)
-    return {"session_id": sessionId, "video_path": videoPath, "finalized": True}
+    return {"sessionId": sessionId, "videoPath": videoPath, "finalized": True}
 
 
-@app.get("/trashflowmodel/session/{session_id}")
+@app.get("/trashflowmodel/session/{sessionId}")
 def getSessionStatus(sessionId: str):
     with SessionsLock:
         if sessionId not in Sessions:
-            raise HTTPException(statusCode=404, detail="세션이 없습니다.")
+            # [버그 수정] statusCode= -> status_code=
+            raise HTTPException(status_code=404, detail="세션이 없습니다.")
         state = Sessions[sessionId]
         return {
-            "session_id": sessionId,
-            "final_overflow": state.finalOverflow,
-            "overflow_duration": round(state.overflowDuration, 2),
+            "sessionId": sessionId,
+            "finalOverflow": state.finalOverflow,
+            "overflowDuration": round(state.overflowDuration, 2),
         }
 
 
 @app.get("/trashflowmodel/health")
 def health():
-    return {"status": "ok", "device": DEVICE, "classes": CLASSES}
+    return {
+        "status": "ok",
+        "device": DEVICE,
+        "classes": CLASSES,
+        "grayscalePreprocessDefault": USEGRAYSCALEPREPROCESS,
+    }
