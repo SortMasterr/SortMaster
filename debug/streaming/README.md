@@ -1,8 +1,9 @@
 # 라즈베리파이 RTSP 시뮬레이션 (로컬 테스트용)
 
-라즈베리파이 입고 전, 이 PC의 웹캠 여러 대를 각각 다른 지점(`CameraId`)에 할당해서, 지점마다
-독립된 라즈베리파이가 나중에 할 역할(캡처+RTSP 송신)을 흉내내는 도구. 카메라 1대 = 지점 1개 =
-`CameraId` 1개 구성(architecture.md 참고).
+이 PC의 웹캠 여러 대를 각각 다른 지점(`CameraId`)에 할당해서, 지점마다 독립된 라즈베리파이가
+하는 역할(캡처+RTSP 송신)을 흉내내는 도구. 카메라 1대 = 지점 1개 = `CameraId` 1개 구성
+(architecture.md 참고). 라즈베리파이 실기기는 이미 셋업 완료(`.agentfiles/piSetupOps.md`
+참고)했지만, 실기기 없이 백엔드 쪽만 빠르게 테스트하고 싶을 때 여전히 이 시뮬레이터가 유용함.
 
 **주의**: 여기서 쓰는 FFmpeg/MediaMTX는 "카메라를 든 쪽"(현재는 이 PC, 나중엔 라즈베리파이) 역할이라
 `WebApps/backend`나 `docker-compose.yml`에는 포함되지 않음. 백엔드는 원래 설계대로 RTSP URL만
@@ -55,7 +56,10 @@ uvicorn main:app --reload --port 8047
 ## 참고
 
 - MediaMTX 기본 RTSP 포트는 8554(변경 가능하나 바꿀 이유 없음)
-- 실제 배포 시엔 라즈베리파이가 자체 RTSP 서버(GStreamer, JetPack 기본 포함)를 띄우므로 이 절차
-  전체가 불필요해짐 — `.env`의 `CAMERA_SOURCE_<CameraId>`만 해당 라즈베리파이 IP로 교체
+- 실제 배포 시엔 라즈베리파이가 자체 RTSP 서버(ffmpeg+MediaMTX, `.agentfiles/piSetupOps.md`
+  참고 — Jetson 대신 라즈베리파이로 전환되면서 GStreamer/JetPack 대신 이 조합으로 확정됨)를
+  띄우므로 이 절차 전체가 불필요해짐 — `.env`의 `CAMERA_SOURCE_<CameraId>`만 해당
+  라즈베리파이 호스트이름 또는 IP로 교체(Docker로 배포하면 호스트이름 대신 고정 IP 필요,
+  `piSetupOps.md`의 "Docker 컨테이너 안에서는 mDNS가 안 통함" 참고)
 - FFmpeg 인코딩 옵션(`ultrafast`/`zerolatency`/GOP 40 등)은 팀원이 실측으로 찾은 안정화 설정
   (H264 corrupted macroblock, frame duplication 문제 해결 이력 있음)

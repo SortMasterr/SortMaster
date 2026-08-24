@@ -122,6 +122,14 @@ class CameraManager:
             _ffmpegPath,
             "-hide_banner",
             "-loglevel", "warning",
+            # ffmpeg는 기본적으로 디코딩 전에 내부적으로 프레임을 미리 쌓아두는
+            # lookahead/버퍼링을 하는데, 이게 실시간 라이브뷰엔 오히려 독임 —
+            # nobuffer/low_delay로 최대한 즉시즉시 처리하도록 강제해서 ffmpeg
+            # 내부 지연 누적 자체를 줄인다(실측: `ffmpeg -h full`로 확인한 유효
+            # 옵션, `-fps_mode drop`처럼 존재하지 않는 값을 쓰면 바로 에러 나서
+            # 로컬에서 미리 검증함).
+            "-fflags", "nobuffer",
+            "-flags", "low_delay",
             "-rtsp_transport", "tcp",
             "-i", self.source,
             "-f", "mjpeg",
@@ -133,6 +141,9 @@ class CameraManager:
             # 실사용 중 실제로 이렇게 지연이 누적되는 게 확인됨. 그래서 출력
             # 프레임레이트를 소스(약 20fps)보다 낮게 제한해서 ffmpeg가 못 따라잡을
             # 상황이 되면 인코딩 자체를 덜 하도록(=오래된 프레임을 드롭하도록) 강제.
+            # 위 nobuffer/low_delay로도 지연이 계속 누적되면(CPU 자체가 부족한
+            # 상황), 해상도를 낮추거나(-vf scale) 프레임 스킵 필터(-vf
+            # "select='not(mod(n\\,N))'")를 추가하는 게 다음 단계 — 아직 미착수.
             "-r", _outputFps,
             "pipe:1",
         ]
