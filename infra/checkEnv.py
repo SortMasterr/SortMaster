@@ -53,6 +53,12 @@ def checkPythonVersion() -> bool:
 
 
 def _isSatisfied(installSpec: str, installedVersion: str) -> bool:
+    # requiredPackages는 모두 정확한 버전(==)으로 고정한다. packaging이 아직
+    # 설치되지 않은 새 venv에서도 버전 불일치를 놓치지 않도록 먼저 직접 비교한다.
+    if "==" in installSpec:
+        requiredVersion = installSpec.split("==", 1)[1]
+        return installedVersion == requiredVersion
+
     try:
         from packaging.requirements import Requirement
         from packaging.version import Version
@@ -60,7 +66,7 @@ def _isSatisfied(installSpec: str, installedVersion: str) -> bool:
         req = Requirement(installSpec)
         return Version(installedVersion) in req.specifier if req.specifier else True
     except Exception:
-        return True
+        return False
 
 
 def _pipInstall(installSpec: str) -> bool:
