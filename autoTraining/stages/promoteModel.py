@@ -21,36 +21,36 @@ class PromoteModelStage:
         교체합니다. 임시 파일 방식을 사용하여 복사 도중 중단된 불완전 모델이 노출되지 않게 합니다.
         실제 inference 서비스 반영은 별도 배포 연결이 구현된 뒤 이 결과를 사용해야 합니다.
         """
-        if not self.evaluation_result.exists():
+        if not self.evaluationResult.exists():
             raise RuntimeError("먼저 evaluate 단계를 실행하세요.")
-        result = json.loads(self.evaluation_result.read_text(encoding="utf-8"))
+        result = json.loads(self.evaluationResult.read_text(encoding="utf-8"))
         cfg = self.config["promotion"]
         baseline = result["baseline"]
         candidate = result["candidate"]
-        map_ok = candidate["map50"] >= baseline["map50"] - float(cfg["maximum_map50_drop"])
-        recall_ok = candidate["recall"] >= baseline["recall"] - float(cfg["maximum_recall_drop"])
-        if not (map_ok and recall_ok):
+        mapOk = candidate["map50"] >= baseline["map50"] - float(cfg["maximumMap50Drop"])
+        recallOk = candidate["recall"] >= baseline["recall"] - float(cfg["maximumRecallDrop"])
+        if not (mapOk and recallOk):
             raise RuntimeError(
                 "품질 게이트 실패로 모델을 교체하지 않습니다. "
                 f"baseline={baseline}, candidate={candidate}"
             )
 
-        candidate_path = Path(result["candidate_model"])
-        if not candidate_path.exists():
-            raise FileNotFoundError(candidate_path)
-        backup_root = resolvePath(self.projectRoot, cfg["backup_directory"])
-        backup_root.mkdir(parents=True, exist_ok=True)
+        candidatePath = Path(result["candidateModel"])
+        if not candidatePath.exists():
+            raise FileNotFoundError(candidatePath)
+        backupRoot = resolvePath(self.projectRoot, cfg["backupDirectory"])
+        backupRoot.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        if self.deployed_model.exists():
-            backup = backup_root / f"{self.deployed_model.stem}_{timestamp}{self.deployed_model.suffix}"
-            shutil.copy2(self.deployed_model, backup)
+        if self.deployedModel.exists():
+            backup = backupRoot / f"{self.deployedModel.stem}_{timestamp}{self.deployedModel.suffix}"
+            shutil.copy2(self.deployedModel, backup)
             print(f"[PROMOTE] 기존 모델 백업: {backup}")
 
-        self.deployed_model.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.deployed_model.with_suffix(self.deployed_model.suffix + ".new")
-        shutil.copy2(candidate_path, temporary)
-        os.replace(temporary, self.deployed_model)
-        print(f"[PROMOTE] 배포 모델 교체 완료: {self.deployed_model}")
+        self.deployedModel.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.deployedModel.with_suffix(self.deployedModel.suffix + ".new")
+        shutil.copy2(candidatePath, temporary)
+        os.replace(temporary, self.deployedModel)
+        print(f"[PROMOTE] 배포 모델 교체 완료: {self.deployedModel}")
 
 
 def promoteModel(pipeline: PromoteModelStage) -> None:

@@ -1,6 +1,6 @@
 """YOLO 자동 라벨링에 필요한 재사용 함수와 단독 실행 CLI를 제공합니다.
 
-기존 auto_labeling.py의 핵심 동작인 ``YOLO(...).predict(save_txt=True)``를 유지하면서
+기존 자동 라벨링 코드의 핵심 동작인 ``YOLO(...).predict(save_txt=True)``를 유지하면서
 Windows 절대 경로와 import 시 즉시 실행되는 코드를 제거했습니다. 파이프라인에서는 단일
 이미지 단위 함수들을 사용해 manifest와 causal 입력을 유지하고, 필요하면 이 파일을 직접
 실행해 폴더 전체를 빠르게 자동 라벨링할 수도 있습니다.
@@ -96,7 +96,7 @@ def writeYoloLabel(
                 f"{classId} {centerX:.6f} {centerY:.6f} {width:.6f} {height:.6f}"
             )
             detections.append({
-                "class_id": classId,
+                "classId": classId,
                 "confidence": float(confidence),
                 "xyxy": [float(value) for value in xyxy],
             })
@@ -114,7 +114,7 @@ def drawDetections(
     """원본을 변경하지 않고 bbox, 클래스명, 신뢰도를 그린 검수 이미지를 만듭니다."""
     annotatedImage = image.copy()
     for detection in detections:
-        classId = int(detection["class_id"])
+        classId = int(detection["classId"])
         if not 0 <= classId < len(classNames):
             continue
         x1, y1, x2, y2 = map(int, detection["xyxy"])
@@ -202,32 +202,32 @@ class AutoLabelingStage:
 
     def label(self) -> None:
         """후보 이미지를 한 장씩 추론하고 즉시 기록합니다."""
-        if not manifestHasRows(self.candidates_manifest):
+        if not manifestHasRows(self.candidatesManifest):
             raise RuntimeError("먼저 select 단계를 실행하세요.")
-        if not self.baseAutolabelModel.exists():
-            raise FileNotFoundError(f"기본 모델이 없습니다: {self.baseAutolabelModel}")
+        if not self.baseAutoLabelModel.exists():
+            raise FileNotFoundError(f"기본 모델이 없습니다: {self.baseAutoLabelModel}")
         inferenceConfig=self.config["inference"]
         classes=self.config["dataset"]["classes"]
         allowedClassIds=set(range(len(classes)))
-        model=loadYoloModel(self.baseAutolabelModel)
+        model=loadYoloModel(self.baseAutoLabelModel)
         processedCount=0
         # 후보와 추론 결과를 리스트에 보관하지 않고 이미지별 처리가 끝날 때 즉시 기록한다.
-        with ManifestWriter(self.labels_manifest) as writer:
-            for row in iterateManifest(self.candidates_manifest):
-                rawImage=cv2.imread(row["image_path"])
+        with ManifestWriter(self.labelsManifest) as writer:
+            for row in iterateManifest(self.candidatesManifest):
+                rawImage=cv2.imread(row["imagePath"])
                 if rawImage is None:
                     continue
-                modelInput=self._make_causal_input(row) if inferenceConfig["input_mode"]=="causal" else rawImage
+                modelInput=self._makeCausalInput(row) if inferenceConfig["inputMode"]=="causal" else rawImage
                 result=predictImage(model,modelInput,float(inferenceConfig["confidence"]),int(inferenceConfig["imgsz"]),inferenceConfig.get("device"))
-                labelPath=self.auto_labels_root/row["video"]/f"{row['id']}.txt"
+                labelPath=self.autoLabelsRoot/row["video"]/f"{row['id']}.txt"
                 detections=writeYoloLabel(labelPath,result,allowedClassIds)
                 annotatedImage=drawDetections(rawImage,detections,classes)
-                annotatedPath=self.annotated_root/row["video"]/f"{row['id']}.jpg"
+                annotatedPath=self.annotatedRoot/row["video"]/f"{row['id']}.jpg"
                 annotatedPath.parent.mkdir(parents=True,exist_ok=True)
                 if not cv2.imwrite(str(annotatedPath),annotatedImage):
                     raise OSError(f"검수 이미지 저장 실패: {annotatedPath}")
                 output=dict(row)
-                output.update({"label_path":str(labelPath.resolve()),"annotated_path":str(annotatedPath.resolve()),"detections":detections})
+                output.update({"labelPath":str(labelPath.resolve()),"annotatedPath":str(annotatedPath.resolve()),"detections":detections})
                 writer.write(output)
                 processedCount+=1
                 if processedCount%100==0:

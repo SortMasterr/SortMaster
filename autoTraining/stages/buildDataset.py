@@ -13,7 +13,7 @@ class BuildDatasetStage:
     """데이터 복사, 영상 단위 split, data.yaml 생성을 담당합니다."""
 
     @staticmethod
-    def _split_for_video(video: str, train_ratio: float, val_ratio: float) -> str:
+    def _splitForVideo(video: str, trainRatio: float, valRatio: float) -> str:
         """영상 이름의 안정적인 해시로 train, val, test 중 하나를 결정합니다.
 
         같은 영상의 연속 프레임은 서로 매우 비슷하므로 프레임 단위 무작위 분할을 하면
@@ -21,9 +21,9 @@ class BuildDatasetStage:
         영상 단위 분할과 결정적 해시를 사용하면 재실행해도 동일한 split이 만들어집니다.
         """
         value = int(hashlib.sha256(video.encode("utf-8")).hexdigest()[:8], 16) / 0xFFFFFFFF
-        if value < train_ratio:
+        if value < trainRatio:
             return "train"
-        if value < train_ratio + val_ratio:
+        if value < trainRatio + valRatio:
             return "val"
         return "test"
 
@@ -34,76 +34,76 @@ class BuildDatasetStage:
         신규 데이터는 원본 영상 단위로 split하여 데이터 누수를 방지합니다. causal 모드에서는
         기존 이미지와 신규 이미지 모두 동일한 시간 채널 입력 형식으로 변환합니다.
         마지막으로 클래스 이름과 각 split 경로가 들어 있는 data.yaml을 생성합니다.
-        manual_review와 rejected 데이터는 명시적으로 승인되기 전까지 포함하지 않습니다.
+        manualReview와 rejected 데이터는 명시적으로 승인되기 전까지 포함하지 않습니다.
         """
         # 승인 행을 list가 아닌 generator로 유지해 데이터셋 규모만큼 RAM을 점유하지 않는다.
         approvedRows = (
-            row for row in iterateManifest(self.reviews_manifest)
+            row for row in iterateManifest(self.reviewsManifest)
             if row["review"]["decision"] == "approved"
         )
         approvedCount = 0
         cfg = self.config["dataset"]
         classes = cfg["classes"]
-        if self.dataset_root.exists():
-            shutil.rmtree(self.dataset_root)
+        if self.datasetRoot.exists():
+            shutil.rmtree(self.datasetRoot)
         for split in ("train", "val", "test"):
-            (self.dataset_root / "images" / split).mkdir(parents=True, exist_ok=True)
-            (self.dataset_root / "labels" / split).mkdir(parents=True, exist_ok=True)
+            (self.datasetRoot / "images" / split).mkdir(parents=True, exist_ok=True)
+            (self.datasetRoot / "labels" / split).mkdir(parents=True, exist_ok=True)
 
         # 기존 데이터의 box 라벨은 제거하고 trash ID 0~3만 유지한다.
         for split in ("train", "val", "test"):
-            source_images = self.base_dataset / "images" / split
-            source_labels = self.base_dataset / "labels" / split
-            if not source_images.exists():
+            sourceImages = self.baseDataset / "images" / split
+            sourceLabels = self.baseDataset / "labels" / split
+            if not sourceImages.exists():
                 continue
-            for image_path in source_images.iterdir():
-                if image_path.suffix.lower() not in imageExtensions:
+            for imagePath in sourceImages.iterdir():
+                if imagePath.suffix.lower() not in imageExtensions:
                     continue
-                target_image = self.dataset_root / "images" / split / image_path.name
-                target_label = self.dataset_root / "labels" / split / f"{image_path.stem}.txt"
-                if self.config["inference"]["input_mode"] == "causal":
-                    causal_image = self._make_causal_dataset_image(image_path, source_images)
-                    if not cv2.imwrite(str(target_image), causal_image):
-                        raise OSError(f"causal 이미지 저장 실패: {target_image}")
+                targetImage = self.datasetRoot / "images" / split / imagePath.name
+                targetLabel = self.datasetRoot / "labels" / split / f"{imagePath.stem}.txt"
+                if self.config["inference"]["inputMode"] == "causal":
+                    causalImage = self._makeCausalDatasetImage(imagePath, sourceImages)
+                    if not cv2.imwrite(str(targetImage), causalImage):
+                        raise OSError(f"causal 이미지 저장 실패: {targetImage}")
                 else:
-                    shutil.copy2(image_path, target_image)
+                    shutil.copy2(imagePath, targetImage)
                 lines = []
-                source_label = source_labels / f"{image_path.stem}.txt"
-                if source_label.exists():
-                    for line in source_label.read_text(encoding="utf-8").splitlines():
+                sourceLabel = sourceLabels / f"{imagePath.stem}.txt"
+                if sourceLabel.exists():
+                    for line in sourceLabel.read_text(encoding="utf-8").splitlines():
                         parts = line.split()
                         if parts and int(parts[0]) < len(classes):
                             lines.append(line)
-                target_label.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+                targetLabel.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
         # 같은 영상이 여러 split에 섞이지 않도록 video 단위로 분리한다.
         for row in approvedRows:
             approvedCount += 1
-            split = self._split_for_video(
-                row["video"], float(cfg["train_ratio"]), float(cfg["val_ratio"])
+            split = self._splitForVideo(
+                row["video"], float(cfg["trainRatio"]), float(cfg["valRatio"])
             )
-            name = f"new__{row['id']}"
-            target_image = self.dataset_root / "images" / split / f"{name}.jpg"
-            target_label = self.dataset_root / "labels" / split / f"{name}.txt"
+            name = f"new-{row['id']}"
+            targetImage = self.datasetRoot / "images" / split / f"{name}.jpg"
+            targetLabel = self.datasetRoot / "labels" / split / f"{name}.txt"
             # causal 모델이면 학습 입력도 causal 이미지로 저장한다.
-            if self.config["inference"]["input_mode"] == "causal":
-                image = self._make_causal_input(row)
-                cv2.imwrite(str(target_image), image)
+            if self.config["inference"]["inputMode"] == "causal":
+                image = self._makeCausalInput(row)
+                cv2.imwrite(str(targetImage), image)
             else:
-                shutil.copy2(row["image_path"], target_image)
-            shutil.copy2(row["label_path"], target_label)
+                shutil.copy2(row["imagePath"], targetImage)
+            shutil.copy2(row["labelPath"], targetLabel)
 
-        data_yaml = {
-            "path": str(self.dataset_root.resolve()),
+        dataYaml = {
+            "path": str(self.datasetRoot.resolve()),
             "train": "images/train",
             "val": "images/val",
             "test": "images/test",
             "names": {index: name for index, name in enumerate(classes)},
             "nc": len(classes),
         }
-        with (self.dataset_root / "data.yaml").open("w", encoding="utf-8") as file:
-            yaml.safe_dump(data_yaml, file, allow_unicode=True, sort_keys=False)
-        print(f"[BUILD] 승인 신규 데이터 {approvedCount}개 병합: {self.dataset_root}")
+        with (self.datasetRoot / "data.yaml").open("w", encoding="utf-8") as file:
+            yaml.safe_dump(dataYaml, file, allow_unicode=True, sort_keys=False)
+        print(f"[BUILD] 승인 신규 데이터 {approvedCount}개 병합: {self.datasetRoot}")
 
 
 def buildDataset(pipeline: BuildDatasetStage) -> None:

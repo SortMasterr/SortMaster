@@ -12,19 +12,19 @@ class CausalImagesMixin:
         cachedIndex=getattr(self,"_frameIndexCache",None)
         # 이미지 자체가 아니라 경로만 캐시하므로 반복 검색 비용은 줄이고 이미지 RAM 점유는 피한다.
         if cachedIndex is None:
-            cachedIndex={(str(row["video"]),int(row["frame_index"])):Path(row["image_path"]) for row in iterateManifest(self.frames_manifest)}
+            cachedIndex={(str(row["video"]),int(row["frameIndex"])):Path(row["imagePath"]) for row in iterateManifest(self.framesManifest)}
             self._frameIndexCache=cachedIndex
         return cachedIndex
 
-    def _make_causal_input(self,row: dict[str,Any])->np.ndarray:
-        currentPath=Path(row["image_path"])
+    def _makeCausalInput(self,row: dict[str,Any])->np.ndarray:
+        currentPath=Path(row["imagePath"])
         currentImage=cv2.imread(str(currentPath))
         if currentImage is None:
             raise FileNotFoundError(currentPath)
         frameIndex=self._getFrameIndex()
-        frameStep=max(1,int(self.config["frames"]["save_every_n"]))
+        frameStep=max(1,int(self.config["frames"]["saveEveryN"]))
         def loadPrevious(offset: int)->np.ndarray:
-            path=frameIndex.get((str(row["video"]),int(row["frame_index"])-frameStep*offset),currentPath)
+            path=frameIndex.get((str(row["video"]),int(row["frameIndex"])-frameStep*offset),currentPath)
             image=cv2.imread(str(path))
             if image is None:
                 return currentImage
@@ -34,7 +34,7 @@ class CausalImagesMixin:
         return cv2.merge([cv2.cvtColor(loadPrevious(2),cv2.COLOR_BGR2GRAY),cv2.cvtColor(loadPrevious(1),cv2.COLOR_BGR2GRAY),cv2.cvtColor(currentImage,cv2.COLOR_BGR2GRAY)])
 
     @staticmethod
-    def _make_causal_dataset_image(imagePath: Path,sourceImages: Path)->np.ndarray:
+    def _makeCausalDatasetImage(imagePath: Path,sourceImages: Path)->np.ndarray:
         currentImage=cv2.imread(str(imagePath))
         if currentImage is None:
             raise FileNotFoundError(imagePath)

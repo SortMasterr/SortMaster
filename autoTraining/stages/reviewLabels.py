@@ -9,67 +9,87 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from common.pipelineUtilities import ManifestWriter, chinesePattern, iterateManifest, manifestHasRows
+from common.pipelineUtilities import (
+    ManifestWriter,
+    chinesePattern,
+    iterateManifest,
+    manifestHasRows,
+)
 
 
 class ReviewLabelsStage:
-    """Qwen-VL 요청, 응답 검증, 검수 큐 분류의 실제 구현입니다."""
+    """Qwen-VL 요청, 응답 검증, 검수 결과 분류를 담당합니다."""
 
-    def _ollama_request(self, method: str, endpoint: str, payload=None) -> dict[str, Any]:
-        """Ollama의 HTTP API를 호출하는 최소 공통 함수입니다.
+    def _requestQwenVl(
+        self,
+        method: str,
+        endpoint: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """설정된 Qwen-VL API 서버로 JSON 요청을 전송합니다.
 
-        base_url과 timeout은 설정에서 읽습니다. 요청 본문이 있으면 UTF-8 JSON으로 직렬화하고,
-        네트워크 오류는 어느 서버 연결이 실패했는지 알 수 있는 RuntimeError로 변환합니다.
-        모델 선택과 실제 이미지 검수 요청이 동일한 통신 처리를 공유하도록 분리했습니다.
+        현재 서버는 모델 목록과 채팅을 위해 /api/tags, /api/chat 규격을 제공합니다.
+        이 이름은 통신 런타임이 아니라 실제 검수 모델인 Qwen-VL의 역할을 나타냅니다.
         """
-        base_url = self.config["ollama"]["base_url"].rstrip("/")
-        data = None if payload is None else json.dumps(payload).encode("utf-8")
+        apiBaseUrl = self.config["qwenVl"]["apiBaseUrl"].rstrip("/")
+        requestData = (
+            None
+            if payload is None
+            else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        )
         request = urllib.request.Request(
-            base_url + endpoint,
-            data=data,
+            apiBaseUrl + endpoint,
+            data=requestData,
             method=method,
             headers={"Content-Type": "application/json"},
         )
-        timeout = float(self.config["ollama"]["timeout_seconds"])
+        timeoutSeconds = float(self.config["qwenVl"]["timeoutSeconds"])
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with urllib.request.urlopen(
+                request,
+                timeout=timeoutSeconds,
+            ) as response:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.URLError as error:
-            raise RuntimeError(f"Ollama 연결 실패: {base_url} ({error})") from error
-
-    def _resolve_ollama_model(self) -> str:
-        """설정된 모델을 사용하거나 설치된 Qwen-VL 모델을 자동으로 선택합니다."""
-        configured = str(self.config["ollama"].get("model", "auto"))
-        if configured.lower() != "auto":
-            return configured
-        response = self._ollama_request("GET", "/api/tags")
-        names = [str(model.get("name", "")) for model in response.get("models", [])]
-        candidates = [name for name in names if "qwen" in name.lower() and "vl" in name.lower()]
-        if not candidates:
             raise RuntimeError(
-                "Ollama에서 Qwen-VL 모델을 찾지 못했습니다. ollama list 결과의 "
-                "비전 모델명을 config.yaml의 ollama.model에 입력하세요. "
-                f"설치 모델: {names}"
+                f"Qwen-VL API 연결 실패: {apiBaseUrl} ({error})"
+            ) from error
+
+    def _resolveQwenVlModel(self) -> str:
+        """설정 모델을 사용하거나 설치 목록에서 Qwen-VL 모델을 자동 선택합니다."""
+        configuredModel = str(self.config["qwenVl"].get("model", "auto"))
+        if configuredModel.lower() != "auto":
+            return configuredModel
+
+        response = self._requestQwenVl("GET", "/api/tags")
+        modelNames = [
+            str(model.get("name", ""))
+            for model in response.get("models", [])
+        ]
+        qwenVlModels = [
+            name
+            for name in modelNames
+            if "qwen" in name.lower() and "vl" in name.lower()
+        ]
+        if not qwenVlModels:
+            raise RuntimeError(
+                "Qwen-VL 모델을 찾지 못했습니다. qwenVl.model에 "
+                f"정확한 모델명을 입력하세요. 설치 모델: {modelNames}"
             )
-        print(f"[OLLAMA] 자동 선택 모델: {candidates[0]}")
-        return candidates[0]
+        print(f"[QWEN-VL] 자동 선택 모델: {qwenVlModels[0]}")
+        return qwenVlModels[0]
 
-    def _review_schema(self) -> dict[str, Any]:
-        """Qwen-VL이 자유 문장 대신 반환해야 하는 JSON 구조를 정의합니다.
-
-        decision은 approved, manual_review, rejected 중 하나여야 하며, predicted_class와
-        issues도 허용 목록 안에서만 선택할 수 있습니다. 구조를 제한하면 자연어 표현 차이로
-        자동 처리 로직이 흔들리는 문제를 줄이고 잘못된 응답을 수동 검수로 보낼 수 있습니다.
-        """
+    def _reviewSchema(self) -> dict[str, Any]:
+        """Qwen-VL이 반환해야 하는 camelCase JSON 구조를 정의합니다."""
         classes = self.config["dataset"]["classes"]
         return {
             "type": "object",
             "properties": {
                 "decision": {
                     "type": "string",
-                    "enum": ["approved", "rejected", "manual_review"],
+                    "enum": ["approved", "rejected", "manualReview"],
                 },
-                "predicted_class": {
+                "predictedClass": {
                     "type": "string",
                     "enum": classes + ["none", "multiple"],
                 },
@@ -78,118 +98,201 @@ class ReviewLabelsStage:
                     "items": {
                         "type": "string",
                         "enum": [
-                            "none", "wrong_class", "missing_object", "extra_box",
-                            "bad_bbox", "too_blurry", "too_dark", "multiple_objects",
+                            "none",
+                            "wrongClass",
+                            "missingObject",
+                            "extraBox",
+                            "badBbox",
+                            "tooBlurry",
+                            "tooDark",
+                            "multipleObjects",
                         ],
                     },
                 },
-                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                "confidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                },
             },
-            "required": ["decision", "predicted_class", "issues", "confidence"],
+            "required": [
+                "decision",
+                "predictedClass",
+                "issues",
+                "confidence",
+            ],
             "additionalProperties": False,
         }
 
-    def _validate_review(self, content: str) -> dict[str, Any]:
-        """Qwen-VL 응답을 신뢰하기 전에 형식과 값의 범위를 검증합니다.
-
-        JSON 파싱 가능 여부, 허용된 decision과 class인지, issues 목록이 유효한지,
-        confidence가 0~1인지 확인합니다. 예상하지 못한 자연어·문자나 잘못된 값은 예외로
-        처리하여 review 단계의 재시도 또는 manual_review 안전 경로로 보내게 합니다.
-        """
+    def _validateReview(self, content: str) -> dict[str, Any]:
+        """Qwen-VL 응답의 JSON 형식과 허용값을 후속 처리 전에 검증합니다."""
         if chinesePattern.search(content):
-            raise ValueError("중국어 문자가 포함됨")
+            raise ValueError("Qwen-VL 응답에 허용하지 않는 중국어 문자가 있습니다.")
+
         review = json.loads(content)
-        schema = self._review_schema()
-        if review.get("decision") not in schema["properties"]["decision"]["enum"]:
-            raise ValueError("허용되지 않은 decision")
-        if review.get("predicted_class") not in schema["properties"]["predicted_class"]["enum"]:
-            raise ValueError("허용되지 않은 class")
-        allowed_issues = set(schema["properties"]["issues"]["items"]["enum"])
-        if not isinstance(review.get("issues"), list) or not set(review["issues"]) <= allowed_issues:
-            raise ValueError("허용되지 않은 issues")
+        schema = self._reviewSchema()
+        properties = schema["properties"]
+        if review.get("decision") not in properties["decision"]["enum"]:
+            raise ValueError("허용되지 않는 decision입니다.")
+        if review.get("predictedClass") not in properties["predictedClass"]["enum"]:
+            raise ValueError("허용되지 않는 predictedClass입니다.")
+
+        allowedIssues = set(properties["issues"]["items"]["enum"])
+        issues = review.get("issues")
+        if not isinstance(issues, list) or not set(issues) <= allowedIssues:
+            raise ValueError("허용되지 않는 issues입니다.")
+
         confidence = float(review.get("confidence", -1))
         if not 0 <= confidence <= 1:
-            raise ValueError("confidence 범위 오류")
+            raise ValueError("confidence는 0과 1 사이여야 합니다.")
         review["confidence"] = confidence
         return review
 
-    def _review_one(self, model: str, row: dict[str, Any]) -> dict[str, Any]:
-        """한 프레임의 자동 라벨이 학습에 사용 가능한지 Qwen-VL에 질문합니다.
-
-        원본 이미지와 bbox 시각화 이미지를 함께 보내 객체의 실제 모습과 YOLO 예측을 비교하게
-        합니다. 모델에는 허용 클래스, 기존 탐지 좌표와 신뢰도, 출력 JSON 스키마를 전달합니다.
-        반환값은 후속 단계가 사용할 decision, predicted_class, issues, confidence 정보입니다.
-        Qwen-VL은 bbox를 직접 수정하지 않으며 애매한 항목은 사람이 고치도록 분류만 합니다.
-        """
+    def _reviewOne(
+        self,
+        qwenVlModel: str,
+        row: dict[str, Any],
+    ) -> dict[str, Any]:
+        """원본과 bbox 표시 이미지를 Qwen-VL에 보내 한 프레임을 검수합니다."""
         classes = self.config["dataset"]["classes"]
         detections = [
             {
-                "class": classes[item["class_id"]],
+                "class": classes[item["classId"]],
                 "confidence": round(item["confidence"], 4),
                 "xyxy": [round(value, 1) for value in item["xyxy"]],
             }
             for item in row["detections"]
         ]
         prompt = (
-            "첫 번째 이미지는 원본 CCTV 프레임이고 두 번째 이미지는 YOLO bbox 표시본이다. "
-            "쓰레기 클래스와 bbox가 타당한지 검수하라. 쓰레기통은 검수 대상이 아니다. "
-            "반드시 제공된 JSON schema만 출력하고 중국어 및 자연어 설명을 출력하지 마라. "
-            f"허용 클래스: {classes}. YOLO 결과: {json.dumps(detections)}"
+            "첫 번째 이미지는 원본 CCTV 프레임이고 두 번째 이미지는 "
+            "YOLO bbox 표시 이미지다. 객체의 클래스와 bbox가 적절한지 검수하라. "
+            "쓰레기통 자체는 검수 대상이 아니다. 반드시 제공된 JSON schema만 "
+            "출력하고 중국어와 자연어 설명은 출력하지 마라. "
+            f"허용 클래스: {classes}. YOLO 결과: "
+            f"{json.dumps(detections, ensure_ascii=False)}"
         )
         images = [
-            base64.b64encode(Path(row["image_path"]).read_bytes()).decode("ascii"),
-            base64.b64encode(Path(row["annotated_path"]).read_bytes()).decode("ascii"),
+            base64.b64encode(
+                Path(row["imagePath"]).read_bytes()
+            ).decode("ascii"),
+            base64.b64encode(
+                Path(row["annotatedPath"]).read_bytes()
+            ).decode("ascii"),
         ]
         payload = {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt, "images": images}],
+            "model": qwenVlModel,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt,
+                    "images": images,
+                }
+            ],
             "stream": False,
             "think": False,
-            "format": self._review_schema(),
-            "options": {"temperature": 0, "seed": SEED if "SEED" in globals() else 42},
+            "format": self._reviewSchema(),
+            "options": {
+                "temperature": 0,
+                "seed": 42,
+            },
         }
-        response = self._ollama_request("POST", "/api/chat", payload)
-        return self._validate_review(response["message"]["content"])
+        response = self._requestQwenVl("POST", "/api/chat", payload)
+        return self._validateReview(response["message"]["content"])
 
     def review(self) -> None:
-        """라벨을 한 행씩 검수하고 결과를 즉시 기록합니다."""
-        if not manifestHasRows(self.labels_manifest):
+        """자동 라벨을 순차 검수하여 reviews.jsonl과 상태별 폴더에 저장합니다."""
+        if not manifestHasRows(self.labelsManifest):
             raise RuntimeError("먼저 label 단계를 실행하세요.")
-        model=self._resolve_ollama_model()
-        retries=int(self.config["ollama"]["retries"])
-        minimum=float(self.config["ollama"]["minimum_review_confidence"])
-        counts={name:0 for name in ("approved","rejected","manual_review")}
-        processedCount=0
-        # Qwen-VL 응답을 즉시 기록하여 긴 영상에서도 검수 결과 전체가 RAM에 누적되지 않게 한다.
-        with ManifestWriter(self.reviews_manifest) as writer:
-            for row in iterateManifest(self.labels_manifest):
-                review=None
-                errors=[]
-                for attempt in range(retries+1):
+
+        qwenVlModel = self._resolveQwenVlModel()
+        retries = int(self.config["qwenVl"]["retries"])
+        minimumConfidence = float(
+            self.config["qwenVl"]["minimumReviewConfidence"]
+        )
+        counts = {
+            name: 0
+            for name in ("approved", "rejected", "manualReview")
+        }
+        processedCount = 0
+
+        # 결과를 즉시 기록하여 긴 영상에서도 전체 응답이 RAM에 쌓이지 않게 합니다.
+        with ManifestWriter(self.reviewsManifest) as writer:
+            for row in iterateManifest(self.labelsManifest):
+                review = None
+                errors = []
+                for attempt in range(retries + 1):
                     try:
-                        review=self._review_one(model,row)
+                        review = self._reviewOne(qwenVlModel, row)
                         break
-                    except (ValueError,RuntimeError,KeyError,json.JSONDecodeError) as error:
-                        errors.append(f"attempt {attempt+1}: {error}")
-                        time.sleep(min(2**attempt,5))
+                    except (
+                        ValueError,
+                        RuntimeError,
+                        KeyError,
+                        json.JSONDecodeError,
+                    ) as error:
+                        errors.append(f"attempt {attempt + 1}: {error}")
+                        time.sleep(min(2 ** attempt, 5))
+
+                # 서버 오류나 잘못된 응답은 자동 승인하지 않고 사람 검수로 보냅니다.
                 if review is None:
-                    review={"decision":"manual_review","predicted_class":"none","issues":["bad_bbox"],"confidence":0.0}
-                if review["confidence"]<minimum or any(issue in {"wrong_class","bad_bbox","missing_object","extra_box","multiple_objects"} for issue in review["issues"]):
-                    review["decision"]="manual_review"
-                output=dict(row)
-                output.update({"review":review,"review_errors":errors,"ollama_model":model})
+                    review = {
+                        "decision": "manualReview",
+                        "predictedClass": "none",
+                        "issues": ["badBbox"],
+                        "confidence": 0.0,
+                    }
+                riskyIssues = {
+                    "wrongClass",
+                    "badBbox",
+                    "missingObject",
+                    "extraBox",
+                    "multipleObjects",
+                }
+                if (
+                    review["confidence"] < minimumConfidence
+                    or any(
+                        issue in riskyIssues
+                        for issue in review["issues"]
+                    )
+                ):
+                    review["decision"] = "manualReview"
+
+                output = dict(row)
+                output.update({
+                    "review": review,
+                    "reviewErrors": errors,
+                    "qwenVlModel": qwenVlModel,
+                })
                 writer.write(output)
-                counts[review["decision"]]+=1
-                queueRoot={"approved":self.approved_root,"rejected":self.rejected_root,"manual_review":self.manual_root}[review["decision"]]
-                queueDirectory=queueRoot/row["video"]
-                queueDirectory.mkdir(parents=True,exist_ok=True)
-                shutil.copy2(row["image_path"],queueDirectory/f"{row['id']}.jpg")
-                shutil.copy2(row["annotated_path"],queueDirectory/f"{row['id']}__annotated.jpg")
-                shutil.copy2(row["label_path"],queueDirectory/f"{row['id']}.txt")
-                processedCount+=1
-                if processedCount%25==0:
+                counts[review["decision"]] += 1
+
+                queueRoot = {
+                    "approved": self.approvedRoot,
+                    "rejected": self.rejectedRoot,
+                    "manualReview": self.manualRoot,
+                }[review["decision"]]
+                queueDirectory = queueRoot / row["video"]
+                queueDirectory.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(
+                    row["imagePath"],
+                    queueDirectory / f"{row['id']}.jpg",
+                )
+                shutil.copy2(
+                    row["annotatedPath"],
+                    queueDirectory / f"{row['id']}__annotated.jpg",
+                )
+                shutil.copy2(
+                    row["labelPath"],
+                    queueDirectory / f"{row['id']}.txt",
+                )
+
+                processedCount += 1
+                if processedCount % 25 == 0:
                     print(f"[REVIEW] {processedCount}개 처리")
+
         print(f"[REVIEW] {counts}")
+
+
 def reviewLabels(pipeline: ReviewLabelsStage) -> None:
-    """오케스트레이터에서 자동 검수 단계를 실행합니다."""
+    """오케스트레이터에서 Qwen-VL 검수 단계를 실행합니다."""
     pipeline.review()

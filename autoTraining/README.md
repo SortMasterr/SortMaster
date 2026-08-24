@@ -15,7 +15,7 @@ CCTV 영상
   ↓
 4. Review   : Qwen-VL 검수
   ├─ approved
-  ├─ manual_review
+  ├─ manualReview
   └─ rejected
   ↓
 5. Build    : 기존 데이터셋 + 승인된 신규 데이터 병합
@@ -36,7 +36,7 @@ CCTV 영상
 - 기존 YOLO 모델을 사용한 자동 라벨링
 - RGB 및 causal 입력 지원
 - YOLO 라벨과 bbox 표시 이미지 생성
-- Ollama의 Qwen-VL을 이용한 자동 검수
+- Qwen-VL API의 Qwen-VL을 이용한 자동 검수
 - 승인 데이터와 기존 데이터셋 병합
 - 영상 단위 train/val/test 분리
 - 신규 모델 학습 및 `newAutolabel/best.pt` 저장
@@ -45,7 +45,7 @@ CCTV 영상
 
 추가 구현이 필요한 기능:
 
-- `manual_review` 데이터를 수정하는 검수 UI
+- `manualReview` 데이터를 수정하는 검수 UI
 - 수정된 수동 라벨을 `reviews.jsonl`에 반영하는 기능
 - Docker Compose의 독립 `autoTraining` 서비스
 - 스케줄 실행, 실패 재시도 및 알림
@@ -142,7 +142,7 @@ autoTraining/baseDataset/
 autoTraining/models/baseAutolabel/best.pt
 ```
 
-Review 단계에서는 `pipelineConfig.yaml`의 Ollama 주소와 Qwen-VL 모델 설정을 사용합니다.
+Review 단계에서는 `pipelineConfig.yaml`의 Qwen-VL API 주소와 Qwen-VL 모델 설정을 사용합니다.
 
 ## 설정
 
@@ -154,34 +154,34 @@ Review 단계에서는 `pipelineConfig.yaml`의 Ollama 주소와 Qwen-VL 모델 
 paths:
   videos: autoTraining/inputVideos
   workspace: autoTraining/workspace
-  base_dataset: autoTraining/baseDataset
-  baseAutolabelModel: autoTraining/models/baseAutolabel/best.pt
-  newAutolabelModel: autoTraining/models/newAutolabel/best.pt
-  deployed_model: autoTraining/promotedModels/current.pt
+  baseDataset: autoTraining/baseDataset
+  baseAutoLabelModel: autoTraining/models/baseAutolabel/best.pt
+  newAutoLabelModel: autoTraining/models/newAutolabel/best.pt
+  deployedModel: autoTraining/promotedModels/current.pt
 ```
 
 프레임 설정:
 
 ```yaml
 frames:
-  save_every_n: 1
-  jpeg_quality: 95
-  candidate_every_n: 3
-  min_laplacian_variance: 20.0
-  min_brightness: 20.0
-  max_brightness: 235.0
+  saveEveryN: 1
+  jpegQuality: 95
+  candidateEveryN: 3
+  minLaplacianVariance: 20.0
+  minBrightness: 20.0
+  maxBrightness: 235.0
 ```
 
-- `save_every_n`: 저장할 원본 프레임 간격
-- `candidate_every_n`: 후보 검사 간격
-- `min_laplacian_variance`: 최소 선명도
-- `min_brightness`, `max_brightness`: 허용 밝기 범위
+- `saveEveryN`: 저장할 원본 프레임 간격
+- `candidateEveryN`: 후보 검사 간격
+- `minLaplacianVariance`: 최소 선명도
+- `minBrightness`, `maxBrightness`: 허용 밝기 범위
 
 추론 설정:
 
 ```yaml
 inference:
-  input_mode: causal
+  inputMode: causal
   imgsz: 416
   confidence: 0.20
   device: 0
@@ -192,7 +192,7 @@ inference:
 - `device: 0`: 첫 번째 GPU
 - CPU 사용 시 `device: cpu`
 
-기본 모델을 학습할 때 사용한 입력 방식과 `input_mode`가 같아야 합니다.
+기본 모델을 학습할 때 사용한 입력 방식과 `inputMode`가 같아야 합니다.
 
 ## 단계별 실행
 
@@ -221,12 +221,12 @@ python autoTraining/trainingPipeline.py all
 
 | 단계 | 주요 출력 |
 |---|---|
-| Extract | `workspace/frames_all`, `frames.jsonl` |
+| Extract | `workspace/framesAll`, `frames.jsonl` |
 | Select | `workspace/candidates`, `candidates.jsonl` |
-| Label | `workspace/auto_labels`, `annotated`, `labels.jsonl` |
-| Review | `approved`, `manual_review`, `rejected`, `reviews.jsonl` |
-| Build | `workspace/dataset_current`, `data.yaml` |
-| Train | `workspace/runs`, `models/newAutolabel/best.pt`, `training_result.json` |
+| Label | `workspace/autoLabels`, `annotated`, `labels.jsonl` |
+| Review | `approved`, `manualReview`, `rejected`, `reviews.jsonl` |
+| Build | `workspace/datasetCurrent`, `data.yaml` |
+| Train | `workspace/runs`, `models/newAutolabel/best.pt`, `trainingResult.json` |
 | Evaluate | `workspace/evaluation.json` |
 | Promote | `promotedModels/current.pt`, `modelArchive` 백업 |
 
@@ -240,11 +240,16 @@ python autoTraining/trainingPipeline.py all
 | `candidates.jsonl` | 선별된 학습 후보 |
 | `labels.jsonl` | 자동 라벨, bbox, 검수 이미지 경로 |
 | `reviews.jsonl` | Qwen-VL 결정, 오류, 사용 모델 |
-| `training_result.json` | 학습 결과와 신규 모델 경로 |
+| `trainingResult.json` | 학습 결과와 신규 모델 경로 |
 | `evaluation.json` | 기존 모델과 신규 모델의 평가 결과 |
 
 매니페스트에는 절대 경로가 포함됩니다. 다른 서버나 Docker 컨테이너로 workspace를 복사하면 경로가 달라질 수 있으므로 해당 환경에서 앞 단계를 다시 실행하거나 동일한 볼륨 경로로 마운트해야 합니다.
 
+## camelCase 변경 후 기존 작업 데이터
+
+설정 키, Python 내부 이름, 매니페스트 필드와 파이프라인이 생성하는 폴더 이름은 camelCase로 통일했습니다. 기존 workspace에 snake_case 필드로 생성된 JSONL은 새 코드와 호환되지 않으므로 `extract` 단계부터 다시 실행해야 합니다. YOLO 함수 인자와 `trash_normal` 같은 기존 모델 클래스명은 외부 규격이므로 그대로 유지합니다.
+
+Qwen-VL 설정은 `qwenVl`에 있으며, 검수 결과는 `manualReview`, `predictedClass`, `qwenVlModel` 같은 camelCase 필드를 사용합니다. 현재 HTTP 서버는 `/api/tags`와 `/api/chat` 엔드포인트를 제공해야 합니다.
 ## 메모리 및 I/O 최적화
 
 프레임 수가 많아도 RAM 사용량이 프레임 개수에 비례해 계속 증가하지 않도록 다음 구조를 사용합니다.
@@ -267,8 +272,8 @@ Docker는 실행 환경과 의존성을 고정하는 수단이고, GPU는 YOLO �
 
 ## 주의 사항
 
-- `manual_review`와 `rejected` 데이터는 Build에 포함되지 않습니다.
-- Build는 기존 `workspace/dataset_current`를 새로 생성하므로 필요한 결과는 먼저 백업합니다.
+- `manualReview`와 `rejected` 데이터는 Build에 포함되지 않습니다.
+- Build는 기존 `workspace/datasetCurrent`를 새로 생성하므로 필요한 결과는 먼저 백업합니다.
 - 클래스 순서와 YOLO class ID는 반드시 일치해야 합니다.
 - Promote 전에는 `evaluation.json`의 mAP50과 recall을 확인합니다.
 - 실제 운영 영상과 GPU 환경에서 E2E 테스트를 완료한 뒤 자동 실행을 연결합니다.
