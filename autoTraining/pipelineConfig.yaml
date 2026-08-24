@@ -1,0 +1,60 @@
+# CCTV -> 프레임 -> 자동 라벨 -> Qwen 검수 -> 파인튜닝 -> 모델 교체 설정
+
+paths:
+  videos: autoTraining/inputVideos
+  workspace: autoTraining/workspace
+  base_dataset: autoTraining/baseDataset
+  base_model: autoTraining/models/baseModel.pt
+  deployed_model: autoTraining/promotedModels/current.pt
+
+frames:
+  # 1이면 모든 프레임 저장. 데이터가 너무 많으면 2 이상으로 조정한다.
+  save_every_n: 1
+  jpeg_quality: 95
+  # 모든 프레임은 frames_all에 보존하고, 아래 기준은 라벨 후보 선별에만 사용한다.
+  candidate_every_n: 3
+  min_laplacian_variance: 20.0
+  min_brightness: 20.0
+  max_brightness: 235.0
+
+inference:
+  # rgb 또는 causal. causal은 t-2/t-1/t를 B/G/R 채널로 결합한다.
+  input_mode: causal
+  imgsz: 416
+  confidence: 0.20
+  device: 0
+
+ollama:
+  base_url: http://127.0.0.1:11434
+  # auto이면 설치된 모델 중 이름에 qwen과 vl이 모두 들어간 모델을 선택한다.
+  model: auto
+  timeout_seconds: 180
+  retries: 2
+  minimum_review_confidence: 0.70
+
+dataset:
+  train_ratio: 0.80
+  val_ratio: 0.10
+  test_ratio: 0.10
+  classes:
+    - trash_normal
+    - trash_paper
+    - trash_recyclables
+    - trash_coffeecup
+
+training:
+  epochs: 100
+  imgsz: 640
+  batch: -1
+  workers: 4
+  device: 0
+  amp: true
+  patience: 30
+
+promotion:
+  # 새 모델의 mAP50이 기존 모델보다 이 값 이상 낮으면 교체하지 않는다.
+  maximum_map50_drop: 0.0
+  # 새 모델의 Recall이 기존 모델보다 이 값 이상 낮으면 교체하지 않는다.
+  maximum_recall_drop: 0.0
+  backup_directory: autoTraining/modelArchive
+

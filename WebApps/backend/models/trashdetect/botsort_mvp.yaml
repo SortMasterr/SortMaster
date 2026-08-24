@@ -1,0 +1,26 @@
+# BoT-SORT + ReID 설정
+tracker_type: botsort
+
+# Detection association thresholds
+track_high_thresh: 0.20
+track_low_thresh: 0.05
+new_track_thresh: 0.45
+
+# 약 10~11 FPS 영상에서 잃어버린 Track을 오래 유지
+track_buffer: 80
+match_thresh: 0.85
+fuse_score: true
+
+# 고정 카메라이므로 카메라 움직임 보정 비활성화
+gmc_method: none
+
+# ReID
+with_reid: true
+model: auto
+
+# 탐지가 끊긴 뒤 다른 위치에서 다시 잡히는 경우를 고려해
+# 공간 게이트를 기본값보다 완화
+proximity_thresh: 0.20
+
+# 외형 유사도 기준. 너무 낮추면 다른 쓰레기를 같은 ID로 붙일 수 있음
+appearance_thresh: 0.75

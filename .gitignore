@@ -43,3 +43,12 @@ training/wandb/
 debug/streaming/logs/
 debug/streaming/auto.crt
 debug/streaming/auto.key
+
+# Auto-training inputs and generated artifacts
+autoTraining/inputVideos/
+autoTraining/workspace/
+autoTraining/baseDataset/
+autoTraining/models/
+autoTraining/promotedModels/
+autoTraining/modelArchive/
+autoTraining/reports/
