@@ -160,14 +160,16 @@ document.addEventListener(
             const coffeeCupCount =
                 countByClass.coffeeCup ?? 0;
 
-            const allCounts =
-                Object.values(
-                    countByClass
-                );
+            const displayedCounts = [
+                generalCount,
+                plasticCount,
+                paperCount,
+                coffeeCupCount,
+            ];
 
             const maximumCount =
                 Math.max(
-                    ...allCounts,
+                    ...displayedCounts,
                     1
                 );
 

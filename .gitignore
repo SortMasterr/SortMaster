@@ -1,6 +1,7 @@
 # 환경변수 (절대 커밋 금지, Notion으로 공유)
 .env
 .env.*
+!.env.example
 
 # CCTV 영상/이미지 데이터 (절대 커밋 금지)
 *.mp4
@@ -15,6 +16,7 @@
 __pycache__/
 *.pyc
 .venv/
+.venv-inference/
 venv/
 
 # Node
@@ -37,7 +39,7 @@ training/runs/
 training/datasets/
 training/wandb/
 
-# 젯슨 나노 RTSP 시뮬레이션 실행 중 생성되는 파일(debug/streaming/startRtspSim.py)
+# 라즈베리파이 RTSP 시뮬레이션 실행 중 생성되는 파일(debug/streaming/startRtspSim.py)
 debug/streaming/logs/
 debug/streaming/auto.crt
 debug/streaming/auto.key

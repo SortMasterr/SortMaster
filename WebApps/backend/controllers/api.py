@@ -8,6 +8,7 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 
+from schemas.binState import BinState, BinStateUpdate
 from schemas.detection import (
     DetectionStart,
     DetectionStartResponse,
@@ -25,7 +26,15 @@ from schemas.mode import (
     ModeUpdate,
 )
 from schemas.statistics import Statistics
+from services.binStateService import binStateService
 from services.detectionService import detectionService
+from services.errors import (
+    CameraUnavailableError,
+    EmptyRecordingError,
+    RecordingCameraMismatchError,
+    RecordingConflictError,
+    RecordingNotFoundError,
+)
 from services.eventService import eventService
 from services.modeService import modeService
 from services.webSocketManager import (
@@ -91,15 +100,18 @@ async def getEventById(
 async def createEvent(
     eventCreate: EventCreate,
 ) -> Event | None:
-    createdEvent = (
-        await eventService.createEvent(
+    creationResult = (
+        await eventService.createEventWithStatus(
             eventCreate
         )
     )
 
-    await _broadcastIfManageMode(createdEvent)
+    if creationResult.created:
+        await _broadcastIfManageMode(
+            creationResult.event
+        )
 
-    return createdEvent
+    return creationResult.event
 
 
 async def _broadcastIfManageMode(
@@ -153,7 +165,7 @@ async def startDetection(
                 detectionStart.cameraId
             )
         )
-    except RuntimeError as error:
+    except CameraUnavailableError as error:
         raise HTTPException(
             status_code=503,
             detail=str(error),
@@ -172,8 +184,8 @@ async def stopDetection(
     detectionStop: DetectionStop,
 ) -> Event | None:
     try:
-        createdEvent = (
-            await detectionService.stopDetection(
+        creationResult = (
+            await detectionService.stopDetectionWithStatus(
                 recordingId=detectionStop.recordingId,
                 cameraId=detectionStop.cameraId,
                 eventCategory=detectionStop.eventCategory,
@@ -189,20 +201,27 @@ async def stopDetection(
                 modelVersion=detectionStop.modelVersion,
             )
         )
-    except KeyError as error:
+    except RecordingNotFoundError as error:
         raise HTTPException(
             status_code=404,
             detail=str(error),
         ) from error
-    except ValueError as error:
+    except (
+        EmptyRecordingError,
+        RecordingCameraMismatchError,
+        RecordingConflictError,
+    ) as error:
         raise HTTPException(
             status_code=400,
             detail=str(error),
         ) from error
 
-    await _broadcastIfManageMode(createdEvent)
+    if creationResult.created:
+        await _broadcastIfManageMode(
+            creationResult.event
+        )
 
-    return createdEvent
+    return creationResult.event
 
 
 @router.get(
@@ -223,6 +242,36 @@ async def getStatistics(
         fromDate=fromDate,
         toDate=toDate,
     )
+
+
+@router.get(
+    "/binStates",
+    response_model=list[BinState],
+)
+async def getBinStates() -> list[BinState]:
+    return await binStateService.getBinStates()
+
+
+@router.post(
+    "/binStates",
+    response_model=BinState,
+)
+async def updateBinState(
+    binStateUpdate: BinStateUpdate,
+) -> BinState:
+    (
+        binState,
+        eventResult,
+    ) = await binStateService.applyUpdate(
+        binStateUpdate
+    )
+
+    if eventResult is not None and eventResult.created:
+        await _broadcastIfManageMode(
+            eventResult.event
+        )
+
+    return binState
 
 
 @router.post(

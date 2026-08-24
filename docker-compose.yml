@@ -24,8 +24,8 @@ services:
       - "27020:27017"
     volumes:
       - mongo-data:/data/db
-    # 이 컨테이너는 로컬용 별도 인스턴스 — 팀 공유 서버(192.168.0.30)와는 다른 DB.
-    # 지금은 인증 없이 기동. 팀 공유 서버(.30)에 인증을 켜려면 mongosh로 root+팀원
+    # 이 컨테이너는 로컬용 별도 인스턴스 — 팀 공유 서버(<LEGACY_SHARED_SERVER_IP>, 실제 값은
+    # Notion 참고)와는 다른 DB. 지금은 인증 없이 기동. 팀 공유 서버에 인증을 켜려면 mongosh로 root+팀원
     # 계정을 먼저 만든 다음, 아래 주석을 해제하고 재시작할 것(architecture.md의
     # "DB 접속" 절 참고 — 계정 없이 먼저 --auth부터 켜면 아무도 로그인 못 하니 순서 반드시 지킬 것):
     # command: ["mongod", "--auth"]
@@ -41,7 +41,7 @@ services:
     profiles: ["llm"]
     restart: unless-stopped
     ports:
-      - "${LLM_PORT:-8100}:8000"
+      - "${LLM_PORT:-8099}:8000"
     env_file:
       - .env
     environment:
