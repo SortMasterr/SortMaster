@@ -139,6 +139,28 @@ def checkDocker() -> bool:
         return False
 
 
+def checkFfmpeg() -> bool:
+    """ffmpeg 실행 파일 확인.
+    streaming/cameraManager.py가 RTSP 카메라를 ffmpeg 서브프로세스로 띄우므로,
+    도커뿐 아니라 로컬(uvicorn main:app --reload) 실행 시에도 PATH에 있어야 함
+    (Windows는 winget install Gyan.FFmpeg, 도커 이미지는 Dockerfile에서 apt-get 설치)."""
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-version"], capture_output=True, text=True, timeout=5
+        )
+        if result.returncode != 0:
+            print("[FAIL] ffmpeg -version 실행 실패")
+            return False
+        print(f"[OK ] {result.stdout.splitlines()[0].strip()}")
+        return True
+    except FileNotFoundError:
+        print("[FAIL] ffmpeg가 설치되어 있지 않거나 PATH에 없음 (winget install Gyan.FFmpeg)")
+        return False
+    except Exception as e:
+        print(f"[FAIL] ffmpeg 확인 중 오류: {e}")
+        return False
+
+
 def checkMongodb() -> bool:
     """MongoDB 접속 가능 여부 확인.
     .env의 MONGO_HOST/DB_PORT/DB_USER/DB_PASSWORD를 그대로 사용 —
@@ -213,11 +235,15 @@ def main():
     dockerOk = checkDocker()
 
     print()
-    print("=== 4. MongoDB 접속 체크 (포트 27020) ===")
+    print("=== 4. ffmpeg 체크 (RTSP 카메라 서브프로세스용) ===")
+    ffmpegOk = checkFfmpeg()
+
+    print()
+    print("=== 5. MongoDB 접속 체크 (포트 27020) ===")
     mongodbOk = checkMongodb()
 
     print()
-    if pythonOk and packagesOk and dockerOk and mongodbOk:
+    if pythonOk and packagesOk and dockerOk and ffmpegOk and mongodbOk:
         print("모든 항목 통과. 환경 세팅 완료.")
         sys.exit(0)
     else:

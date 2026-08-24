@@ -191,7 +191,11 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
   `ELEV-TOP`만 기본값 `0`이라 로컬 웹캠 1대짜리 개발 환경에서 바로 동작. 나머지는 미설정 시
   해당 `cameraId` 요청만 503(다른 지점엔 영향 없음)
 - 입고 후 CameraId별 독립 RTSP로 교체(소스 문자열만 RTSP URL로 교체, 로직 불변)
-- `cv2.VideoCapture().read()` 동기 블로킹 → `asyncio.to_thread()`로 감쌈(적용 완료)
+- RTSP 소스는 진짜 `ffmpeg` 바이너리를 서브프로세스로 띄워 MJPEG로 재인코딩한 stdout을
+  읽는 방식(적용 완료) — OpenCV에 내장된 소형 ffmpeg가 손상된 H264 프레임에서 파이썬이
+  못 잡는 네이티브 크래시(백엔드 전체 다운)를 낸 적이 있어서, 크래시 나도 그 서브프로세스만
+  죽고 자동 재연결되도록 격리함. 로컬 웹캠(정수 인덱스) 경로는 크래시 이력이 없어 기존
+  `cv2.VideoCapture()` 동기 블로킹 → `asyncio.to_thread()` 방식 그대로 유지
 - **로컬에서 RTSP 경로 미리 테스트**: `debug/streaming/startRtspSim.py` — 이 PC의 웹캠 여러 대를
   각각 다른 지점(`CameraId`)에 할당해서, 지점별로 독립된 라즈베리파이 역할(FFmpeg+MediaMTX로
   RTSP 송신)을 동시에 흉내냄. `infra/checkEnv.py`처럼 필요한 것 자동 설치하지만, RTSP
