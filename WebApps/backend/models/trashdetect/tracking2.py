@@ -1,5 +1,6 @@
 import cv2
 import json
+import time
 import uuid
 from pathlib import Path
 from datetime import datetime
@@ -11,8 +12,27 @@ import requests
 # 1. 기본 설정
 # ============================================================
 MODEL_PATH = "bestTop.pt"
-SOURCE = "mvpTop.mp4"      # 시연 영상 / 웹캠 사용 시 SOURCE = 0
+
+# 실제 TOP 카메라(ELEV-TOP) 영상 — 라즈베리파이는 GPU 서버와 직접 연결되지 않고
+# 로컬 백엔드로만 RTSP를 보낸다(architecture.md "탐지 파이프라인" 참고). GPU는 로컬
+# 백엔드가 이미 상시 서빙 중인 MJPEG 스트림(GET /api/stream/ELEV-TOP)을, 아래
+# BACKEND_URL과 동일한 SSH 역터널(-R 8299:localhost:8047, gpuServerOps.md 참고)로
+# 그대로 구독한다 — 별도 포트/터널 불필요. cv2.VideoCapture는 multipart MJPEG를
+# 일반 영상 소스처럼 그대로 읽을 수 있다.
+SOURCE = "http://127.0.0.1:8299/api/stream/ELEV-TOP"
+# 데모 영상 / 로컬 웹캠으로 되돌리려면:
+# SOURCE = "mvpTop.mp4"
 # SOURCE = 0
+
+# 실시간 네트워크 스트림(터널 경유)이라 mp4 파일과 달리 중간에 끊길 수 있음 —
+# 끊기면 재연결을 시도한다(완전히 없는 파일/카메라와 달리 되살아날 수 있으므로).
+IS_LIVE_STREAM_SOURCE = (
+    isinstance(SOURCE, str) and SOURCE.startswith("http")
+)
+STREAM_RECONNECT_DELAY_SECONDS = 2.0
+
+# 백엔드는 CAMERA_ID="CAM-01"을 ELEV-TOP으로 매핑해서 받으므로 그대로 둔다
+# (services/eventService.py의 _aiCameraIdToCameraId 참고)
 CAMERA_ID = "CAM-01"
 
 # 로컬 백엔드 주소 — GPU 서버 포트는 팀 공유 규칙상 99로 끝나야 해서 8047을 그대로 못 씀.
@@ -647,6 +667,16 @@ try:
         ret, frame = cap.read()
 
         if not ret:
+            if IS_LIVE_STREAM_SOURCE:
+                print(
+                    f"[STREAM] '{SOURCE}' 프레임 수신 실패, "
+                    f"{STREAM_RECONNECT_DELAY_SECONDS:.0f}초 후 재연결 시도"
+                )
+                cap.release()
+                time.sleep(STREAM_RECONNECT_DELAY_SECONDS)
+                cap = cv2.VideoCapture(SOURCE)
+                continue
+
             print("영상 입력이 종료되었습니다.")
             break
 

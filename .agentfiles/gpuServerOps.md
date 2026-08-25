@@ -139,7 +139,10 @@ Jetson Orin Nano Super(icbanq 무료 렌탈) 발주 건은 **완전히 취소** 
 **라즈베리파이는 추론을 하지 않음** — 캡처+RTSP 송신+GPIO(전구 릴레이)+스피커(경고음)만
 담당. **TOP/SIDE 둘 다 로컬 백엔드로만** RTSP를 보내면 됨(GPU 서버와 직접 연결되는
 라즈베리파이는 없음 — 과거 "TOP만 8554 역터널로 GPU까지 도달" 방식 폐기, `decisionLog.md`
-참고). TOP 카메라의 YOLO26 추론(감지+추적+분류)은 로컬 백엔드가 프레임을 샘플링해서 GPU
-서버 `inference` 컨테이너의 API를 호출하는 방식으로 이루어짐. 학습 가중치(`.pt`)는
+참고). TOP 카메라의 YOLO26 추론(감지+추적+분류)은 GPU 서버의 `models/trashdetect/
+tracking2.py`가, 로컬 백엔드가 상시 서빙 중인 MJPEG 스트림(`GET /api/stream/ELEV-TOP`)을
+기존 SSH 역터널(`-R 8299:localhost:8047`)로 직접 구독해서 자체 판단(위 "외부 접속 — SSH
+터널" 참고) — 과거 "로컬 백엔드가 프레임 샘플링해서 GPU API 호출" 방식은 폐기됨
+(`decisionLog.md` 참고). 학습 가중치(`.pt`)는
 `training`→`inference` 둘 다 GPU 서버 안에 있으므로 원격 배포 없이 로컬 파일/볼륨 공유로
 충분(과거 "젯슨에 SCP로 배포" 문제 자체가 사라짐).
