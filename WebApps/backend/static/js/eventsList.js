@@ -42,6 +42,35 @@ document.addEventListener("DOMContentLoaded", async () => {
         return String(number).padStart(2, "0");
     }
 
+    function getTodayDateValue() {
+        const today = new Date();
+
+        return (
+            `${today.getFullYear()}-` +
+            `${pad(today.getMonth() + 1)}-` +
+            `${pad(today.getDate())}`
+        );
+    }
+
+    function setTodayDateFilters() {
+        const todayValue =
+            getTodayDateValue();
+
+        const fromInput =
+            getElement("fFrom");
+
+        const toInput =
+            getElement("fTo");
+
+        if (fromInput) {
+            fromInput.value = todayValue;
+        }
+
+        if (toInput) {
+            toInput.value = todayValue;
+        }
+    }
+
     function formatTime(date) {
         if (
             !(date instanceof Date) ||
@@ -124,11 +153,16 @@ document.addEventListener("DOMContentLoaded", async () => {
         const parameters =
             new URLSearchParams();
 
+        const todayValue =
+            getTodayDateValue();
+
         const fromValue =
-            getElement("fFrom")?.value;
+            getElement("fFrom")?.value ||
+            todayValue;
 
         const toValue =
-            getElement("fTo")?.value;
+            getElement("fTo")?.value ||
+            todayValue;
 
         if (fromValue) {
             parameters.set(
@@ -901,7 +935,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (field) {
             field.addEventListener(
                 "change",
-                reloadEvents
+                async () => {
+                    if (!field.value) {
+                        field.value =
+                            getTodayDateValue();
+                    }
+
+                    await reloadEvents();
+                }
             );
         }
     });
@@ -933,8 +974,6 @@ document.addEventListener("DOMContentLoaded", async () => {
             "click",
             async () => {
                 [
-                    "fFrom",
-                    "fTo",
                     "fType",
                     "fResult",
                     "fAlarm",
@@ -946,6 +985,8 @@ document.addEventListener("DOMContentLoaded", async () => {
                         input.value = "";
                     }
                 });
+
+                setTodayDateFilters();
 
                 await reloadEvents();
             }
@@ -987,6 +1028,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             }
         }
     );
+
+    setTodayDateFilters();
 
     await loadEvents();
 

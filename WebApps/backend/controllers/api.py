@@ -1,4 +1,5 @@
 import asyncio
+import smtplib
 from datetime import datetime, timezone
 
 from fastapi import (
@@ -26,6 +27,7 @@ from schemas.mode import (
     ModeResponse,
     ModeUpdate,
 )
+from schemas.report import ReportEmailRequest, ReportEmailResponse
 from schemas.statistics import Statistics
 from services.binStateService import binStateService
 from services.detectionService import detectionService
@@ -38,6 +40,15 @@ from services.errors import (
 )
 from services.eventService import eventService
 from services.modeService import modeService
+from services.reportEmailService import (
+    ApiResponseError,
+    ConfigurationError,
+    DataMismatchError,
+    DuplicateReportError,
+    LockUnavailableError,
+    SmtpAuthenticationError,
+    reportEmailService,
+)
 from services.webSocketManager import (
     webSocketManager,
 )
@@ -50,6 +61,46 @@ router = APIRouter(
     prefix="/api",
     tags=["events"],
 )
+
+
+@router.post(
+    "/reports/email",
+    response_model=ReportEmailResponse,
+    responses={
+        400: {"description": "보고서 기준일 또는 SMTP 설정 오류"},
+        409: {"description": "같은 보고서 중복 발송"},
+        423: {"description": "다른 보고서 프로세스 실행 중"},
+        502: {"description": "통계 API 또는 SMTP 실패"},
+    },
+)
+async def sendReportEmail(
+    request: ReportEmailRequest,
+) -> ReportEmailResponse:
+    try:
+        return await reportEmailService.sendReport(request)
+    except DuplicateReportError as error:
+        raise HTTPException(
+            status_code=409,
+            detail="이미 발송된 보고서입니다.",
+        ) from error
+    except LockUnavailableError as error:
+        raise HTTPException(status_code=423, detail=str(error)) from error
+    except (ConfigurationError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except SmtpAuthenticationError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    except (ApiResponseError, DataMismatchError) as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    except ConnectionError as error:
+        raise HTTPException(
+            status_code=502,
+            detail="통계 API 연결에 실패했습니다.",
+        ) from error
+    except (smtplib.SMTPException, OSError) as error:
+        raise HTTPException(
+            status_code=502,
+            detail="이메일 서버 연결 또는 발송에 실패했습니다.",
+        ) from error
 
 
 @router.get(

@@ -148,7 +148,11 @@ class Settings:
     outputDirectory: Path
 
     @classmethod
-    def fromEnvironment(cls, requireEmail: bool = True) -> "Settings":
+    def fromEnvironment(
+        cls,
+        requireEmail: bool = True,
+        requireRecipients: bool = True,
+    ) -> "Settings":
         recipients = tuple(
             item.strip()
             for item in os.getenv("RPA_REPORT_RECIPIENTS", "").split(",")
@@ -160,11 +164,16 @@ class Settings:
         smtpPassword = os.getenv("SMTP_PASSWORD", "")
         missing = []
         if requireEmail:
-            for name, value in (
-                ("RPA_REPORT_RECIPIENTS", recipients),
+            requiredEmailSettings = [
                 ("RPA_REPORT_FROM", sender),
                 ("SMTP_HOST", smtpHost),
-            ):
+            ]
+            if requireRecipients:
+                requiredEmailSettings.insert(
+                    0,
+                    ("RPA_REPORT_RECIPIENTS", recipients),
+                )
+            for name, value in requiredEmailSettings:
                 if not value:
                     missing.append(name)
         if missing:
