@@ -62,11 +62,12 @@ API 상세 스펙은 `.agentfiles/apiSpec.md` 참고.
 
 ```bash
 # .env는 프로젝트 루트에 위치해야 함(Notion 공유값)
-docker compose up --build
+docker compose --profile local up --build
 ```
 
 - `backend`(포트 8047) + `mongo`(호스트 포트 27020) 상시 기동. 로컬 웹캠을 백엔드가 직접 여는 코드는 아직 없어서 지금은 컨테이너에 카메라 디바이스 패스스루 불필요
-- 여기서 뜨는 `mongo`는 로컬 전용 별도 인스턴스 — 팀 배포 서버(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)와는 다른 DB. 팀 배포 서버를 쓰려면 `.env`의 `MONGO_HOST`를 그쪽으로 두고 compose의 `mongo` 서비스는 안 띄워도 됨(`docker compose up backend`)
+- `backend`/`mongo`는 `local` profile로 묶여 있음(GPU 서버의 `inference`/`side-overflow`와 같은 파일을 공유하므로, 이름 없이 `docker compose up`을 치면 아무것도 안 뜨게 해서 잘못된 환경에서 잘못된 서비스가 뜨는 걸 방지) — 반드시 `--profile local`을 붙일 것
+- 여기서 뜨는 `mongo`는 로컬 전용 별도 인스턴스 — 팀 배포 서버(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)와는 다른 DB. 팀 배포 서버를 쓰려면 `.env`의 `MONGO_HOST`를 그쪽으로 두고 compose의 `mongo` 서비스는 안 띄워도 됨(`docker compose --profile local up backend`)
 - 라벨링/학습(YOLO26 재학습 + Qwen3-VL-8B LoRA·QLoRA)은 평소엔 내려두고 필요할 때만:
   ```bash
   docker compose --profile training up --build training
@@ -148,13 +149,16 @@ docker compose up --build
 > (라즈베리파이는 추론 성능 부족). 상세는 `.agentfiles/architecture.md` 참고.
 
 - **개발**: Windows 노트북에서 Docker로 진행(로컬 웹캠 테스트)
-- **배포**: `backend`+`mongo`는 로컬 `<LOCAL_BACKEND_IP>`(실제 값은 Notion 참고)에서 `docker compose up backend mongo`로
-  구동. `training`/`llm`을 학원 GPU 서버(Linux, **NVIDIA L40S 4장 중 할당받은 1장**)로
-  이전해서 `docker compose --profile training up`/`--profile llm up`(자동 라벨링 검증
-  파이프라인 돌 때만 같이 기동). **TOP(`inference` 서비스, `models/trashdetect/
-  tracking2.py`)/SIDE(`sideOverflow` 서비스, `models/trashoverflow/sideOverflow.py`)
-  상시 추론 둘 다 `training`/`llm`과 달리 profile 없이 상시 기동**(`docker compose up -d
-  inference sideOverflow`) — Docker 정의는 완료됐고 GPU 서버 rootless Docker가 이미
+- **배포**: `backend`+`mongo`는 로컬 `<LOCAL_BACKEND_IP>`(실제 값은 Notion 참고)에서
+  `docker compose --profile local up -d backend mongo`로 구동. `training`/`llm`을 학원
+  GPU 서버(Linux, **NVIDIA L40S 4장 중 할당받은 1장**)로 이전해서 `docker compose
+  --profile training up`/`--profile llm up`(자동 라벨링 검증 파이프라인 돌 때만 같이
+  기동). **TOP(`inference` 서비스, `models/trashdetect/tracking2.py`)/SIDE
+  (`side-overflow` 서비스, `models/trashoverflow/sideOverflow.py`) 상시 추론은
+  `gpu` profile로 묶어서 `docker compose --profile gpu up -d`로 한 번에 기동**
+  (모두 같은 `docker-compose.yml`을 공유하므로, profile 없이 `docker compose up`을
+  치면 로컬/GPU 어느 환경에서든 아무것도 안 뜨게 해서 잘못된 서비스가 실수로 같이
+  뜨는 걸 방지). Docker 정의는 완료됐고 GPU 서버 rootless Docker가 이미
   `loginctl enable-linger`로 재부팅 시 자동 기동되게 설정돼 있어서 별도 systemd 없이
   `restart: unless-stopped`만으로 GPU 재부팅 복구가 됨. 단, 실제 GPU 서버에서
   빌드+기동 자체는 아직 검증 안 됨(TOP/SIDE 둘 다 지금까지는 컨테이너 없이 venv+

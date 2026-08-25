@@ -217,8 +217,17 @@
   systemd 유닛 없이 같은 효과를 냄. `WebApps/backend/models/trashdetect/Dockerfile`/
   `WebApps/backend/models/trashoverflow/Dockerfile`(둘 다 `training/Dockerfile`과 같은
   `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime` 베이스, GPU 드라이버 호환 검증된 태그
-  재사용) + `docker-compose.yml`의 `inference`/`sideOverflow` 서비스(`training`/`llm`과
-  달리 profile 없이 상시 기동)로 구현. 가중치 파일(`bestTop.pt`/`bestSide.pt`, 둘 다
+  재사용) + `docker-compose.yml`의 `inference`/`side-overflow` 서비스로 구현 — 서비스 키를
+  처음에 `sideOverflow`(camelCase)로 뒀다가 Docker 이미지 이름 규칙(소문자만 허용)
+  위반으로 `docker compose build` 자체가 실패해서 `side-overflow`(케밥케이스)로 즉시
+  수정(`naming.md`의 "Docker 이미지/컨테이너는 케밥케이스" 규칙을 서비스 키 자체에는
+  놓쳤던 부분). 또한 `backend`/`mongo`(로컬 전용)와 `inference`/`side-overflow`(GPU
+  전용)가 같은 `docker-compose.yml`을 공유하는 구조라, 실수로 이름 없이 `docker compose
+  up`을 치면 로컬/GPU 어느 쪽에서든 엉뚱한 서비스가 같이 뜰 위험이 있다는 지적을 받고
+  `backend`/`mongo`는 `local` profile, `inference`/`side-overflow`는 `gpu` profile로
+  분리(`training`/`llm`의 온디맨드 profile과는 목적이 다름 — 상시 기동은 유지하되 "맨 처음
+  뭘 켤지"만 안전하게 구분, `restart: unless-stopped`가 재부팅 후 자동 복구를 담당하므로
+  profile 자체는 이 상시성에 영향 없음). 가중치 파일(`bestTop.pt`/`bestSide.pt`, 둘 다
   `.gitignore` 대상)은 이미지에 안 굽고 `training`처럼 디렉터리 전체를 볼륨 마운트 —
   재빌드 없이 가중치만 교체 가능. 컨테이너 안에서는 `127.0.0.1`이 컨테이너 자신을
   가리켜서 SSH 터널에 못 닿으므로, `tracking2.py`/`sideOverflow.py`에 `BACKEND_HOST`
@@ -262,3 +271,19 @@
   코드는 안 건드리고 문서(`naming.md`/`autoTraining/README.md`)만 "영구 예외"에서 "과도기
   상태, 새 모델 배포 시 함께 전환"으로 다시 정정. 새 모델이 실제로 나오면 그 시점에
   `tracking2.py` 세 값도 camelCase로 바꿀 것 — 이번엔 되돌리지 않고 유지
+- **`inference`/`side-overflow`의 GPU→로컬 백엔드 연결을 `host.docker.internal`+
+  `extra_hosts`에서 `network_mode: host`로 전환** → GPU 서버에서 실제로 컨테이너를 처음
+  띄워보니 둘 다 `Connection to tcp://host.docker.internal:8299 failed: Connection
+  refused`로 계속 재시작 crash loop에 빠짐(SSH 역터널은 로컬 배포 서버 쪽에서 계속 열어둔
+  상태였는데도 발생). 원인 파악: SSH `-R` 역터널은 기본적으로 원격 서버(GPU)의
+  **루프백(127.0.0.1)에만** 포트를 리스닝하는데, Docker 브리지 네트워크를 거치는
+  `host.docker.internal` 경로는 루프백이 아니라 컨테이너↔호스트 간 별도 가상 인터페이스를
+  타서 이 리스닝 포트에 닿지 못함. 정공법은 GPU 서버 sshd의 `GatewayPorts`를 켜는 것이지만
+  `soma` 계정에 sudo가 없어 불가능. 대신 `inference`/`side-overflow` 둘 다
+  `network_mode: host`로 전환해 컨테이너가 호스트 네트워크 네임스페이스를 그대로
+  공유하게 함 — 이러면 컨테이너 안 `127.0.0.1`이 GPU 서버 자신의 `127.0.0.1`과 완전히
+  동일해져서 SSH 터널의 루프백 리스닝과 자연스럽게 맞음(SSH 세션에서 직접 `python
+  tracking2.py`로 돌릴 때와 동일한 경로). 두 서비스 다 `ports:`로 외부 노출하는 게
+  없어서(요청을 안 받고 푸시만 하는 워커) 네트워크 격리를 포기해도 손해가 없음.
+  `extra_hosts`/`BACKEND_HOST=host.docker.internal` 설정 제거, `tracking2.py`/
+  `sideOverflow.py`의 `BACKEND_HOST` 기본값(`127.0.0.1`)은 그대로 유효해서 코드 변경 불필요
