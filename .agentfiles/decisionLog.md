@@ -271,3 +271,19 @@
   코드는 안 건드리고 문서(`naming.md`/`autoTraining/README.md`)만 "영구 예외"에서 "과도기
   상태, 새 모델 배포 시 함께 전환"으로 다시 정정. 새 모델이 실제로 나오면 그 시점에
   `tracking2.py` 세 값도 camelCase로 바꿀 것 — 이번엔 되돌리지 않고 유지
+- **`inference`/`side-overflow`의 GPU→로컬 백엔드 연결을 `host.docker.internal`+
+  `extra_hosts`에서 `network_mode: host`로 전환** → GPU 서버에서 실제로 컨테이너를 처음
+  띄워보니 둘 다 `Connection to tcp://host.docker.internal:8299 failed: Connection
+  refused`로 계속 재시작 crash loop에 빠짐(SSH 역터널은 로컬 배포 서버 쪽에서 계속 열어둔
+  상태였는데도 발생). 원인 파악: SSH `-R` 역터널은 기본적으로 원격 서버(GPU)의
+  **루프백(127.0.0.1)에만** 포트를 리스닝하는데, Docker 브리지 네트워크를 거치는
+  `host.docker.internal` 경로는 루프백이 아니라 컨테이너↔호스트 간 별도 가상 인터페이스를
+  타서 이 리스닝 포트에 닿지 못함. 정공법은 GPU 서버 sshd의 `GatewayPorts`를 켜는 것이지만
+  `soma` 계정에 sudo가 없어 불가능. 대신 `inference`/`side-overflow` 둘 다
+  `network_mode: host`로 전환해 컨테이너가 호스트 네트워크 네임스페이스를 그대로
+  공유하게 함 — 이러면 컨테이너 안 `127.0.0.1`이 GPU 서버 자신의 `127.0.0.1`과 완전히
+  동일해져서 SSH 터널의 루프백 리스닝과 자연스럽게 맞음(SSH 세션에서 직접 `python
+  tracking2.py`로 돌릴 때와 동일한 경로). 두 서비스 다 `ports:`로 외부 노출하는 게
+  없어서(요청을 안 받고 푸시만 하는 워커) 네트워크 격리를 포기해도 손해가 없음.
+  `extra_hosts`/`BACKEND_HOST=host.docker.internal` 설정 제거, `tracking2.py`/
+  `sideOverflow.py`의 `BACKEND_HOST` 기본값(`127.0.0.1`)은 그대로 유효해서 코드 변경 불필요

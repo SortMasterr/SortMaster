@@ -129,15 +129,17 @@ services:
     container_name: sortmaster-inference
     profiles: ["gpu"]
     restart: unless-stopped
+    # host.docker.internal(브리지 네트워크 경유)로는 SSH -R 터널이 GPU 서버 루프백에만
+    # 열어둔 포트(8299)에 못 닿음("Connection refused") — sshd GatewayPorts를 켜려면
+    # root 권한이 필요해서(soma 계정엔 없음), 대신 컨테이너가 호스트 네트워크를 그대로
+    # 공유하게 함. 이러면 컨테이너 안 127.0.0.1이 GPU 서버 자신의 127.0.0.1과 동일해져서
+    # BACKEND_HOST 오버라이드도 불필요(tracking2.py 기본값 127.0.0.1 그대로 사용).
+    # ports:/외부 노출이 애초에 없는 서비스라 격리를 포기해도 손해가 없음.
+    network_mode: host
     environment:
       # training과 동일한 이유(베이스 이미지가 NVIDIA_VISIBLE_DEVICES=all을 박아둠) —
       # 명시적으로 덮어써야 실제로 카드 격리됨.
       - NVIDIA_VISIBLE_DEVICES=${GPU_DEVICE_ID:-0}
-      # 컨테이너 안에서는 127.0.0.1이 컨테이너 자신을 가리켜서 SSH 터널에 못 닿음 —
-      # host.docker.internal로 호스트를 가리키게 함(tracking2.py의 BACKEND_HOST 참고).
-      - BACKEND_HOST=host.docker.internal
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       # 소스+가중치(bestTop.pt, .gitignore 대상)+트래커 설정을 통째로 마운트 —
       # 이미지에 안 구우므로 가중치 갱신 시 재빌드 불필요, 컨테이너 재시작만 하면 됨.
@@ -159,11 +161,10 @@ services:
     container_name: sortmaster-side-overflow
     profiles: ["gpu"]
     restart: unless-stopped
+    # inference와 같은 이유 — host.docker.internal 대신 호스트 네트워크 공유(위 참고)
+    network_mode: host
     environment:
       - NVIDIA_VISIBLE_DEVICES=${GPU_DEVICE_ID:-0}
-      - BACKEND_HOST=host.docker.internal
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       # 소스+가중치(bestSide.pt, .gitignore 대상)+roi.json을 통째로 마운트
       - ./WebApps/backend/models/trashoverflow:/app
