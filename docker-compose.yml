@@ -143,7 +143,7 @@ services:
   # SIDE(ELEV-SIDE) MobileNet_V3_Small 상시 추론 — inference(TOP)와 완전히 동일한 패턴
   # (기술적으로 GPU가 꼭 필요하진 않지만 TOP과 아키텍처를 통일하려고 재전환됨,
   # decisionLog.md 참고). POST /api/binStates로 푸시.
-  sideOverflow:
+  side-overflow:
     build:
       context: ./WebApps/backend/models/trashoverflow
     container_name: sortmaster-side-overflow
