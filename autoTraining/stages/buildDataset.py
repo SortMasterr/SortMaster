@@ -96,7 +96,8 @@ class BuildDatasetStage:
             # causal 모델이면 학습 입력도 causal 이미지로 저장한다.
             if self.config["inference"]["inputMode"] == "causal":
                 image = self._makeCausalInput(row)
-                cv2.imwrite(str(targetImage), image)
+                if not cv2.imwrite(str(targetImage), image):
+                    raise OSError(f"신규 causal 이미지 저장 실패: {targetImage}")
             else:
                 shutil.copy2(row["imagePath"], targetImage)
             shutil.copy2(row["labelPath"], targetLabel)
