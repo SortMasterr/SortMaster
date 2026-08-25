@@ -1,6 +1,6 @@
 """Qwen 검수 결과 전체에 사람의 최종 결정을 적용하는 승인 게이트입니다.
 
-UI가 아직 없어도 동일한 계약을 사용할 수 있도록 사람이 작성하는 humanDecisions.jsonl과
+검수 UI와 수동 편집이 동일한 계약을 사용할 수 있도록 humanDecisions.jsonl과
 파이프라인이 검증해 만드는 humanReviews.jsonl을 분리합니다. Build는 검증 완료 파일만 읽습니다.
 """
 from pathlib import Path

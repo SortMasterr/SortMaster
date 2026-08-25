@@ -16,6 +16,7 @@ from stages.deployModel import DeployModelStage, deployModel
 from stages.evaluateModel import EvaluateModelStage, evaluateModel
 from stages.extractFrames import ExtractFramesStage, extractFrames
 from stages.humanReview import HumanReviewStage, validateHumanReview
+from stages.humanReviewUi import HumanReviewUiStage
 from stages.promoteModel import PromoteModelStage, promoteModel
 from stages.reviewLabels import ReviewLabelsStage, reviewLabels
 from stages.selectFrames import SelectFramesStage, selectFrames
@@ -28,7 +29,7 @@ batchIdPattern = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 class TrainingPipeline(
     CausalImagesMixin, CollectEventMediaStage, ExtractFramesStage, SelectFramesStage, AutoLabelingStage,
-    ReviewLabelsStage, HumanReviewStage, BuildDatasetStage, TrainModelStage,
+    ReviewLabelsStage, HumanReviewStage, HumanReviewUiStage, BuildDatasetStage, TrainModelStage,
     EvaluateModelStage, PromoteModelStage, DeployModelStage,
 ):
     """한 batchId의 산출물을 격리하고 같은 기준 모델을 전체 사이클에 고정합니다."""
@@ -95,13 +96,16 @@ class TrainingPipeline(
 def parseArgs() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=[
-        "collect", "extract", "select", "label", "review", "humanReview", "build", "train",
+        "collect", "extract", "select", "label", "review", "reviewUi", "humanReview", "build", "train",
         "evaluate", "promote", "deploy", "rollback", "prepareDailyBatch",
         "continueAfterHumanReview",
     ])
     parser.add_argument("--config", type=Path, default=defaultConfig)
     parser.add_argument("--batchId", default=date.today().isoformat())
     parser.add_argument("--version", help="rollback할 registry 모델 버전")
+    parser.add_argument("--reviewHost", default="127.0.0.1", help="사람 검수 UI bind host")
+    parser.add_argument("--reviewPort", type=int, default=8765, help="사람 검수 UI port")
+    parser.add_argument("--noBrowser", action="store_true", help="검수 UI 브라우저 자동 열기 비활성화")
     return parser.parse_args()
 
 
@@ -120,6 +124,13 @@ def main() -> None:
         # 모든 사람 결정이 검증돼야 데이터셋 생성과 평가로 넘어간다. 승격은 별도 승인이다.
         "continueAfterHumanReview": ["humanReview", "build", "train", "evaluate"],
     }
+    if args.stage == "reviewUi":
+        pipeline.launchHumanReviewUi(
+            host=args.reviewHost,
+            port=args.reviewPort,
+            openBrowser=not args.noBrowser,
+        )
+        return
     if args.stage == "rollback":
         if not args.version:
             raise ValueError("rollback에는 --version이 필요합니다.")
