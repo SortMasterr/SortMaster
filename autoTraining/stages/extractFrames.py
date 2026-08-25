@@ -1,37 +1,50 @@
-"""영상 프레임 추출 단계를 외부에서 호출하기 위한 얇은 어댑터입니다.
+"""1단계: CCTV 영상에서 프레임을 추출합니다."""
+import cv2
+from common.pipelineUtilities import ManifestWriter,createFrameId,videoExtensions
 
-실제 처리 로직과 상태는 trainingPipeline.TrainingPipeline이 소유합니다.
-이 파일은 오케스트레이터가 각 단계를 명시적인 함수로 연결할 수 있게 해 줍니다.
-단계별 파일을 분리하면 나중에 테스트, 작업 큐, 스케줄러 또는 별도 컨테이너가
-메인 클래스의 내부 구현을 알지 않고도 같은 진입점을 호출할 수 있습니다.
-"""
+class ExtractFramesStage:
+    def extract(self)->None:
+        frameConfig=self.config["frames"]
+        saveEvery=max(1,int(frameConfig["saveEveryN"]))
+        jpegQuality=int(frameConfig["jpegQuality"])
+        videoPaths=sorted(path for path in self.videosDirectory.rglob("*") if path.is_file() and path.suffix.lower() in videoExtensions)
+        if not videoPaths:
+            raise FileNotFoundError(f"영상이 없습니다: {self.videosDirectory}")
+        totalCount=0
+        # 추출 결과를 list에 누적하지 않고 프레임 저장 직후 JSONL 한 행을 기록한다.
+        with ManifestWriter(self.framesManifest) as writer:
+            for videoPath in videoPaths:
+                videoKey=videoPath.stem
+                outputDirectory=self.framesRoot/videoKey
+                outputDirectory.mkdir(parents=True,exist_ok=True)
+                capture=cv2.VideoCapture(str(videoPath))
+                if not capture.isOpened():
+                    print(f"[WARN] 영상 열기 실패: {videoPath}")
+                    continue
+                sourceFps=float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+                sourceIndex=savedCount=0
+                try:
+                    while True:
+                        succeeded,frameImage=capture.read()
+                        if not succeeded:
+                            break
+                        if sourceIndex%saveEvery:
+                            sourceIndex+=1
+                            continue
+                        itemId=createFrameId(videoKey,sourceIndex)
+                        imagePath=outputDirectory/f"{itemId}.jpg"
+                        if not cv2.imwrite(str(imagePath),frameImage,[cv2.IMWRITE_JPEG_QUALITY,jpegQuality]):
+                            raise OSError(f"프레임 저장 실패: {imagePath}")
+                        writer.write({"id":itemId,"video":videoKey,"videoPath":str(videoPath.resolve()),"frameIndex":sourceIndex,"timestampSeconds":sourceIndex/sourceFps if sourceFps>0 else None,"fps":sourceFps,"imagePath":str(imagePath.resolve())})
+                        savedCount+=1
+                        totalCount+=1
+                        sourceIndex+=1
+                finally:
+                    capture.release()
+                print(f"[EXTRACT] {videoPath.name}: {savedCount} frames")
+        # 새 frames.jsonl이 생성됐으므로 이전 causal 경로 인덱스를 무효화한다.
+        self._frameIndexCache=None
+        print(f"[EXTRACT] 전체 {totalCount}개 프레임 보존: {self.framesRoot}")
 
-from typing import Protocol
-
-
-class PipelineContext(Protocol):
-    """이 단계가 요구하는 최소 메서드만 선언한 구조적 타입입니다.
-
-    Protocol은 실제 객체를 생성하지 않습니다. TrainingPipeline 전체에 강하게 결합하지 않고,
-    해당 메서드를 제공하는 객체라면 테스트용 가짜 객체도 전달할 수 있게 하는 타입 힌트입니다.
-    """
-
-    def extract(self) -> None:
-        """TrainingPipeline.extract 메서드와 동일한 계약입니다."""
-        ...
-
-
-def extractFrames(pipeline: PipelineContext) -> None:
-    """CCTV 영상 파일을 순서대로 읽어 프레임 이미지와 frames.jsonl을 생성합니다.
-
-    Args:
-        pipeline: 실제 단계 로직과 설정, 작업 경로를 가진 TrainingPipeline 호환 객체.
-
-    Returns:
-        없음. 처리 결과는 pipelineConfig.yaml에 지정된 workspace와 manifest에 저장됩니다.
-
-    Raises:
-        파일 누락, 설정 오류, 모델 추론 실패 등 실제 단계에서 발생한 예외를 그대로 전달합니다.
-        예외를 숨기지 않아 자동 실행 시스템이 실패를 감지하고 해당 단계부터 재시도할 수 있습니다.
-    """
+def extractFrames(pipeline: ExtractFramesStage)->None:
     pipeline.extract()

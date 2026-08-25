@@ -1,37 +1,60 @@
-"""기존·후보 모델 비교 평가 단계를 외부에서 호출하기 위한 얇은 어댑터입니다.
+"""7단계: 기준 모델과 후보 모델을 동일한 test split으로 비교합니다."""
 
-실제 처리 로직과 상태는 trainingPipeline.TrainingPipeline이 소유합니다.
-이 파일은 오케스트레이터가 각 단계를 명시적인 함수로 연결할 수 있게 해 줍니다.
-단계별 파일을 분리하면 나중에 테스트, 작업 큐, 스케줄러 또는 별도 컨테이너가
-메인 클래스의 내부 구현을 알지 않고도 같은 진입점을 호출할 수 있습니다.
-"""
+import json
+from pathlib import Path
 
-from typing import Protocol
+from stages.autoLabeling import loadYoloModel
 
 
-class PipelineContext(Protocol):
-    """이 단계가 요구하는 최소 메서드만 선언한 구조적 타입입니다.
+class EvaluateModelStage:
+    """두 모델의 mAP, precision, recall 계산을 담당합니다."""
 
-    Protocol은 실제 객체를 생성하지 않습니다. TrainingPipeline 전체에 강하게 결합하지 않고,
-    해당 메서드를 제공하는 객체라면 테스트용 가짜 객체도 전달할 수 있게 하는 타입 힌트입니다.
-    """
+    def _evaluateModel(self, modelPath: Path) -> dict[str, float]:
+        """지정된 모델을 datasetCurrent의 고정 test split으로 평가합니다.
+
+        mAP50은 IoU 0.5 기준 평균 정밀도이고, mAP50-95는 여러 IoU 기준을 평균한 더 엄격한
+        지표입니다. precision은 오탐 억제 정도, recall은 실제 객체를 놓치지 않는 정도를 나타냅니다.
+        기존 모델과 후보 모델이 완전히 같은 조건에서 평가되도록 내부 공통 함수로 사용합니다.
+        """
+        cfg = self.config["training"]
+        metrics = loadYoloModel(modelPath).val(
+            data=str(self.datasetRoot / "data.yaml"),
+            split="test",
+            imgsz=int(cfg["imgsz"]),
+            device=cfg["device"],
+            workers=int(cfg["workers"]),
+            verbose=False,
+        )
+        return {
+            "map50": float(metrics.box.map50),
+            "map50To95": float(metrics.box.map),
+            "precision": float(metrics.box.mp),
+            "recall": float(metrics.box.mr),
+        }
 
     def evaluate(self) -> None:
-        """TrainingPipeline.evaluate 메서드와 동일한 계약입니다."""
-        ...
+        """기준 모델과 새 후보 모델을 동일한 데이터와 설정으로 평가합니다.
+
+        trainingResult.json에서 후보 best.pt를 찾고 두 모델의 mAP50, mAP50-95, precision,
+        recall을 계산합니다. 비교 결과와 사용한 모델 경로는 evaluation.json에 저장됩니다.
+        이 단계 역시 모델을 교체하지 않으며 promote 단계가 판단할 근거만 만듭니다.
+        """
+        if not self.trainingResult.exists():
+            raise RuntimeError("먼저 train 단계를 실행하세요.")
+        training = json.loads(self.trainingResult.read_text(encoding="utf-8"))
+        candidateModel = Path(training["bestModel"])
+        result = {
+            "baselineModel": str(self.baseAutoLabelModel.resolve()),
+            "candidateModel": str(candidateModel.resolve()),
+            "baseline": self._evaluateModel(self.baseAutoLabelModel),
+            "candidate": self._evaluateModel(candidateModel),
+        }
+        self.evaluationResult.write_text(
+            json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
-def evaluateModel(pipeline: PipelineContext) -> None:
-    """동일한 test split에서 두 모델의 mAP, precision, recall을 측정합니다.
-
-    Args:
-        pipeline: 실제 단계 로직과 설정, 작업 경로를 가진 TrainingPipeline 호환 객체.
-
-    Returns:
-        없음. 처리 결과는 pipelineConfig.yaml에 지정된 workspace와 manifest에 저장됩니다.
-
-    Raises:
-        파일 누락, 설정 오류, 모델 추론 실패 등 실제 단계에서 발생한 예외를 그대로 전달합니다.
-        예외를 숨기지 않아 자동 실행 시스템이 실패를 감지하고 해당 단계부터 재시도할 수 있습니다.
-    """
+def evaluateModel(pipeline: EvaluateModelStage) -> None:
+    """오케스트레이터에서 모델 평가 단계를 실행합니다."""
     pipeline.evaluate()

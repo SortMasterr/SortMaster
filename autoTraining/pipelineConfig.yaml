@@ -1,41 +1,43 @@
-# CCTV -> 프레임 -> 자동 라벨 -> Qwen 검수 -> 파인튜닝 -> 모델 교체 설정
-
+# CCTV 프레임 추출부터 Qwen-VL 검수, YOLO 재학습과 모델 승격까지의 설정입니다.
 paths:
   videos: autoTraining/inputVideos
   workspace: autoTraining/workspace
-  base_dataset: autoTraining/baseDataset
-  base_model: autoTraining/models/baseModel.pt
-  deployed_model: autoTraining/promotedModels/current.pt
+  baseDataset: autoTraining/baseDataset
+  baseAutoLabelModel: autoTraining/models/baseAutolabel/best.pt
+  newAutoLabelModel: autoTraining/models/newAutolabel/best.pt
+  deployedModel: autoTraining/promotedModels/current.pt
 
 frames:
-  # 1이면 모든 프레임 저장. 데이터가 너무 많으면 2 이상으로 조정한다.
-  save_every_n: 1
-  jpeg_quality: 95
-  # 모든 프레임은 frames_all에 보존하고, 아래 기준은 라벨 후보 선별에만 사용한다.
-  candidate_every_n: 3
-  min_laplacian_variance: 20.0
-  min_brightness: 20.0
-  max_brightness: 235.0
+  # 1이면 모든 프레임을 저장하며 값이 커질수록 디스크 사용량과 처리량이 감소합니다.
+  saveEveryN: 1
+  jpegQuality: 95
+  # 아래 기준은 원본 삭제가 아니라 자동 라벨링 후보 선별에만 사용합니다.
+  candidateEveryN: 3
+  minLaplacianVariance: 20.0
+  minBrightness: 20.0
+  maxBrightness: 235.0
 
 inference:
-  # rgb 또는 causal. causal은 t-2/t-1/t를 B/G/R 채널로 결합한다.
-  input_mode: causal
+  # rgb는 현재 프레임, causal은 t-2/t-1/t를 B/G/R 채널로 결합합니다.
+  inputMode: causal
   imgsz: 416
   confidence: 0.20
   device: 0
 
-ollama:
-  base_url: http://127.0.0.1:11434
-  # auto이면 설치된 모델 중 이름에 qwen과 vl이 모두 들어간 모델을 선택한다.
+qwenVl:
+  # 현재 구현은 /api/tags와 /api/chat을 제공하는 Qwen-VL API 서버에 연결합니다.
+  apiBaseUrl: http://127.0.0.1:11434
+  # auto이면 설치 모델 중 이름에 qwen과 vl이 포함된 첫 모델을 선택합니다.
   model: auto
-  timeout_seconds: 180
+  timeoutSeconds: 180
   retries: 2
-  minimum_review_confidence: 0.70
+  minimumReviewConfidence: 0.70
 
 dataset:
-  train_ratio: 0.80
-  val_ratio: 0.10
-  test_ratio: 0.10
+  trainRatio: 0.80
+  valRatio: 0.10
+  testRatio: 0.10
+  # 아래 문자열은 기존 YOLO 모델의 실제 클래스명이므로 임의로 변경하면 안 됩니다.
   classes:
     - trash_normal
     - trash_paper
@@ -52,9 +54,7 @@ training:
   patience: 30
 
 promotion:
-  # 새 모델의 mAP50이 기존 모델보다 이 값 이상 낮으면 교체하지 않는다.
-  maximum_map50_drop: 0.0
-  # 새 모델의 Recall이 기존 모델보다 이 값 이상 낮으면 교체하지 않는다.
-  maximum_recall_drop: 0.0
-  backup_directory: autoTraining/modelArchive
-
+  # 신규 모델이 기존 모델보다 허용되는 최대 성능 하락 폭입니다.
+  maximumMap50Drop: 0.0
+  maximumRecallDrop: 0.0
+  backupDirectory: autoTraining/modelArchive
