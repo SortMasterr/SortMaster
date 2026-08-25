@@ -4,6 +4,10 @@ services:
       context: .
       dockerfile: WebApps/backend/Dockerfile
     container_name: sortmaster-backend
+    # 로컬 배포 서버 전용 — GPU 서버에서 이 파일을 쓸 때(inference/side-overflow) 이름
+    # 없이 `docker compose up`을 실수로 치면 backend/mongo까지 같이 뜨려는 걸 막기 위해
+    # profile로 분리. `docker compose --profile local up -d`로 기동.
+    profiles: ["local"]
     restart: unless-stopped
     ports:
       - "8047:8047"
@@ -20,6 +24,8 @@ services:
   mongo:
     image: mongo:7.0
     container_name: sortmaster-mongo
+    # backend와 같은 이유로 local profile — GPU 서버에서 잘못 같이 뜨는 것 방지
+    profiles: ["local"]
     restart: unless-stopped
     ports:
       - "27020:27017"
@@ -111,14 +117,17 @@ services:
 
   # TOP(ELEV-TOP) YOLO26 상시 추론 — 로컬 백엔드 MJPEG를 SSH 역터널로 구독해서 자체
   # 판정 후 POST /api/events/aiDisposal로 푸시하는 워커(요청을 받지 않으므로 ports 없음).
-  # training/llm과 달리 상시 기동이 목적이라 profile로 안 뺌 — rootless Docker가 이미
+  # training/llm처럼 온디맨드는 아니라서 매번 이름을 다시 지정할 필요는 없지만, 로컬
+  # backend/mongo와 같이 뜨는 걸 막기 위해 GPU 서버 전용 gpu profile로 분리 —
+  # `docker compose --profile gpu up -d`로 한 번에 기동. rootless Docker가 이미
   # loginctl enable-linger로 재부팅 시 자동 기동되도록 설정돼 있어서(gpuServerOps.md),
-  # restart: unless-stopped만으로 GPU 서버 재부팅 후 자동 복구됨(단, 로컬 배포 서버 쪽
-  # SSH 역터널이 살아있어야 실제로 연결됨 — 그건 이 컨테이너와 별개 문제).
+  # restart: unless-stopped와 합쳐지면 GPU 서버 재부팅 후 이 컨테이너도 자동 복구됨(단,
+  # 로컬 배포 서버 쪽 SSH 역터널이 살아있어야 실제로 연결됨 — 그건 별개 문제).
   inference:
     build:
       context: ./WebApps/backend/models/trashdetect
     container_name: sortmaster-inference
+    profiles: ["gpu"]
     restart: unless-stopped
     environment:
       # training과 동일한 이유(베이스 이미지가 NVIDIA_VISIBLE_DEVICES=all을 박아둠) —
@@ -148,6 +157,7 @@ services:
     build:
       context: ./WebApps/backend/models/trashoverflow
     container_name: sortmaster-side-overflow
+    profiles: ["gpu"]
     restart: unless-stopped
     environment:
       - NVIDIA_VISIBLE_DEVICES=${GPU_DEVICE_ID:-0}
