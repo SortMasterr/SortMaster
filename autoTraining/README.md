@@ -61,7 +61,7 @@ bootstrap 체크포인트와 설정의 클래스 및 입력 전처리 계약을 
 | 기존 데이터셋 | 준비 안 됨 | `autoTraining/baseDataset`이 존재하지 않음 |
 | bootstrap 모델 | 로드 가능, 설정 불일치 | 5,393,150바이트 `.pt` 로드 성공. 4개 클래스는 최신 의미 계약과 맞지만 설정의 표기법이 다름 |
 | 활성 모델 포인터 | 초기 상태 | 아직 `models/current.json`이 없어 최초 사이클은 bootstrap 모델을 선택함 |
-| Qwen-VL 검수 | 코드 수정됨, 실서버 확인 필요 | Compose vLLM의 `/v1/models`, `/v1/chat/completions`를 사용함 |
+| Qwen-VL 검수 | 환경 연결됨, 실서버 요청 확인 필요 | `.env`의 `LLM_PORT`와 `qwenVl.apiHost`로 vLLM `/v1/models`, `/v1/chat/completions`를 호출 |
 | 모델 레지스트리 | 테스트 통과 | bootstrap 선택, 사이클 고정, SHA-256 검증, registry 승격과 active 포인터 해석 확인 |
 | 감사 체크포인트 해시 | 불일치 | 로컬 bootstrap은 `757F...B7F2`, 문서의 `bestTop.pt`는 `2AF2...DFFC`이므로 동일 파일로 간주할 수 없음 |
 | 운영 입력 호환성 | 불일치 | 자동화 기본값은 causal/416, `tracking2.py`는 단일 BGR 프레임/416, 데이터셋 문서는 640×640 letterbox를 명시함 |
@@ -452,7 +452,19 @@ Deploy와 Rollback은 모델 파일만 원자적으로 교체합니다. 이후 `
 
 설정 키, Python 내부 이름, 매니페스트 필드와 파이프라인이 생성하는 폴더 이름 및 YOLO 클래스명은 camelCase로 통일했습니다. 기존 workspace에 snake_case 필드나 클래스명으로 생성된 JSONL은 새 코드와 호환되지 않으므로 `extract` 단계부터 다시 실행해야 합니다.
 
-Qwen-VL 설정은 `qwenVl`에 있으며 검수 결과는 camelCase 필드를 사용합니다. 현재 구현은 Compose의 vLLM OpenAI 호환 `/v1/models`, `/v1/chat/completions`를 호출합니다.
+Qwen-VL 설정은 `qwenVl`에 있으며 검수 결과는 camelCase 필드를 사용합니다. API 호스트는
+`pipelineConfig.yaml`의 `qwenVl.apiHost`, 포트는 프로젝트 루트 또는 `WebApps/backend/.env`의
+`LLM_PORT`를 사용합니다. 실제 포트 번호를 YAML이나 README에 중복 기록하지 않습니다.
+
+```yaml
+qwenVl:
+  apiHost: http://127.0.0.1
+  model: auto
+```
+
+Review는 조합한 주소의 vLLM OpenAI 호환 `/v1/models`, `/v1/chat/completions`를 호출합니다.
+GPU 서버 외부에서 파이프라인을 실행한다면 `apiHost`를 GPU 서버 주소로 바꾸되 실제 주소와
+인증정보는 공개 문서에 기록하지 않습니다.
 
 ## 메모리 및 I/O 최적화
 
