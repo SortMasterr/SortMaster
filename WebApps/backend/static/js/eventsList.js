@@ -8,12 +8,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             name: "종이",
             className: "tagPaper",
         },
-        plastic: {
-            name: "플라스틱",
-            className: "tagPlastic",
-        },
-        can: {
-            name: "캔",
+        plasticCan: {
+            name: "플라스틱·캔",
             className: "tagPlastic",
         },
         coffeeCup: {

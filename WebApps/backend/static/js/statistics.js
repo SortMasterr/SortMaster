@@ -8,8 +8,7 @@ document.addEventListener(
         const typeNameByClass = {
             general: "일반 쓰레기",
             paper: "종이",
-            plastic: "플라스틱",
-            can: "캔",
+            plasticCan: "플라스틱·캔",
             coffeeCup: "커피 컵",
         };
 
@@ -151,8 +150,7 @@ document.addEventListener(
                 countByClass.general ?? 0;
 
             const plasticCount =
-                (countByClass.plastic ?? 0) +
-                (countByClass.can ?? 0);
+                countByClass.plasticCan ?? 0;
 
             const paperCount =
                 countByClass.paper ?? 0;
