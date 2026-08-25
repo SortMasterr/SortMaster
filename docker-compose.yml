@@ -1,7 +1,8 @@
 services:
   backend:
     build:
-      context: ./WebApps/backend
+      context: .
+      dockerfile: WebApps/backend/Dockerfile
     container_name: sortmaster-backend
     restart: unless-stopped
     ports:
