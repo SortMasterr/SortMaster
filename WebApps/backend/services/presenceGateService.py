@@ -2,15 +2,16 @@
 TOP 카메라(ELEV-TOP) 사람 존재 감지 게이팅.
 
 architecture.md "탐지 파이프라인"의 사람 존재 감지 게이팅을 구현한다: 사람이 통 앞에
-있는 동안만 녹화를 켜고(추후 GPU 프레임 샘플링도 같이 켤 예정 — 아래 TODO 스텁), 사람이
-벗어나면(약 3초 유예 후) 녹화를 끈다. 모션(움직임) 감지는 투척 시작 순간을 놓칠 수
-있어 기각됐고(decisionLog.md), 대신 detection/presenceDetector.py의 배경 차분
-전경 비율을 임계값+디바운스로 게이팅한다.
+있는 동안만 녹화를 켜고, 사람이 벗어나면(약 3초 유예 후) 녹화를 끈다. 모션(움직임) 감지는
+투척 시작 순간을 놓칠 수 있어 기각됐고(decisionLog.md), 대신 detection/presenceDetector.py의
+배경 차분 전경 비율을 임계값+디바운스로 게이팅한다.
 
-GPU `inference` API가 아직 없어서, 이탈 시 stopDetectionWithStatus(분류 결과 필요)는
-호출하지 않는다 — recordingService.stop()만 직접 호출해 녹화를 종료하고 프레임은
-버린다(Event 미생성). GPU 연동 후에는 이 부분이 "GPU 판정 대기 → stopDetectionWithStatus"로
-교체될 예정.
+이 녹화(라이브뷰/DB 저장용 클립)는 실제 오분류 판정과 완전히 독립적이다 — 오분류 판정은
+GPU 서버의 models/trashdetect/tracking2.py가 TOP 카메라 RTSP를 직접 보면서 자체적으로
+투척 완료를 판단해 controllers/api.py의 POST /events/aiDisposal로 결과를 푸시하는 방식으로
+확정됐다(과거 "로컬 백엔드가 존재 감지 중 프레임을 샘플링해서 GPU 세션 API로 보내는" 설계는
+폐기 — decisionLog.md 참고). 따라서 여기서는 stopDetectionWithStatus(GPU 판정 결과 필요)를
+호출하지 않고 recordingService.stop()만 호출해 녹화를 종료한다.
 """
 import asyncio
 import logging
@@ -206,12 +207,10 @@ class PresenceGateService:
             self.cameraId.value,
             self.recordingId,
         )
-        self._startGpuSamplingStub()
 
     async def _exitToAbsent(self) -> None:
         self.state = PresenceState.ABSENT
         self.belowThresholdSince = None
-        self._stopGpuSamplingStub()
         await self._stopRecording()
 
     async def _stopRecording(self) -> None:
@@ -241,24 +240,10 @@ class PresenceGateService:
 
         logger.info(
             "[presenceGateService] '%s' 사람 이탈, 녹화 종료 "
-            "(recordingId=%s, %.1fs, GPU 판정 없어 Event 미생성)",
+            "(recordingId=%s, %.1fs, 오분류 판정은 GPU tracking2.py가 별도로 푸시)",
             self.cameraId.value,
             recordingId,
             durationSeconds,
-        )
-
-    def _startGpuSamplingStub(self) -> None:
-        # TODO: GPU inference API 연동 후 교체 — 5~10fps로 프레임 샘플링해 세션 시작 호출
-        logger.debug(
-            "[presenceGateService] '%s' GPU 프레임 샘플링 시작 (미구현 스텁)",
-            self.cameraId.value,
-        )
-
-    def _stopGpuSamplingStub(self) -> None:
-        # TODO: GPU inference API 연동 후 교체 — 세션 종료 호출
-        logger.debug(
-            "[presenceGateService] '%s' GPU 프레임 샘플링 종료 (미구현 스텁)",
-            self.cameraId.value,
         )
 
 

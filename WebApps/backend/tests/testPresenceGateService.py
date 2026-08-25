@@ -55,10 +55,6 @@ class PresenceGateServiceTest(unittest.IsolatedAsyncioTestCase):
                 "services.presenceGateService.entryConfirmSeconds",
                 1.0,
             ),
-            patch.object(
-                service,
-                "_startGpuSamplingStub",
-            ),
             patch(
                 "services.presenceGateService.detectionService"
             ) as detectionService,
@@ -102,7 +98,6 @@ class PresenceGateServiceTest(unittest.IsolatedAsyncioTestCase):
                 "services.presenceGateService.exitGraceSeconds",
                 1.0,
             ),
-            patch.object(service, "_stopGpuSamplingStub"),
             patch(
                 "services.presenceGateService.recordingService"
             ) as recordingService,

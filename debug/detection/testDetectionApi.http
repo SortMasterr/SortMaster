@@ -23,7 +23,7 @@ Content-Type: application/json
     "binId": "BIN-PLASTIC-CAN",
     "binType": "plasticCan",
     "modelVersion": "yolo26-dev",
-    "detectedClass": "plastic",
+    "detectedClass": "plasticCan",
     "isMisclassified": true,
     "confidenceScore": 0.9
 }

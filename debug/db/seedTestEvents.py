@@ -24,16 +24,14 @@ except ImportError:
 detectedClasses = [
     "general",
     "paper",
-    "plastic",
-    "can",
+    "plasticCan",
     "coffeeCup",
 ]
 actionTakens = ["lightAndSound", "none"]
 expectedBinTypeByClass = {
     "general": "general",
     "paper": "paper",
-    "plastic": "plasticCan",
-    "can": "plasticCan",
+    "plasticCan": "plasticCan",
     "coffeeCup": "coffeeCup",
 }
 binIdByType = {

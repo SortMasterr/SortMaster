@@ -69,7 +69,7 @@ class MemoryEventRepository:
         )
 
 
-def createMisclassification(detectionId, detectedClass=DetectedClass.PLASTIC):
+def createMisclassification(detectionId, detectedClass=DetectedClass.PLASTIC_CAN):
     return EventCreate(
         cameraId=CameraId.ELEVTOP,
         eventCategory=EventCategory.MISCLASSIFICATION,

@@ -8,6 +8,7 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 
+from schemas.aiDisposalEvent import AiDisposalEvent
 from schemas.binState import BinState, BinStateUpdate
 from schemas.detection import (
     DetectionStart,
@@ -103,6 +104,33 @@ async def createEvent(
     creationResult = (
         await eventService.createEventWithStatus(
             eventCreate
+        )
+    )
+
+    if creationResult.created:
+        await _broadcastIfManageMode(
+            creationResult.event
+        )
+
+    return creationResult.event
+
+
+@router.post(
+    "/events/aiDisposal",
+    response_model=Event | None,
+)
+async def createEventFromAiDisposal(
+    aiEvent: AiDisposalEvent,
+) -> Event | None:
+    """GPU 서버의 models/trashdetect/tracking2.py가 투척 완료 시 직접 POST하는 엔드포인트.
+
+    presenceGateService가 관리하는 recordingId 기반 흐름(/detection/start,stop)과는
+    독립적 — tracking2.py가 자체적으로 영상을 보고 투척 완료를 판단해서 이 엔드포인트로
+    푸시하는 구조(우리가 프레임을 보내는 게 아니라 저쪽이 결과를 보내옴).
+    """
+    creationResult = (
+        await eventService.createEventFromAiDisposal(
+            aiEvent
         )
     )
 

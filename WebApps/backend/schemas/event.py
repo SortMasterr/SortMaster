@@ -18,8 +18,7 @@ class EventCategory(str, Enum):
 class DetectedClass(str, Enum):
     GENERAL = "general"
     PAPER = "paper"
-    PLASTIC = "plastic"
-    CAN = "can"
+    PLASTIC_CAN = "plasticCan"
     COFFEE_CUP = "coffeeCup"
 
 

@@ -60,7 +60,7 @@ def currentDocument():
         "eventCategory": "misclassification",
         "detectionId": "detection-current",
         "trackingId": 1,
-        "detectedClass": "plastic",
+        "detectedClass": "plasticCan",
         "binId": "BIN-PAPER",
         "binType": "paper",
         "isMisclassified": True,
@@ -140,14 +140,17 @@ class EventRepositoryCompatibilityTest(
         collection = FakeCollection(
             aggregateResults=[
                 {"_id": "legacy-value", "count": 4},
-                {"_id": "plastic", "count": 2},
+                # "plastic"는 DetectedClass에 plastic/can이 별도였던 구버전 값 —
+                # plasticCan으로 통합된 뒤에는 이것도 레거시 취급돼야 함
+                {"_id": "plastic", "count": 4},
+                {"_id": "plasticCan", "count": 2},
             ]
         )
         repository = TestEventRepository(collection)
 
         classCounts = await repository.countByDetectedClass()
 
-        self.assertEqual(2, classCounts[DetectedClass.PLASTIC])
+        self.assertEqual(2, classCounts[DetectedClass.PLASTIC_CAN])
         self.assertEqual(
             set(DetectedClass),
             set(classCounts),
