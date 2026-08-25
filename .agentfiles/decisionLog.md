@@ -171,3 +171,14 @@
   처음부터 올바른 모델 파일이었고, 문제는 모델 파일이 아니라 `tracking2.py`의 구버전이
   통 위치까지 모델에 요청하도록(`model.predict(classes=BIN_CLASS_IDS)`) 잘못 짜여 있었던
   것 — 상세는 `architecture.md`의 "탐지 파이프라인" 참고
+- **SIDE(넘침) 판정을 룰 베이스에서 MobileNet_V3_Small로 재전환** → 위 "SIDE(넘침) 판정은
+  룰 베이스로 확정" 항목(2026-08-19)을 다시 뒤집음. 이후 `feature/side-overflow-integration`
+  브랜치(2026-08-21~22, `9cee215`/`653f13e`/`ed7f325`)에서 `WebApps/backend/models/
+  trashoverflow/`에 MobileNet_V3_Small 기반 넘침 분류 모델을 실제로 만들고
+  `services/overflowDetectionService.py`로 `main.py`에 연동까지 완료 — 이 브랜치는 아직
+  `dev`에 merge 안 됐지만(2026-08-25 기준), SIDE 판정 방식 자체는 MobileNet으로 최종
+  확정됨. ROI로 크롭한 이미지를 모델에 넣어 `normal`/`overflow` 2클래스로 분류하고, 연속
+  30초 이상 `overflow` 유지 시 최종 판정(세션 상태 기반) — 모델이 가벼워 GPU 서버 없이
+  로컬 백엔드에서 CPU로 추론. `architecture.md`/`README.md`/`Docs/ERD.md`/
+  `Docs/API_SPEC.md`/`.agentfiles/apiSpec.md`/`Docs/DATASET_DESCRIPTION.md`의 SIDE 관련
+  서술을 이 결정에 맞춰 갱신함(코드 자체의 `dev` merge는 별도 작업)

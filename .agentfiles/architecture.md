@@ -27,7 +27,7 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
 | 카메라 구성 | **"카메라 1대 = 지점 1개 = `CameraId` 1개 = 독립 라즈베리파이 1대" 규칙 유지**(안 깨짐). 설치 위치 1곳(12층 엘리베이터 앞)에 지점 2개(위+옆). `.env` 키는 기존 하이픈 제거 규칙 그대로 `CAMERA_SOURCE_ELEVTOP`/`CAMERA_SOURCE_ELEVSIDE` |
 | 카메라 스펙 | 웹캠 실촬영 해상도 **640×480**(약 30만 화소). YOLO 입력 전처리는 **640×640**으로 통일(레터박스 패딩 방식 — 비율 유지, 단순 리사이즈 아님). TOP 카메라는 YOLO26 혼자 분류까지 끝내서 별도 모델로 좌표를 넘길 일이 없음(LLM에 좌표 넘기는 보정은 후순위 재검토 항목) |
 | 배포 구조 | 지점별(카메라별) 독립 메인보드+카메라 1대 — 설치 위치 1곳에 지점(=메인보드+카메라 세트) 2개 |
-| 클래스 | general, paper, plastic, can(신규, 플라스틱과 별도지만 같은 통), coffeeCup(별도 통) — 총 5종. `mixed`/`uncertain`은 제외 확정(자체 라벨링 시 전부 5종 중 하나로 분류 가능하다고 판단, 아래 "해결된 TBD" 참고) |
+| 클래스 | general, paper, plasticCan(플라스틱+캔 통합 — 모델이 둘을 구분 못 해서 4종으로 축소 확정, 아래 "탐지 파이프라인" 참고), coffeeCup — 총 4종. `mixed`/`uncertain`은 제외 확정(자체 라벨링 시 전부 4종 중 하나로 분류 가능하다고 판단, 아래 "해결된 TBD" 참고) |
 
 ## 탐지 파이프라인
 
@@ -50,12 +50,17 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
 > `services/eventService.py`의 `createEventFromAiDisposal`). LLM(Qwen3-VL-8B)은 여전히
 > 이 실시간 경로엔 없음(고도화 전용, 아래 "LLM 활용" 참고).
 
-- **넘침(overflow) 판정**(**옆 카메라** 단독, **로컬 백엔드, 룰 베이스 — GPU 미사용**): 옆
-  카메라 라즈베리파이가 보낸 RTSP를 로컬 백엔드가 LAN으로 그대로 받아(관리자 웹 송출과
-  같은 스트림) **딥러닝 모델이 아니라 룰 베이스**로 쓰레기통 넘침 상태를 판정. GPU 서버는
-  전혀 관여하지 않음 — `NORMAL`→`FULL` 전환 시점마다 바로 `BIN_STATES` 갱신+`EVENT`
-  생성(기존과 동일). SIDE 카메라는 GPU 서버와 아예 연결되지 않음(TOP도 이제 RTSP가 아니라
-  API로만 GPU와 통신하므로, 어느 카메라든 GPU 서버로 RTSP를 직접 보내는 경우 자체가 없음)
+- **넘침(overflow) 판정**(**옆 카메라** 단독, **로컬 백엔드, 경량 딥러닝 모델 — GPU 서버
+  미사용**): 옆 카메라 라즈베리파이가 보낸 RTSP를 로컬 백엔드가 LAN으로 그대로 받아(관리자
+  웹 송출과 같은 스트림) **MobileNet_V3_Small** 경량 분류 모델로 쓰레기통 넘침 상태를 판정
+  (`WebApps/backend/models/trashoverflow/` — `feature/side-overflow-integration` 브랜치,
+  아직 `dev`에 merge 전. 한때 룰 베이스로 확정했던 결정을 재전환, `decisionLog.md` 참고).
+  모델이 가벼워서 **로컬 백엔드에서 CPU로 추론**(GPU 있으면 자동 사용, 없어도 동작) — GPU
+  서버는 여전히 전혀 관여하지 않음. ROI로 크롭한 이미지를 모델에 넣어 `normal`/`overflow`
+  분류 후, 연속 30초 이상 `overflow`가 유지되면(세션 상태로 추적) 최종 판정 —
+  `NORMAL`→`FULL` 전환 시점마다 바로 `BIN_STATES` 갱신+`EVENT` 생성(기존과 동일). SIDE
+  카메라는 GPU 서버와 아예 연결되지 않음(TOP도 이제 RTSP가 아니라 API로만 GPU와 통신하므로,
+  어느 카메라든 GPU 서버로 RTSP를 직접 보내는 경우 자체가 없음)
 - **투기(misclassification) 판정**(**위 카메라** 단독, **GPU 서버가 자체적으로 판정 결과를
   로컬 백엔드에 푸시하는 방식으로 확정** — 과거 "로컬 백엔드가 프레임을 샘플링해서 GPU
   세션 API를 호출·폴링" 설계는 실제 모델팀 코드(`models/trashdetect/tracking2.py`)를
@@ -115,8 +120,8 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
   - **로컬 백엔드**: TOP/SIDE 둘 다 RTSP 상시 수신(관리자 웹 송출 겸용) + `POST
     /api/events/aiDisposal`로 GPU가 보내는 오분류 판정 결과를 수신. 통 상태
     (`BIN_STATES`)/쿨다운/녹화 시작·종료 타이밍/RPA 트리거 신호 송신은 TOP/SIDE 공통으로
-    백엔드가 맡고, SIDE는 룰 베이스 판정 자체(딥러닝 미사용)까지 전부 백엔드가 직접 수행 —
-    지속 상태는 전부 백엔드(로컬 MongoDB) 소유
+    백엔드가 맡고, SIDE는 MobileNet_V3_Small 추론 자체(CPU로 로컬 실행, GPU 서버 미사용)까지
+    전부 백엔드가 직접 수행 — 지속 상태는 전부 백엔드(로컬 MongoDB) 소유
   - **GPU 서버(`models/trashdetect/tracking2.py`, TOP 전용)**: TOP 카메라 영상을 직접 열어
     YOLO26(감지+통 인식)+BoT-SORT(추적)로 투입 확정까지 자체 판단, 결과를 로컬 백엔드로
     푸시(로컬 백엔드가 GPU를 호출하는 게 아니라 **GPU가 로컬 백엔드를 호출**) — 더 이상
@@ -134,7 +139,7 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 1. **자동 라벨링 검증(진행 중)**: 이미지 폴더 → 전처리+자동 라벨링 도구로 1차 라벨 생성 →
    자동 라벨링이 100% 정확하지 않아서, 불확실한 라벨만 LLM이 검증/보정하는 형태로 진행 중.
    `training` 컨테이너의 파이프라인 코드가 `llm` 컨테이너의 vLLM API를 호출. **우선 베이스
-   Qwen3-VL-8B-Instruct + 프롬프트만으로 진행**(파인튜닝 없이 5종 분류는 비교적 쉬운 과제라
+   Qwen3-VL-8B-Instruct + 프롬프트만으로 진행**(파인튜닝 없이 4종 분류는 비교적 쉬운 과제라
    판단 — 정확도 부족이 확인되면 그때 아래 파인튜닝 착수)
 2. **환경별 통 모양 인식 학습 데이터 생성**: 설치 환경이 달라지면 물리 통 4개의 실제 생김새도
    달라지므로, LLM을 이용해 그런 환경별 통 인식 초기 학습 데이터를 만드는 데 활용 예정(아직
@@ -151,8 +156,8 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 
 - NVIDIA L40S 총 4장, **팀당 1장씩 전용 할당**(다른 팀과 경합 없음)
 - 모델/역할 분담은 위 "탐지 파이프라인" 참고(YOLO26 TOP 모델은 GPU 서버의
-  `models/trashdetect/tracking2.py`, SIDE는 로컬 백엔드 룰 베이스, LLM은 자동 라벨링
-  검증용 — 실시간 탐지엔 미사용)
+  `models/trashdetect/tracking2.py`, SIDE는 로컬 백엔드에서 MobileNet_V3_Small을 CPU로
+  직접 실행, LLM은 자동 라벨링 검증용 — 실시간 탐지엔 미사용)
 - **GPU 서버에서 도는 것 3가지**: `training`(전처리+자동 라벨링+학습, 필요할 때만 기동,
   Docker 컨테이너) / `models/trashdetect/tracking2.py`(YOLO26 TOP 모델 추론+판정,
   **아직 Docker 컨테이너가 아니라 독립 실행 Python 스크립트** — 상시 서비스화는 TBD, 아래
@@ -283,10 +288,11 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 - 매 프레임 Insert 금지, 판정 시점만 저장
 - `eventCategory`로 구분: misclassification(투기, 분류 결과 포함) / overflow(넘침, 분류 없이 영상만)
 - **물리 쓰레기통 4개**(일반/플라스틱·캔/커피컵/종이, `binId`)가 옆 카메라(`ELEV-SIDE`) 시야
-  안에 고정 설치. "플라스틱·캔" 통(`binType=plasticCan`)은 캔과 플라스틱을 물리적으로
-  같이 받지만, AI는 `DetectedClass`에서 `plastic`/`can`을 별도 클래스로 구분(이미 학습
-  중) — `isMisclassified` 판정 시 `plastic`/`can` 둘 다 `plasticCan`에 매핑해서 비교
-  (다대일 관계, 상세는 `Docs/ERD.md` 참고). 각 통의 현재 상태(`NORMAL`/`FULL`)를 별도
+  안에 고정 설치. "플라스틱·캔" 통(`binType=plasticCan`)은 캔과 플라스틱을 물리적으로 같이
+  받는데, 실제 YOLO26 모델(`tracking2.py`)도 둘을 구분하지 못해 `DetectedClass.PLASTIC_CAN`
+  하나로만 낸다 — `binType`과 값 체계가 완전히 1:1 일치(과거엔 `plastic`/`can`을 별도
+  `DetectedClass`로 두고 `plasticCan`에 다대일 매핑하기로 했었으나 번복됨, `decisionLog.md`
+  참고, 상세는 `Docs/ERD.md` 참고). 각 통의 현재 상태(`NORMAL`/`FULL`)를 별도
   `BIN_STATES`로 지속 추적하고,
   **`NORMAL`→`FULL`로 전환되는 순간에만** overflow `EVENT` 생성+알림(기존 "5초 Cooldown"
   방식 폐기 — 상세는 `Docs/ERD.md` 참고). misclassification은 동일 카메라+클래스 5초
