@@ -92,23 +92,23 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
      plastic/can을 구분 못 해서 `DetectedClass.PLASTIC_CAN` 하나로 통합(물리적으로도 같은
      통에 버려서 실용상 문제없다고 판단, `decisionLog.md` 참고). 기존 `general`/`paper`/
      `coffeeCup` + 통합된 `plasticCan` 총 4종
-  - **GPU 서버 → 로컬 백엔드 실제 푸시 검증 완료**(데모 영상 기준) — GPU 서버에서
-    `tracking2.py` 실행 → 투입 확정 → SSH 역터널(포트는 팀 공유 규칙상 99로 끝나야 해서
-    `8299` 사용, `gpuServerOps.md` 참고)로 `POST /api/events/aiDisposal` 호출까지 end-to-end
-    확인됨. 단, 백엔드가 아직 이 엔드포인트를 반영 안 한 배포본이면 405(경로는 `GET
-    /api/events/{id}`와 우연히 매칭되지만 메서드가 안 맞음)가 뜸 — 코드 배포(재빌드) 필요
-  - **`SOURCE`를 실제 TOP 영상으로 전환 완료** — GPU가 라즈베리파이 RTSP를 직접 받는 방식
-    대신 **로컬 백엔드 중계**로 확정(아래 "배포 전략"의 "별도 경로" TBD 해결). 로컬 백엔드가
-    이미 상시 서빙 중인 MJPEG 스트림(`GET /api/stream/ELEV-TOP`)을, 오분류 결과 푸시에 쓰던
-    것과 **같은 SSH 역터널(`-R 8299:localhost:8047`)로 그대로 구독**(`SOURCE =
-    "http://127.0.0.1:8299/api/stream/ELEV-TOP"`) — 별도 포트/터널 불필요. 끊김 대비 재연결
-    로직도 추가함(`IS_LIVE_STREAM_SOURCE`)
+  - **GPU 서버 → 로컬 백엔드 실제 푸시 검증 완료**(데모 영상 기준 + **실제 TOP MJPEG
+    스트림 기준 둘 다**) — GPU 서버에서 `tracking2.py` 실행 → 로컬 백엔드가 상시 서빙 중인
+    `GET /api/stream/ELEV-TOP`을 SSH 역터널(포트는 팀 공유 규칙상 99로 끝나야 해서 `8299`
+    사용, `gpuServerOps.md` 참고)로 실시간 구독 → 투입 확정 → 같은 터널로 `POST
+    /api/events/aiDisposal` 호출까지 end-to-end 확인됨(2026-08-25, 웹캠 앞에서 쓰레기를
+    직접 흔들어 트리거하는 방식으로 연결성만 검증 — 통 없이 테스트해서 `result` 판정 자체는
+    무의미, `RULE_BASED_BIN_ROIS`는 여전히 실제 설치 후 재보정 필요). 백엔드가 이
+    엔드포인트를 반영 안 한 배포본이면 405(경로는 `GET /api/events/{id}`와 우연히 매칭되지만
+    메서드가 안 맞음)가 뜸 — 코드 배포(재시작/재빌드) 필요
+  - GPU가 라즈베리파이 RTSP를 직접 받는 방식 대신 **로컬 백엔드 중계**로 확정(아래 "배포
+    전략"의 "별도 경로" TBD 해결) — 끊김 대비 재연결 로직도 추가함(`IS_LIVE_STREAM_SOURCE`)
   - **아직 안 된 것**: GPU 서버에서 상시 서비스로 도는 형태(예: systemd)로 배포 필요(지금은
     사람이 직접 실행). `CAMERA_ID="CAM-01"`→실제 값 확인(백엔드는 `CAM-01`을 `ELEV-TOP`으로
-    매핑해서 받아둔 상태라 스크립트 수정 없이도 동작은 함). `RULE_BASED_BIN_ROIS`
-    좌표도 지금은 데모 영상 기준값이라, 실제 설치 후 카메라 구도에 맞게 재보정 필요. 이
-    스크립트가 자체 저장하는 이미지(`waste_events/*.jpg`)는 아직 백엔드의 GridFS와 연동
-    안 됨 — `imageFileId` 없이 저장됨
+    매핑해서 받아둔 상태라 스크립트 수정 없이도 동작은 함). `RULE_BASED_BIN_ROIS` 좌표는
+    실제 통 위치가 아니라 임시값 그대로라(위 검증도 통 없이 웹캠 앞에서 흔드는 방식으로만
+    함), 실제 설치 후 카메라 구도에 맞게 재보정 필요. 이 스크립트가 자체 저장하는 이미지
+    (`waste_events/*.jpg`)는 아직 백엔드의 GridFS와 연동 안 됨 — `imageFileId` 없이 저장됨
 - **역할 분담**:
   - **라즈베리파이(엣지, TOP+SIDE 공통)**: 캡처+RTSP 송신+GPIO(전구 릴레이)+스피커(경고음) —
     **추론 없음, RTSP는 로컬 백엔드로만 전송**(TOP/SIDE 둘 다 GPU 서버와 직접 연결 안 함)
