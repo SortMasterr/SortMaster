@@ -19,6 +19,13 @@
 - Docker 이미지/컨테이너 이름은 케밥케이스(`sortmaster-backend`) — Docker 이미지 이름은 대문자 자체가 불가능(소문자+`.`/`_`/`-`만 허용)하고, Docker 생태계 관례와도 일치
 - GPU 서버 스크립트 및 학습 파이프라인과 연동되는 모델 가중치·산출물 파일명은 Python·학습 도구 관례와 기존 연동을 우선해 snake_case 허용
   (`best_side.pt` 등). 이름을 바꾸려면 GPU 서버 스크립트와 모든 참조 위치를 함께 변경
+- **학습된 모델 파일이 내놓는 클래스명 문자열**(`tracking2.py`의 `model.names` — 예:
+  `trash_normal`)은 모델 체크포인트에 박힌 고정값이라 camelCase 변환 대상이 아님(프레임워크
+  강제 이름과 같은 성격). 이 문자열과 비교/매핑하는 `EXPECTED_CLASS_NAMES`/`TRASH_CLASSES`/
+  `TRASH_TYPE_MAP` 등의 dict 값도 모델과 정확히 같은 문자열을 그대로 써야 함 — 과거에 이
+  값들을 camelCase로 "정리"했다가 `model.names`와 안 맞아서 모든 감지가 조용히 무시되는
+  회귀가 있었음(`.agentfiles/decisionLog.md` 참고). 값을 바꾸려면 실제 모델을 재로드해서
+  `model.names` 출력과 대조 후 바꿀 것 — 코드만 보고 "일관성 있게" 리네임하면 안 됨
 
 ## 폴더 구조 (`WebApps/backend`)
 

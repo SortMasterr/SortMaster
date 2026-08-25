@@ -226,3 +226,17 @@
   추가해서 호스트 직접 실행/Docker 실행 둘 다 코드 수정 없이 지원. **이걸로도 SSH 역터널
   자체가 살아있는지는 안 풀림** — 그건 로컬 배포 서버 쪽 `autossh` 문제로 별개(TBD). 실제
   GPU 서버에서 이 이미지를 빌드+기동해본 적은 아직 없음(코드/설정만 작성, 검증은 다음 단계)
+- **`DetectedClass`/`BinType` 값을 `general`/`plasticCan`에서 `normal`/`recyclables`로
+  리네임(별도 세션에서 진행, `52bd86a`)하는 과정에서 `tracking2.py`의 `EXPECTED_CLASS_NAMES`/
+  `TRASH_CLASSES`/`TRASH_TYPE_MAP` snake_case 값도 같이 camelCase(`trashNormal` 등)로
+  "정리"됐다가 발견 즉시 되돌림** → 이 세 dict의 문자열은 API 계약(`DetectedClass`)이
+  아니라 **학습된 모델 파일(`bestTop.pt`)의 `model.names`와 비교하는 용도**라 코드
+  컨벤션과 무관한 외부 고정값(2026-08-25 GPU 서버 실행 결과: `{0: 'trash_normal', 1:
+  'trash_paper', 2: 'trash_recyclables', 3: 'trash_coffeecup'}`, 전부 snake_case).
+  camelCase로 바꾸면 `model.names[i]`가 `TRASH_CLASSES`에 하나도 안 걸려서 **TOP 탐지가
+  전부 조용히 무시됨**(에러 없이 감지 이벤트가 그냥 하나도 안 생기는 형태라 발견이 늦어질
+  위험이 큼) — `dev`에 merge된 상태로 며칠 있었으면 실제 배포에서 조용히 터졌을 사안.
+  발견 즉시 snake_case로 되돌리고 `naming.md`에 "모델이 내놓는 고정 문자열은 camelCase
+  변환 대상 아님" 예외 추가. `RULE_BASED_BIN_ROIS`/`BIN_TYPE_MAP`의 `boxNormal` 등은
+  모델 출력과 무관한 내부 전용 키라 camelCase로 남겨둬도 문제없음(둘 다 서로 일관되게
+  이미 바뀌어 있었음, 그쪽은 그대로 유지)

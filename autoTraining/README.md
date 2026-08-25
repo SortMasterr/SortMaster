@@ -92,9 +92,11 @@ bootstrap 체크포인트와 설정의 클래스명이 일치하지 않고 최�
 
 1. **최신 TOP 클래스 계약과 현재 설정**
    - 최신 기준은 쓰레기 4종만 YOLO가 구분하는 구조입니다. 체크포인트 외부 클래스명과 순서는
-     `trashNormal`, `trashPaper`, `trashRecyclables`, `trashCoffeeCup`입니다.
+     `trash_normal`, `trash_paper`, `trash_recyclables`, `trash_coffeecup`입니다(코드
+     컨벤션과 무관하게 모델에 박힌 고정값 — 임의로 camelCase로 바꾸면 `tracking2.py`가
+     감지를 전부 무시하는 회귀가 남, `.agentfiles/decisionLog.md` 참고).
    - API 의미값은 각각 `normal`, `paper`, `recyclables`, `coffeeCup`으로 매핑됩니다.
-     플라스틱과 캔은 `trashRecyclables`/`recyclables` 하나로 통합됐습니다.
+     플라스틱과 캔은 `trash_recyclables`/`recyclables` 하나로 통합됐습니다.
    - 물리 통은 4개지만 YOLO 클래스가 아닙니다. `tracking2.py`의 `RULE_BASED_BIN_ROIS`가
      고정 화면 ROI로 통 위치를 판정하므로 자동 학습 데이터에 통 클래스를 추가하면 안 됩니다.
    - `pipelineConfig.yaml`도 같은 camelCase 클래스명과 순서를 사용해야 합니다. 기존 snake_case
@@ -464,7 +466,7 @@ Docker는 실행 환경과 의존성을 고정하는 수단이고, GPU는 YOLO �
 
 - Qwen 판정과 무관하게 사람의 최종 `approved`만 Build에 포함됩니다.
 - Build는 해당 배치의 `workspace/batches/<batchId>/datasetCurrent`를 새로 생성하므로 필요한 결과는 먼저 백업합니다.
-- TOP 모델 외부 클래스명은 `trashNormal`, `trashPaper`, `trashRecyclables`, `trashCoffeeCup` 순서를 보존해야 합니다.
+- TOP 모델 외부 클래스명은 `trash_normal`, `trash_paper`, `trash_recyclables`, `trash_coffeecup` 순서를 보존해야 합니다(모델에 박힌 고정값, camelCase 변환 대상 아님).
 - 통 위치는 모델 학습 클래스가 아니라 `tracking2.py`의 고정 ROI 계약입니다.
 - Promote 전에는 `evaluation.json`의 mAP50과 recall을 확인합니다.
 - 로컬 bootstrap과 문서가 감사한 `bestTop.pt`의 해시가 다르므로 기준 모델 신원을 먼저 확정합니다.

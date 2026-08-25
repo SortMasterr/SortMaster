@@ -146,27 +146,34 @@ HARD_EXAMPLE_DIR.mkdir(parents=True, exist_ok=True)
 # ============================================================
 # 2. 클래스 / 분리배출 규칙
 # ============================================================
+# 아래 3개 dict의 문자열 값은 코드 컨벤션(camelCase)이 아니라 학습된 모델 파일
+# (bestTop.pt)의 model.names가 실제로 내놓는 고정 문자열과 정확히 일치해야 함 —
+# 2026-08-25 GPU 서버 실제 실행 결과로 snake_case인 게 확인됨(모델 클래스:
+# {0: 'trash_normal', 1: 'trash_paper', 2: 'trash_recyclables', 3: 'trash_coffeecup'}).
+# camelCase로 바꾸면 model.names와 안 맞아서 모든 감지가 TRASH_CLASSES에 안 걸리고
+# 조용히 무시됨(naming.md의 "프레임워크 강제 이름" 예외와 같은 성격 — 모델 재학습 없이는
+# 못 바꾸는 외부 고정값).
 EXPECTED_CLASS_NAMES = {
-    0: "trashNormal",
-    1: "trashPaper",
-    2: "trashRecyclables",
-    3: "trashCoffeeCup",
+    0: "trash_normal",
+    1: "trash_paper",
+    2: "trash_recyclables",
+    3: "trash_coffeecup",
 }
 
 TRASH_CLASS_IDS = [0, 1, 2, 3]
 
 TRASH_CLASSES = {
-    "trashNormal",
-    "trashPaper",
-    "trashRecyclables",
-    "trashCoffeeCup",
+    "trash_normal",
+    "trash_paper",
+    "trash_recyclables",
+    "trash_coffeecup",
 }
 
 TRASH_TYPE_MAP = {
-    "trashNormal": "normal",
-    "trashPaper": "paper",
-    "trashRecyclables": "recyclables",
-    "trashCoffeeCup": "coffeecup",
+    "trash_normal": "normal",
+    "trash_paper": "paper",
+    "trash_recyclables": "recyclables",
+    "trash_coffeecup": "coffeecup",
 }
 
 BIN_TYPE_MAP = {

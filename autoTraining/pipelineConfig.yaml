@@ -41,12 +41,15 @@ dataset:
   trainRatio: 0.80
   valRatio: 0.10
   testRatio: 0.10
-  # 기존 사용자 설정을 유지합니다. 체크포인트 model.names와 반드시 일치해야 합니다.
+  # 아래 문자열은 기존 YOLO 모델(bestTop.pt)의 실제 클래스명(model.names)이므로
+  # 코드 컨벤션(camelCase)과 무관하게 절대 임의로 바꾸면 안 됩니다 — 2026-08-25에 한 번
+  # camelCase로 잘못 바뀌었다가 tracking2.py의 동일 문제와 함께 발견 즉시 되돌림
+  # (.agentfiles/decisionLog.md 참고).
   classes:
-    - trashNormal
-    - trashPaper
-    - trashRecyclables
-    - trashCoffeeCup
+    - trash_normal
+    - trash_paper
+    - trash_recyclables
+    - trash_coffeecup
 
 training:
   epochs: 100

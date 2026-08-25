@@ -46,13 +46,18 @@ ID를 하드코딩하지 않는다.
 - SHA256:
   `2AF28906CE55D7367F807B2FD70B77A7F91C3F469BE8F328E7747B3FE44CDFFC`
 - 체크포인트 Ultralytics 버전: `8.4.118`
-- **표준 클래스명**: `trashNormal`, `trashPaper`, `trashRecyclables`, `trashCoffeeCup`
-  **쓰레기 4종뿐** — 처음엔 `boxNormal`/`boxPaper`/`boxRecyclables`/`boxCoffeeCup`(통
-  4종)까지 포함한 8클래스 모델로 오인했으나(모델 호출 흔적만 보고 판단), 실기기 테스트로
-  모델이 실제로는 쓰레기 4클래스만 알고 있는 게 확인됨 — 통 위치는 애초부터 룰 베이스
-  (고정 ROI)가 맞는 설계였음(`.agentfiles/decisionLog.md` 참고)
+- **실제 클래스명(`model.names`, snake_case 고정값 — camelCase 아님)**: `trash_normal`,
+  `trash_paper`, `trash_recyclables`, `trash_coffeecup` **쓰레기 4종뿐** — 처음엔
+  `box_normal`/`box_paper`/`box_recyclables`/`box_coffeecup`(통 4종)까지 포함한 8클래스
+  모델로 오인했으나(모델 호출 흔적만 보고 판단), 실기기 테스트로 모델이 실제로는 쓰레기
+  4클래스만 알고 있는 게 확인됨 — 통 위치는 애초부터 룰 베이스(고정 ROI)가 맞는 설계였음
+  (`.agentfiles/decisionLog.md` 참고). **이 문자열은 학습된 모델 파일에 박힌 고정값이라
+  코드 컨벤션(camelCase)과 무관하게 그대로 써야 함** — `2026-08-25` 한 커밋(`52bd86a`)이
+  `tracking2.py`의 `EXPECTED_CLASS_NAMES`/`TRASH_CLASSES`/`TRASH_TYPE_MAP`을 camelCase로
+  잘못 바꿔서 TOP 탐지가 조용히 전부 무시되는 회귀가 있었음 — 재발 방지로 되돌림
+  (`.agentfiles/decisionLog.md` 참고)
 
-이 모델은 쓰레기 `plastic`과 `can`을 `trashRecyclables` 하나로 합쳐서 낸다. 어느 종류인지
+이 모델은 쓰레기 `plastic`과 `can`을 `trash_recyclables` 하나로 합쳐서 낸다. 어느 종류인지
 출력에서 복원할 수 없어서, **모델 재학습 대신 API 계약(`DetectedClass`)을 4종으로 축소하는
 쪽으로 CTO 승인을 받아 해소함**(`.agentfiles/decisionLog.md` 참고) — `plastic`/`can` 값은
 더 이상 API 계약에 존재하지 않고 `recyclables` 하나로 통합됨(위 "1. MVP Top 모델 의미 클래스"
