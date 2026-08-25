@@ -204,12 +204,23 @@ class AutoLabelingStage:
         """후보 이미지를 한 장씩 추론하고 즉시 기록합니다."""
         if not manifestHasRows(self.candidatesManifest):
             raise RuntimeError("먼저 select 단계를 실행하세요.")
-        if not self.baseAutoLabelModel.exists():
-            raise FileNotFoundError(f"기본 모델이 없습니다: {self.baseAutoLabelModel}")
+        baseline = self.pinActiveModel()
         inferenceConfig=self.config["inference"]
         classes=self.config["dataset"]["classes"]
         allowedClassIds=set(range(len(classes)))
-        model=loadYoloModel(self.baseAutoLabelModel)
+        model=loadYoloModel(baseline.resolvedPath())
+        modelNames = getattr(model, "names", None)
+        actualClasses = (
+            [str(modelNames[index]) for index in sorted(modelNames)]
+            if isinstance(modelNames, dict)
+            else [str(name) for name in modelNames or []]
+        )
+        if actualClasses != classes:
+            raise RuntimeError(
+                "기준 모델 class names가 dataset.classes와 다릅니다. "
+                f"model={actualClasses}, config={classes}"
+            )
+        print(f"[LABEL] 기준 모델 고정: {baseline.version} ({baseline.sha256[:12]})")
         processedCount=0
         # 후보와 추론 결과를 리스트에 보관하지 않고 이미지별 처리가 끝날 때 즉시 기록한다.
         with ManifestWriter(self.labelsManifest) as writer:
@@ -227,7 +238,7 @@ class AutoLabelingStage:
                 if not cv2.imwrite(str(annotatedPath),annotatedImage):
                     raise OSError(f"검수 이미지 저장 실패: {annotatedPath}")
                 output=dict(row)
-                output.update({"labelPath":str(labelPath.resolve()),"annotatedPath":str(annotatedPath.resolve()),"detections":detections})
+                output.update({"labelPath":str(labelPath.resolve()),"annotatedPath":str(annotatedPath.resolve()),"detections":detections,"teacherModelVersion":baseline.version,"teacherModelSha256":baseline.sha256})
                 writer.write(output)
                 processedCount+=1
                 if processedCount%100==0:
