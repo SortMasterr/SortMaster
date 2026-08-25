@@ -34,12 +34,20 @@ class BuildDatasetStage:
         신규 데이터는 원본 영상 단위로 split하여 데이터 누수를 방지합니다. causal 모드에서는
         기존 이미지와 신규 이미지 모두 동일한 시간 채널 입력 형식으로 변환합니다.
         마지막으로 클래스 이름과 각 split 경로가 들어 있는 data.yaml을 생성합니다.
-        manualReview와 rejected 데이터는 명시적으로 승인되기 전까지 포함하지 않습니다.
+        Qwen 판정과 관계없이 사람의 최종 approved 데이터만 포함합니다.
         """
-        # 승인 행을 list가 아닌 generator로 유지해 데이터셋 규모만큼 RAM을 점유하지 않는다.
+        # Qwen 판정은 보조 정보일 뿐이다. 사람 최종 승인 매니페스트만 학습 데이터에 포함한다.
+        if not self.humanReviewsManifest.exists():
+            raise RuntimeError("먼저 humanReview 단계를 완료하세요.")
+        hasApprovedRows = any(
+            row["humanReview"]["decision"] == "approved"
+            for row in iterateManifest(self.humanReviewsManifest)
+        )
+        if not hasApprovedRows:
+            raise RuntimeError("사람이 승인한 신규 학습 데이터가 없어 Build를 중단합니다.")
         approvedRows = (
-            row for row in iterateManifest(self.reviewsManifest)
-            if row["review"]["decision"] == "approved"
+            row for row in iterateManifest(self.humanReviewsManifest)
+            if row["humanReview"]["decision"] == "approved"
         )
         approvedCount = 0
         cfg = self.config["dataset"]
@@ -93,17 +101,27 @@ class BuildDatasetStage:
                 shutil.copy2(row["imagePath"], targetImage)
             shutil.copy2(row["labelPath"], targetLabel)
 
+        goldenImages = self.goldenTest / "images"
+        goldenLabels = self.goldenTest / "labels"
+        if not goldenImages.is_dir() or not goldenLabels.is_dir():
+            raise RuntimeError(
+                "고정 Golden Test가 없습니다. "
+                f"{goldenImages}와 {goldenLabels}를 준비하세요."
+            )
+
         dataYaml = {
             "path": str(self.datasetRoot.resolve()),
             "train": "images/train",
             "val": "images/val",
-            "test": "images/test",
+            # 기존/신규 모델의 일일 비교 기준이 흔들리지 않도록 고정 평가셋을 사용한다.
+            "test": str(goldenImages.resolve()),
             "names": {index: name for index, name in enumerate(classes)},
             "nc": len(classes),
         }
         with (self.datasetRoot / "data.yaml").open("w", encoding="utf-8") as file:
             yaml.safe_dump(dataYaml, file, allow_unicode=True, sort_keys=False)
-        print(f"[BUILD] 승인 신규 데이터 {approvedCount}개 병합: {self.datasetRoot}")
+        print(f"[BUILD] 사람 승인 신규 데이터 {approvedCount}개 병합: {self.datasetRoot}")
+        print(f"[BUILD] 고정 Golden Test: {self.goldenTest}")
 
 
 def buildDataset(pipeline: BuildDatasetStage) -> None:
