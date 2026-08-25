@@ -27,7 +27,10 @@ RUN pip install --no-cache-dir \
         "jinja2==3.1.6" \
         "python-dotenv==1.2.2"
 
-COPY . .
+# 백엔드는 통계 보고서 발송 시 루트의 RPAs/reportAutomation을 런타임 의존성으로
+# import한다. 저장소 루트를 build context로 사용하고 필요한 두 경로만 이미지에 복사한다.
+COPY WebApps/backend/ .
+COPY RPAs/ ./RPAs/
 
 EXPOSE 8047
 

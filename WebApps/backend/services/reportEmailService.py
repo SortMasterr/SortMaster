@@ -9,7 +9,23 @@ from dotenv import load_dotenv
 from schemas.report import ReportEmailRequest, ReportEmailResponse
 
 
-repositoryRoot = Path(__file__).resolve().parents[3]
+def _findRepositoryRoot(servicePath: Path) -> Path:
+    for parent in servicePath.resolve().parents:
+        reportModule = (
+            parent
+            / "RPAs"
+            / "reportAutomation"
+            / "reportAutomation.py"
+        )
+        if reportModule.is_file():
+            return parent
+
+    raise RuntimeError(
+        "RPAs/reportAutomation/reportAutomation.py를 찾을 수 없습니다."
+    )
+
+
+repositoryRoot = _findRepositoryRoot(Path(__file__))
 if str(repositoryRoot) not in sys.path:
     sys.path.insert(0, str(repositoryRoot))
 
