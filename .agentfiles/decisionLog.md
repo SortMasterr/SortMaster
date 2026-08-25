@@ -189,3 +189,20 @@
   `dev`에 merge 완료(2026-08-25). `architecture.md`/`README.md`/`Docs/ERD.md`/
   `Docs/API_SPEC.md`/`.agentfiles/apiSpec.md`/`Docs/DATASET_DESCRIPTION.md`의 SIDE 관련
   서술도 이 결정에 맞춰 갱신됨
+- **SIDE(넘침) 판정을 로컬 백엔드 CPU 추론에서 GPU 서버로 재이관, TOP과 완전히 동일한
+  구조로 통일** → 위 "GPU 서버 미사용 원칙 유지" 결정(같은 날, 2026-08-25)을 몇 시간 만에
+  다시 뒤집음. 기술적 필요(SIDE는 여전히 GPU 연산이 굳이 필요 없음, MobileNet_V3_Small은
+  CPU로도 충분)가 아니라 **아키텍처 일관성**이 이유 — TOP/SIDE가 서로 다른 위치(GPU 서버 vs
+  로컬 백엔드)에서 도는 구조는 팀 밖 설명(CTO 등)에 설득력이 떨어진다고 판단, "탐지 모델은
+  전부 GPU 서버에서 돈다"로 통일. `services/overflowDetectionService.py`(로컬 인프로세스
+  버전, `main.py` 연동 포함)와 `models/trashoverflow/trashoverflowApi.py`(구버전 독립
+  FastAPI 서버)는 전부 제거하고, `models/trashoverflow/sideOverflow.py`(신규)로 대체 —
+  `models/trashdetect/tracking2.py`(TOP)와 완전히 같은 패턴: 로컬 백엔드가 서빙하는
+  `GET /api/stream/ELEV-SIDE`를 GPU가 SSH 역터널(`-R 8299`)로 구독해서 자체 판정 후,
+  `POST /api/binStates`(EP-11)로 로컬 백엔드에 결과 푸시(로컬 백엔드가 SIDE를 호출하는 게
+  아니라 GPU가 호출). **폴백 없음** — GPU 서버/터널이 끊기면 TOP처럼 SIDE도 그 동안 판정이
+  멈춤(오분류 이벤트와 동일한 리스크 프로필로 통일하는 것도 일관성 목적에 포함). 로컬
+  백엔드는 이제 torch/torchvision이 필요 없어져서 `infra/checkEnv.py`의 `requiredPackages`
+  에서 제거(GPU 서버 쪽 venv에서만 필요, `gpuServerOps.md` 참고). 아직 안 된 것: 실제 GPU
+  서버 배포/실행 검증(코드만 작성됨), `RULE_BASED_BIN_ROIS`처럼 `roi.json` 좌표도 데모
+  기준값 그대로라 재보정 필요

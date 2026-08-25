@@ -50,17 +50,19 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
 > `services/eventService.py`의 `createEventFromAiDisposal`). LLM(Qwen3-VL-8B)은 여전히
 > 이 실시간 경로엔 없음(고도화 전용, 아래 "LLM 활용" 참고).
 
-- **넘침(overflow) 판정**(**옆 카메라** 단독, **로컬 백엔드, 경량 딥러닝 모델 — GPU 서버
-  미사용**): 옆 카메라 라즈베리파이가 보낸 RTSP를 로컬 백엔드가 LAN으로 그대로 받아(관리자
-  웹 송출과 같은 스트림) **MobileNet_V3_Small** 경량 분류 모델로 쓰레기통 넘침 상태를 판정
-  (`WebApps/backend/models/trashoverflow/` — `feature/side-overflow-integration` 브랜치,
-  `dev`에 merge 완료. 한때 룰 베이스로 확정했던 결정을 재전환, `decisionLog.md` 참고).
-  모델이 가벼워서 **로컬 백엔드에서 CPU로 추론**(GPU 있으면 자동 사용, 없어도 동작) — GPU
-  서버는 여전히 전혀 관여하지 않음. ROI로 크롭한 이미지를 모델에 넣어 `normal`/`overflow`
-  분류 후, 연속 30초 이상 `overflow`가 유지되면(세션 상태로 추적) 최종 판정 —
-  `NORMAL`→`FULL` 전환 시점마다 바로 `BIN_STATES` 갱신+`EVENT` 생성(기존과 동일). SIDE
-  카메라는 GPU 서버와 아예 연결되지 않음(TOP도 이제 RTSP가 아니라 API로만 GPU와 통신하므로,
-  어느 카메라든 GPU 서버로 RTSP를 직접 보내는 경우 자체가 없음)
+- **넘침(overflow) 판정**(**옆 카메라** 단독, **GPU 서버가 자체적으로 판정 결과를 로컬
+  백엔드에 푸시 — TOP과 완전히 동일한 구조**): GPU 서버의 `models/trashoverflow/
+  sideOverflow.py`가 로컬 백엔드의 `GET /api/stream/ELEV-SIDE` MJPEG 스트림을 TOP과 같은
+  SSH 역터널(`-R 8299`)로 구독해서 **MobileNet_V3_Small** 경량 분류 모델로 쓰레기통 넘침
+  상태를 자체 판정하고, `POST /api/binStates`(EP-11)로 로컬 백엔드에 직접 결과를 푸시한다
+  (로컬 백엔드가 SIDE를 호출하는 게 아니라 **GPU가 로컬 백엔드를 호출**하는 방향, TOP의
+  `POST /api/events/aiDisposal`과 동일 패턴). ROI로 크롭한 이미지를 모델에 넣어
+  `normal`/`overflow` 분류 후, 연속 30초 이상 `overflow`가 유지되면(세션 상태로 추적) 최종
+  판정 — `NORMAL`→`FULL` 전환 시점마다 바로 `BIN_STATES` 갱신+`EVENT` 생성(기존과 동일).
+  **한때 "로컬 백엔드가 CPU로 직접 추론, GPU 서버 미사용"으로 확정했었으나(SIDE는 기술적으로
+  GPU가 꼭 필요하진 않음), TOP과 아키텍처를 일관되게 맞추기 위해 재전환**(`decisionLog.md`
+  참고) — GPU/터널이 끊기면 TOP처럼 SIDE 판정도 그동안 멈춤(폴백 없음, TOP과 동일한 리스크
+  프로필로 통일)
 - **투기(misclassification) 판정**(**위 카메라** 단독, **GPU 서버가 자체적으로 판정 결과를
   로컬 백엔드에 푸시하는 방식으로 확정** — 과거 "로컬 백엔드가 프레임을 샘플링해서 GPU
   세션 API를 호출·폴링" 설계는 실제 모델팀 코드(`models/trashdetect/tracking2.py`)를
@@ -116,16 +118,19 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
 - **역할 분담**:
   - **라즈베리파이(엣지, TOP+SIDE 공통)**: 캡처+RTSP 송신+GPIO(전구 릴레이)+스피커(경고음) —
     **추론 없음, RTSP는 로컬 백엔드로만 전송**(TOP/SIDE 둘 다 GPU 서버와 직접 연결 안 함)
-  - **로컬 백엔드**: TOP/SIDE 둘 다 RTSP 상시 수신(관리자 웹 송출 겸용) + `POST
-    /api/events/aiDisposal`로 GPU가 보내는 오분류 판정 결과를 수신. 통 상태
+  - **로컬 백엔드**: TOP/SIDE 둘 다 RTSP 상시 수신(관리자 웹 송출 겸용) + `GET
+    /api/stream/{cameraId}`로 MJPEG 재서빙(GPU가 이걸 구독) + `POST /api/events/aiDisposal`
+    (TOP)/`POST /api/binStates`(SIDE)로 GPU가 보내는 판정 결과를 수신. 통 상태
     (`BIN_STATES`)/쿨다운/녹화 시작·종료 타이밍/RPA 트리거 신호 송신은 TOP/SIDE 공통으로
-    백엔드가 맡고, SIDE는 MobileNet_V3_Small 추론 자체(CPU로 로컬 실행, GPU 서버 미사용)까지
-    전부 백엔드가 직접 수행 — 지속 상태는 전부 백엔드(로컬 MongoDB) 소유
-  - **GPU 서버(`models/trashdetect/tracking2.py`, TOP 전용)**: TOP 카메라 영상을 직접 열어
-    YOLO26(감지+통 인식)+BoT-SORT(추적)로 투입 확정까지 자체 판단, 결과를 로컬 백엔드로
-    푸시(로컬 백엔드가 GPU를 호출하는 게 아니라 **GPU가 로컬 백엔드를 호출**) — 더 이상
-    RTSP를 로컬 백엔드로부터 받지 않고 자체 소스를 봄(과거 "SSH 역터널로 RTSP 직접 받기"/
-    "로컬 백엔드가 프레임 샘플링해서 세션 API 호출" 두 설계 모두 폐기, `decisionLog.md` 참고)
+    백엔드가 맡음 — 지속 상태는 전부 백엔드(로컬 MongoDB) 소유, AI 추론 자체는 안 함
+  - **GPU 서버**: `models/trashdetect/tracking2.py`(TOP)와 `models/trashoverflow/
+    sideOverflow.py`(SIDE) 둘 다 같은 패턴 — 로컬 백엔드가 서빙하는 MJPEG 스트림을 각자
+    구독해서 자체 판단(TOP은 YOLO26+BoT-SORT로 투입 확정, SIDE는 MobileNet_V3_Small로
+    넘침 확정), 결과를 로컬 백엔드로 푸시(로컬 백엔드가 GPU를 호출하는 게 아니라 **GPU가
+    로컬 백엔드를 호출**) — 둘 다 더 이상 RTSP를 로컬 백엔드로부터 받지 않고 자체 소스를
+    봄(과거 "SSH 역터널로 RTSP 직접 받기"/"로컬 백엔드가 프레임 샘플링해서 세션 API 호출"
+    두 설계 모두 폐기, `decisionLog.md` 참고. SIDE는 한때 "GPU 서버 미사용, 로컬 백엔드
+    CPU 추론"으로 갔다가 TOP과 아키텍처 통일 목적으로 재전환됨, `decisionLog.md` 참고)
   - GPU 서버 컨테이너/프로세스는 `training`(전처리+자동 라벨링+학습)/`models/trashdetect/
     tracking2.py`(YOLO26 TOP 모델, 위 설명대로 자체 실행+결과 푸시)/`llm`(Qwen3-VL-8B,
     자동 라벨링 검증용으로 이미 사용 중 — 실시간 탐지 경로엔 여전히 없음) 3개
@@ -155,17 +160,20 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 
 - NVIDIA L40S 총 4장, **팀당 1장씩 전용 할당**(다른 팀과 경합 없음)
 - 모델/역할 분담은 위 "탐지 파이프라인" 참고(YOLO26 TOP 모델은 GPU 서버의
-  `models/trashdetect/tracking2.py`, SIDE는 로컬 백엔드에서 MobileNet_V3_Small을 CPU로
-  직접 실행, LLM은 자동 라벨링 검증용 — 실시간 탐지엔 미사용)
-- **GPU 서버에서 도는 것 3가지**: `training`(전처리+자동 라벨링+학습, 필요할 때만 기동,
-  Docker 컨테이너) / `models/trashdetect/tracking2.py`(YOLO26 TOP 모델 추론+판정,
-  **아직 Docker 컨테이너가 아니라 독립 실행 Python 스크립트** — 상시 서비스화는 TBD, 아래
-  참고) / `llm`(Qwen3-VL-8B 서빙, vLLM — 자동 라벨링 검증용으로 **이미 사용 중**,
-  `training`과 함께 필요할 때만 기동, Docker 컨테이너). `backend`/`mongo`는 GPU 서버가
-  아니라 **로컬에서 구동**(아래 "배포 전략" 참고)
-- `tracking2.py`는 `training`과 같은 카드(`GPU_DEVICE_ID`)를 공유해서 상시 돌게 될 예정이라,
-  학습을 돌리는 시간대엔 두 워크로드가 VRAM/연산을 나눠 써야 함 — `llm`처럼 GPU 메모리
-  사용량을 제한해두는 게 안전(실측 후 조정 필요, 아래 TBD 참고)
+  `models/trashdetect/tracking2.py`, SIDE(MobileNet_V3_Small)도 이제 GPU 서버의
+  `models/trashoverflow/sideOverflow.py`가 담당, LLM은 자동 라벨링 검증용 — 실시간 탐지엔
+  미사용)
+- **GPU 서버에서 도는 것 4가지**: `training`(전처리+자동 라벨링+학습, 필요할 때만 기동,
+  Docker 컨테이너) / `models/trashdetect/tracking2.py`(YOLO26 TOP 모델 추론+판정) /
+  `models/trashoverflow/sideOverflow.py`(MobileNet_V3_Small SIDE 넘침 판정, TOP과 같은
+  패턴) — **둘 다 아직 Docker 컨테이너가 아니라 독립 실행 Python 스크립트** — 상시
+  서비스화는 TBD, 아래 참고 / `llm`(Qwen3-VL-8B 서빙, vLLM — 자동 라벨링 검증용으로 **이미
+  사용 중**, `training`과 함께 필요할 때만 기동, Docker 컨테이너). `backend`/`mongo`는
+  GPU 서버가 아니라 **로컬에서 구동**(아래 "배포 전략" 참고)
+- `tracking2.py`/`sideOverflow.py`는 `training`과 같은 카드(`GPU_DEVICE_ID`)를 공유해서
+  상시 돌게 될 예정이라, 학습을 돌리는 시간대엔 세 워크로드가 VRAM/연산을 나눠 써야 함 —
+  `llm`처럼 GPU 메모리 사용량을 제한해두는 게 안전(실측 후 조정 필요, 아래 TBD 참고. 단,
+  `sideOverflow.py`는 모델이 가벼워서 VRAM 부담은 크지 않을 것으로 예상)
 - (과거 TBD였던) `training`에서 나온 `.pt` 가중치를 젯슨(엣지)에 배포하는 문제는 해소됨 —
   `training`/`tracking2.py` 둘 다 GPU 서버 안에 있어 로컬 파일/볼륨 공유로 충분(원격 배포
   불필요, 실제로 학습 산출물을 `autoTraining/promotedModels/current.pt`로 옮겨서 검증함)
@@ -186,8 +194,10 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 >
 > **메인보드를 Jetson Orin Nano Super → 라즈베리파이로 전환하며 TOP 카메라 YOLO26 추론도
 > 엣지→GPU 서버로 이관** — 라즈베리파이는 추론 성능이 부족해 엣지 단독 추론이 불가능해짐.
-> 이 결정으로 GPU 서버가 실시간 경로에 들어옴(단, LLM이 아니라 YOLO26 `tracking2.py`만,
-> SIDE는 애초에 GPU 미사용). **GPU 연동은 로컬 백엔드가 프레임을 보내는 방식이 아니라
+> 이 결정으로 GPU 서버가 실시간 경로에 들어옴(단, LLM은 여전히 안 들어옴 — YOLO26
+> `tracking2.py`와, TOP과 아키텍처를 통일하기 위해 이후 재전환된 SIDE `sideOverflow.py`만
+> 실시간 경로에 있음, `decisionLog.md` 참고). **GPU 연동은 로컬 백엔드가 프레임을 보내는
+> 방식이 아니라
 > GPU가 결과를 로컬 백엔드로 푸시하는 방식으로 최종 확정**(아래 참고, `decisionLog.md`) —
 > 라즈베리파이는 여전히 GPU 서버와 직접 연결되지 않고 로컬 백엔드로만 RTSP를 보내며,
 > **GPU 쪽(`tracking2.py`)이 TOP 영상을 보는 경로는 "로컬 백엔드 중계"로 확정** — GPU가
@@ -195,21 +205,24 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 > 않는다는 원칙 유지). 로컬 백엔드가 이미 상시 서빙 중인 MJPEG 스트림(`GET
 > /api/stream/ELEV-TOP`)을 GPU가 기존 SSH 역터널(`-R 8299:localhost:8047`)로 그대로
 > 구독(`tracking2.py`의 `SOURCE`, `gpuServerOps.md` 참고) — 오분류 결과 푸시용 터널을
-> 그대로 재사용하므로 별도 포트 불필요. 상세는 위 "탐지 파이프라인" 참고
+> 그대로 재사용하므로 별도 포트 불필요. **SIDE(`sideOverflow.py`)도 같은 원칙·같은 터널**로
+> `GET /api/stream/ELEV-SIDE`를 구독(별도 포트 불필요) — TOP과 아키텍처를 통일하기 위해
+> 이후 재전환된 결정, `decisionLog.md` 참고. 상세는 위 "탐지 파이프라인" 참고
 
 - 개발: Windows+Docker, 로컬 웹캠 테스트(기존과 동일)
 - **배포**: `backend`+`mongo`는 로컬 `<LOCAL_BACKEND_IP>`(확정, 실제 값은 Notion 참고)에서
   `docker compose up backend mongo`로 실행. `training`/`llm`은 GPU 서버로 이전해서
   `docker compose --profile training up`/`--profile llm up`(둘 다 자동 라벨링 검증
-  파이프라인 돌 때만 같이 기동). `tracking2.py`는 아직 Docker화 안 됨(TBD) — 지금은 GPU
-  서버에서 스크립트로 직접 실행
-- **GPU(`tracking2.py`) → 로컬 백엔드 연결이 상시 필요(반대로 뒤집힌 방향)** — 예전엔
-  "로컬 백엔드 → GPU API 호출"을 상시 유지해야 한다고 봤는데, 실제로는 **GPU가 판정 완료
-  시마다 로컬 백엔드의 `POST /api/events/aiDisposal`을 호출**하는 구조로 확정돼 방향이
-  반대가 됨. GPU 서버 SSH 세션(`gpuServerOps.md`)에 로컬 백엔드 포트로의 **역방향 터널
-  (`-R`)이 필요**(기존 MongoDB용 `-R 27020`과 같은 세션에 포트만 추가하면 됨) — 이 연결이
-  끊기면 그 동안 오분류 이벤트가 유실되지만, 라이브뷰/녹화(별도 경로)는 영향 없음. 재연결/
-  재시도 전략은 TBD
+  파이프라인 돌 때만 같이 기동). `tracking2.py`/`sideOverflow.py` 둘 다 아직 Docker화 안
+  됨(TBD) — 지금은 GPU 서버에서 스크립트로 직접 실행
+- **GPU(`tracking2.py`/`sideOverflow.py`) → 로컬 백엔드 연결이 상시 필요(반대로 뒤집힌
+  방향)** — 예전엔 "로컬 백엔드 → GPU API 호출"을 상시 유지해야 한다고 봤는데, 실제로는
+  **GPU가 판정 완료 시마다 로컬 백엔드의 `POST /api/events/aiDisposal`(TOP)/`POST
+  /api/binStates`(SIDE)를 호출**하는 구조로 확정돼 방향이 반대가 됨. GPU 서버 SSH
+  세션(`gpuServerOps.md`)에 로컬 백엔드 포트로의 **역방향 터널(`-R`)이 필요**(기존
+  MongoDB용 `-R 27020`과 같은 세션에 포트만 추가하면 됨, TOP/SIDE가 같은 `-R 8299` 포트를
+  공유) — 이 연결이 끊기면 그 동안 오분류/넘침 이벤트가 둘 다 유실되지만, 라이브뷰/녹화
+  (별도 경로)는 영향 없음. 재연결/재시도 전략은 TBD
 - **백엔드(로컬) → LLM(GPU 서버) 실시간 연결은 여전히 불필요** — 이건 향후 LLM을 실시간
   탐지 경로에 쓰게 될 때 얘기고, 지금 진행 중인 자동 라벨링 검증은 `training`↔`llm`이 둘 다
   GPU 서버 안에 있어 SSH 터널 없이 컨테이너 간 통신으로 충분함. 실시간 경로에 쓰게 되면 그때
@@ -217,9 +230,9 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 - **`training`(GPU 서버) → MongoDB(로컬) 연결은 상시 필요** — 학습용 원본 이미지를
   로컬 GridFS에서 그대로 가져다 쓰기로 확정(위 "이벤트 적재" 참고)해서, 학습/라벨링 돌릴
   때마다 역방향 터널(위 라즈베리파이 RTSP 터널과 같은 SSH 세션에 포트만 추가)이 필요함
-- **GPU 연산 자체는 `training`/`inference`/`llm` 컨테이너만 사용**(셋 다 실제로 씀 — `llm`은
-  자동 라벨링 검증용) — DB/백엔드가 로컬로 빠지면서 이 구분은 자연히 유지됨(`docker run --gpus`는
-  `training`/`inference`/`llm`에만 적용)
+- **GPU 연산 자체는 `training`/`tracking2.py`/`sideOverflow.py`/`llm`만 사용**(넷 다 실제로
+  씀 — `llm`은 자동 라벨링 검증용, `tracking2.py`/`sideOverflow.py`는 아직 Docker 컨테이너가
+  아니라 독립 스크립트) — DB/백엔드가 로컬로 빠지면서 이 구분은 자연히 유지됨
 - 서버 CPU/RAM이 팀별로 분리되는지(GPU만 분리되는지)는 서버 관리자 확인 필요(TBD)
 - GPU 패스스루: nvidia-docker 필요
 - **GPU 서버는 다인 공유 환경**(팀 5명뿐 아니라 다른 수강생들도 같은 호스트 공유) — 계정 격리,
@@ -360,21 +373,22 @@ Detect → Create Event → Save Event → Check mode
   `README.md`의 "오탐 confidence threshold"와 같은 성격의 수치 튜닝 TBD
 - **GPU→로컬 백엔드 연결 방식/재연결 전략** — SSH 역터널(`-R`)이 필요한 건 확정됐지만
   (위 "배포 전략" 참고), 끊겼을 때 자동 재연결(`autossh` 등) 필요 여부는 미정 — 끊기면
-  그 동안 오분류 이벤트가 유실되지만 라이브뷰/녹화는 영향 없음
-- **`tracking2.py`를 GPU 서버 상시 서비스로 배포** — 실제 TOP 스트림 구독(로컬 백엔드
-  중계)까지는 확인됐고(위 "탐지 파이프라인" 참고), Docker화(`training`/`llm` 패턴 재사용,
-  `restart: unless-stopped`로 재부팅/크래시 복구까지 커버) 여부 및 SSH 역터널 자체의 상시
-  유지(`autossh` 등, 아래 "GPU→로컬 백엔드 연결 방식" 항목과 동일 이슈)는 아직 TBD — 지금은
-  사람이 SSH 세션 열어두고 수동 실행
-- **GPU 쪽 헬스체크/하트비트 부재** — 지금 구조는 GPU가 오분류를 감지했을 때만 백엔드로
-  푸시하는 방식이라, "아무도 안 버려서 조용한 것"과 "GPU 컨테이너 크래시/SSH 터널 끊김으로
-  아예 판정 자체가 안 되는 것"이 백엔드 입장에서 구분이 안 됨(둘 다 그냥 이벤트가 안 옴).
-  판정 이벤트와 별개로 GPU가 일정 주기(예: 30초~1분)마다 "살아있음" 신호를 로컬 백엔드로
-  보내고, 마지막 수신 시각이 임계값을 넘으면 관리자 웹에 연결 끊김 상태로 표시하는 방식
-  검토 필요 — 아직 미착수
-- **GPU 카드 공유 시 `tracking2.py`-`training` 동시 실행 지연/자원 경합 실측 필요** —
-  `tracking2.py`가 상시 도는 구조라 `training`을 돌리는 시간대엔 자원을 나눠 써야 함,
-  정확한 부하는 실측 필요
+  그 동안 오분류(TOP)/넘침(SIDE) 이벤트가 둘 다 유실되지만 라이브뷰/녹화는 영향 없음
+- **`tracking2.py`/`sideOverflow.py`를 GPU 서버 상시 서비스로 배포** — 실제 TOP 스트림
+  구독(로컬 백엔드 중계)까지는 확인됐고(위 "탐지 파이프라인" 참고), `sideOverflow.py`는
+  아직 실제 GPU 서버 배포/실행 자체가 안 된 상태(코드만 작성됨, `decisionLog.md` 참고).
+  Docker화(`training`/`llm` 패턴 재사용, `restart: unless-stopped`로 재부팅/크래시 복구까지
+  커버) 여부 및 SSH 역터널 자체의 상시 유지(`autossh` 등, 아래 "GPU→로컬 백엔드 연결 방식"
+  항목과 동일 이슈)는 아직 TBD — 지금은 사람이 SSH 세션 열어두고 수동 실행
+- **GPU 쪽 헬스체크/하트비트 부재** — 지금 구조는 GPU가 오분류/넘침을 감지했을 때만
+  백엔드로 푸시하는 방식이라, "아무 일도 없어서 조용한 것"과 "GPU 스크립트 크래시/SSH 터널
+  끊김으로 아예 판정 자체가 안 되는 것"이 백엔드 입장에서 구분이 안 됨(둘 다 그냥 이벤트가
+  안 옴, TOP/SIDE 둘 다 해당). 판정 이벤트와 별개로 GPU가 일정 주기(예: 30초~1분)마다
+  "살아있음" 신호를 로컬 백엔드로 보내고, 마지막 수신 시각이 임계값을 넘으면 관리자 웹에
+  연결 끊김 상태로 표시하는 방식 검토 필요 — 아직 미착수
+- **GPU 카드 공유 시 `tracking2.py`/`sideOverflow.py`-`training` 동시 실행 지연/자원 경합
+  실측 필요** — 둘 다 상시 도는 구조라 `training`을 돌리는 시간대엔 자원을 나눠 써야 함,
+  정확한 부하는 실측 필요(단, `sideOverflow.py`는 모델이 가벼워 부담이 작을 것으로 예상)
 - LLM 자동 라벨링 검증의 세부 프롬프트/자동 라벨링 도구 구현(진행 중), "환경별 통 모양 인식
   데이터 생성"의 구체적 방식(아직 미착수)
 - `tracking2.py`가 자체 저장하는 이미지(`waste_events/*.jpg`)를 백엔드 GridFS(`imageFileId`)와

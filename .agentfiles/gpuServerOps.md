@@ -45,7 +45,8 @@ docker info | grep -i rootless      # 값 나오면 성공
 ```
 `No cpuset/io.weight support` 경고는 rootless cgroup 제약이라 무시 가능(이 프로젝트는 미사용).
 
-## Python venv (sudo 없이, `models/trashdetect/tracking2.py` 등 호스트 직접 실행용)
+## Python venv (sudo 없이, `models/trashdetect/tracking2.py`/`models/trashoverflow/
+sideOverflow.py` 등 호스트 직접 실행용)
 
 `soma` 계정은 sudo가 없어서 `apt install python3-venv`(ensurepip 의존)가 안 됨 —
 `python3 -m venv`가 "ensurepip is not available"로 실패한다. `pip`로 설치 가능한
@@ -56,14 +57,17 @@ cd ~/SortMaster
 python3 -m pip install --user --break-system-packages virtualenv
 python3 -m virtualenv .venv-inference
 source .venv-inference/bin/activate
-pip install opencv-python-headless ultralytics requests
+pip install opencv-python-headless ultralytics requests torch torchvision numpy
 ```
 
-`--break-system-packages`는 `--user`라 홈 디렉터리 안에만 설치되는 거라 시스템 자체엔
-영향 없음(PEP 668 externally-managed-environment 보호를 사용자 레벨 설치에서만 우회).
-`.venv-inference`라는 이름은 `.gitignore`에 이미 예약돼 있던 패턴 — `tracking2.py`를
-Docker로 컨테이너화할지 systemd+venv로 호스트에서 직접 돌릴지가 아직 TBD(`architecture.md`
-참고)라, 컨테이너화하면 이 venv는 버려도 되고 systemd로 가면 그대로 운영 환경이 됨.
+`torch`/`torchvision`은 `sideOverflow.py`(SIDE, MobileNet_V3_Small)용 — TOP과 아키텍처를
+통일하며 로컬 백엔드의 `infra/checkEnv.py`에서 제거되고 이쪽으로 옮겨옴(`decisionLog.md`
+참고). `--break-system-packages`는 `--user`라 홈 디렉터리 안에만 설치되는 거라 시스템
+자체엔 영향 없음(PEP 668 externally-managed-environment 보호를 사용자 레벨 설치에서만
+우회). `.venv-inference`라는 이름은 `.gitignore`에 이미 예약돼 있던 패턴 — `tracking2.py`/
+`sideOverflow.py`를 Docker로 컨테이너화할지 systemd+venv로 호스트에서 직접 돌릴지가 아직
+TBD(`architecture.md` 참고)라, 컨테이너화하면 이 venv는 버려도 되고 systemd로 가면 그대로
+운영 환경이 됨.
 
 ## GPU 카드 격리 & 포트
 
@@ -94,8 +98,8 @@ Docker로 컨테이너화할지 systemd+venv로 호스트에서 직접 돌릴지
 > SSH 역터널로 직접 당겨받는 방식이었으나, GPU가 자체적으로 TOP 영상을 보고(현재는 로컬
 > 데모 영상, 실제 RTSP 연결은 TBD) 판정 결과만 로컬 백엔드로 보내는 방식으로 바뀌면서
 > 이 역터널이 갖고 있던 "끊기면 탐지 전체가 멈추는 단일 장애점" 리스크가 해소됨. GPU →
-> 로컬 백엔드 연결(`-R 8299`)은 여전히 끊기면 그 동안 오분류 이벤트가 유실되므로, 재연결
-> 전략(`autossh` 등)은 검토 필요.
+> 로컬 백엔드 연결(`-R 8299`)은 여전히 끊기면 그 동안 오분류(TOP)/넘침(SIDE) 이벤트가 둘 다
+> 유실되므로, 재연결 전략(`autossh` 등)은 검토 필요.
 
 ```bash
 # GPU 서버 서비스를 노트북/로컬 백엔드에서 보기(-L). 8099(llm)은 실시간 경로에 안 쓰는 한 불필요
@@ -103,7 +107,8 @@ ssh -p 2222 -L 8899:localhost:8899 -L 8099:localhost:8099 soma@<GPU_SERVER_IP>
 # 노트북/로컬 리소스를 GPU 서버로 보내기(-R, 반대 방향). 27020은 로컬 MongoDB(학습용
 # 원본 이미지 조회, training이 사용), 8299는 로컬 백엔드(포트는 도커 PC 자기 자신의
 # 실제 백엔드 포트, 예: 8047 — GPU 서버 쪽 문(-R 앞 숫자)만 팀 공유 규칙상 99로 끝나야
-# 해서 8299 사용. tracking2.py가 오분류 판정 시 이 포트로 POST /api/events/aiDisposal)
+# 해서 8299 사용. tracking2.py(TOP)가 오분류 판정 시 POST /api/events/aiDisposal,
+# sideOverflow.py(SIDE)가 넘침 판정 시 POST /api/binStates로 이 포트를 같이 씀)
 ssh -p 2222 -R 27020:localhost:27020 -R 8299:localhost:8047 soma@<GPU_SERVER_IP>
 ```
 `-R`로 받은 포트는 컨테이너 안에서 호스트의 `localhost`에 직접 못 닿으므로, `training`
@@ -143,6 +148,9 @@ Jetson Orin Nano Super(icbanq 무료 렌탈) 발주 건은 **완전히 취소** 
 tracking2.py`가, 로컬 백엔드가 상시 서빙 중인 MJPEG 스트림(`GET /api/stream/ELEV-TOP`)을
 기존 SSH 역터널(`-R 8299:localhost:8047`)로 직접 구독해서 자체 판단(위 "외부 접속 — SSH
 터널" 참고) — 과거 "로컬 백엔드가 프레임 샘플링해서 GPU API 호출" 방식은 폐기됨
-(`decisionLog.md` 참고). 학습 가중치(`.pt`)는
-`training`→`inference` 둘 다 GPU 서버 안에 있으므로 원격 배포 없이 로컬 파일/볼륨 공유로
-충분(과거 "젯슨에 SCP로 배포" 문제 자체가 사라짐).
+(`decisionLog.md` 참고). **SIDE 카메라의 MobileNet_V3_Small 추론도 완전히 동일한 패턴** —
+GPU 서버의 `models/trashoverflow/sideOverflow.py`가 같은 터널로 `GET
+/api/stream/ELEV-SIDE`를 구독(한때 "로컬 백엔드 CPU 추론, GPU 미사용"으로 갔다가 TOP과
+아키텍처 통일 목적으로 재전환됨, `decisionLog.md` 참고). 학습 가중치(`.pt`)는 `training`/
+`tracking2.py`/`sideOverflow.py` 전부 GPU 서버 안에 있으므로 원격 배포 없이 로컬 파일/볼륨
+공유로 충분(과거 "젯슨에 SCP로 배포" 문제 자체가 사라짐).
