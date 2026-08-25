@@ -450,7 +450,7 @@ Deploy와 Rollback은 모델 파일만 원자적으로 교체합니다. 이후 `
 
 ## camelCase 변경 후 기존 작업 데이터
 
-설정 키, Python 내부 이름, 매니페스트 필드와 파이프라인이 생성하는 폴더 이름 및 YOLO 클래스명은 camelCase로 통일했습니다. 기존 workspace에 snake_case 필드나 클래스명으로 생성된 JSONL은 새 코드와 호환되지 않으므로 `extract` 단계부터 다시 실행해야 합니다.
+설정 키, Python 내부 이름, 매니페스트 필드와 파이프라인이 생성하는 폴더 이름은 camelCase로 통일했습니다. **단, YOLO 클래스명(`trash_normal` 등)은 예외로 snake_case로 영구 고정**(2026-08-25 팀 결정, `.agentfiles/naming.md`/`.agentfiles/decisionLog.md` 참고) — `bestTop.pt`에 박힌 고정값이라 camelCase로 통일하지 않습니다. 기존 workspace에 snake_case 필드(클래스명 제외)로 생성된 JSONL은 새 코드와 호환되지 않으므로 `extract` 단계부터 다시 실행해야 합니다.
 
 Qwen-VL 설정은 `qwenVl`에 있으며 검수 결과는 camelCase 필드를 사용합니다. API 호스트는
 `pipelineConfig.yaml`의 `qwenVl.apiHost`, 포트는 프로젝트 루트 또는 `WebApps/backend/.env`의
