@@ -705,7 +705,7 @@
             <div class="reportModalHeader">
                 <div>
                     <h2 id="reportModalTitle">통계 보고서 이메일 설정</h2>
-                    <p>자동 보고서를 받을 이메일을 설정해 주세요.</p>
+                    <p>자동 보고서를 받을 이메일을 설정하거나 수신을 해제할 수 있습니다.</p>
                 </div>
                 <button
                     class="reportModalClose"
@@ -724,11 +724,11 @@
                     maxlength="254"
                     autocomplete="email"
                     placeholder="receiver@example.com"
-                    required
                 >
 
                 <p class="reportScheduleHelp">
                     일일 보고서는 매일 09:00, 주간 보고서는 매주 월요일 09:10에 자동 발송됩니다.
+                    수신하지 않으려면 이메일 입력란을 비우고 확인을 눌러 주세요.
                 </p>
                 <p id="reportEmailSettingsStatus" class="reportEmailStatus" aria-live="polite"></p>
 
@@ -746,7 +746,7 @@
 
     <!-- sidebar.js를 statistics.js보다 먼저 불러옵니다. -->
     <script src="/static/js/sidebar.js?v=9"></script>
-    <script src="/static/js/statistics.js?v=13"></script>
+    <script src="/static/js/statistics.js?v=14"></script>
 </body>
 
 </html>

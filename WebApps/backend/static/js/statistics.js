@@ -454,7 +454,7 @@ document.addEventListener(
                     setStatus(
                         result.configured
                             ? "현재 자동 보고서 수신 이메일입니다."
-                            : "자동 보고서를 받을 이메일을 입력해 주세요.",
+                            : "현재 자동 보고서 이메일을 수신하지 않습니다.",
                         result.configured
                     );
                 } catch (error) {
@@ -480,12 +480,16 @@ document.addEventListener(
                 }
 
                 const body = {
-                    recipient: recipientInput.value.trim(),
+                    recipient: recipientInput.value.trim() || null,
                 };
 
                 confirmButton.disabled = true;
                 confirmButton.textContent = "저장 중...";
-                setStatus("자동 보고서 수신 이메일을 저장하는 중입니다.");
+                setStatus(
+                    body.recipient
+                        ? "자동 보고서 수신 이메일을 저장하는 중입니다."
+                        : "자동 보고서 이메일 수신을 해제하는 중입니다."
+                );
 
                 try {
                     const response = await fetch(
@@ -512,7 +516,9 @@ document.addEventListener(
                     }
 
                     setStatus(
-                        `${result.recipient} 주소로 설정했습니다. 다음 예약 시각부터 자동 발송됩니다.`,
+                        result.configured
+                            ? `${result.recipient} 주소로 설정했습니다. 다음 예약 시각부터 자동 발송됩니다.`
+                            : "자동 보고서 이메일 수신을 해제했습니다.",
                         true
                     );
                 } catch (error) {

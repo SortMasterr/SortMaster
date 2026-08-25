@@ -114,6 +114,28 @@ class ReportAutomationTests(unittest.TestCase):
             self.assertEqual("manager@example.com", saved)
             self.assertEqual(saved, store.loadRecipient())
 
+    def testClearedRecipientDisablesEnvironmentFallback(self):
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            stateDirectory = Path(temporaryDirectory)
+            RecipientSettingsStore(stateDirectory).clearRecipient()
+            with patch.dict(
+                "os.environ",
+                {
+                    "RPA_STATE_DIRECTORY": temporaryDirectory,
+                    "RPA_REPORT_RECIPIENTS": "fallback@example.com",
+                },
+                clear=True,
+            ):
+                settings = Settings.fromEnvironment(
+                    requireEmail=False,
+                    requireRecipients=False,
+                )
+
+            self.assertEqual((), settings.recipients)
+            self.assertIsNone(
+                RecipientSettingsStore(stateDirectory).loadRecipient()
+            )
+
     def testGmailSenderAndSmtpUserMustMatch(self):
         with tempfile.TemporaryDirectory() as temporaryDirectory:
             with patch.dict(

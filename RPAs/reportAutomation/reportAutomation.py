@@ -147,19 +147,31 @@ class RecipientSettingsStore:
             ) from error
         if not isinstance(data, dict) or not isinstance(
             data.get("recipient"),
-            str,
+            (str, type(None)),
         ):
             raise ConfigurationError(
                 "수신 이메일 설정 파일 형식이 잘못되었습니다."
             )
+        if data["recipient"] is None:
+            return None
         return normalizeEmailAddress(data["recipient"])
 
     def saveRecipient(self, recipient: str) -> str:
         normalized = normalizeEmailAddress(recipient)
+        self._saveSettings(normalized)
+        return normalized
+
+    def clearRecipient(self) -> None:
+        self._saveSettings(None)
+
+    def hasStoredSettings(self) -> bool:
+        return self.settingsPath.exists()
+
+    def _saveSettings(self, recipient: str | None) -> None:
         self.directory.mkdir(parents=True, exist_ok=True)
         temporary = self.settingsPath.with_suffix(".tmp")
         payload = {
-            "recipient": normalized,
+            "recipient": recipient,
             "updatedAt": datetime.now(timezone.utc).isoformat(),
         }
         try:
@@ -176,7 +188,6 @@ class RecipientSettingsStore:
             raise ConfigurationError(
                 "수신 이메일 설정을 저장할 수 없습니다."
             ) from error
-        return normalized
 
 
 @dataclass(frozen=True)
@@ -237,13 +248,16 @@ class Settings:
             for item in os.getenv("RPA_REPORT_RECIPIENTS", "").split(",")
             if item.strip()
         )
-        storedRecipient = RecipientSettingsStore(
-            stateDirectory
-        ).loadRecipient()
+        recipientStore = RecipientSettingsStore(stateDirectory)
+        storedRecipient = recipientStore.loadRecipient()
         recipients = (
             (storedRecipient,)
             if storedRecipient
-            else environmentRecipients
+            else (
+                ()
+                if recipientStore.hasStoredSettings()
+                else environmentRecipients
+            )
         )
         sender = os.getenv("RPA_REPORT_FROM", "").strip()
         smtpHost = os.getenv("SMTP_HOST", "").strip()

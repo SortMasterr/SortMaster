@@ -60,13 +60,21 @@ class ReportEmailService:
     ) -> ReportEmailSettingsResponse:
         try:
             store = self._getStore()
-            recipient = store.saveRecipient(request.recipient)
+            if request.recipient is None:
+                store.clearRecipient()
+                recipient = None
+            else:
+                recipient = store.saveRecipient(request.recipient)
         except ConfigurationError as error:
             raise ReportEmailSettingsError(str(error)) from error
         return ReportEmailSettingsResponse(
-            configured=True,
+            configured=recipient is not None,
             recipient=recipient,
-            message="자동 보고서 수신 이메일을 저장했습니다.",
+            message=(
+                "자동 보고서 수신 이메일을 저장했습니다."
+                if recipient
+                else "자동 보고서 이메일 수신을 해제했습니다."
+            ),
         )
 
     @staticmethod

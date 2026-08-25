@@ -307,7 +307,8 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 ## 자동 통계 보고서
 
 - `/statistics`의 **이메일 설정**은 보고서를 즉시 보내지 않고 자동 보고서 수신 주소 한 개를
-  `RPAs/reportAutomation/state/recipientSettings.json`에 저장한다.
+  `RPAs/reportAutomation/state/recipientSettings.json`에 저장한다. 빈 입력으로 확인하면 명시적
+  수신 해제 상태를 저장하며, 이 상태에서는 `.env` 수신 주소도 폴백하지 않는다.
 - 일일 보고서는 매일 09:00에 전날 KST 데이터를, 주간 보고서는 매주 월요일 09:10에 이전
   월~일 KST 데이터를 조회해 HTML 이메일과 UTF-8 CSV로 자동 발송한다.
 - 예약 실행은 FastAPI 내부가 아닌 별도 `report-scheduler` 프로세스가 담당한다. Docker에서는

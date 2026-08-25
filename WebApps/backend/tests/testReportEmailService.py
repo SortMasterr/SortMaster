@@ -64,6 +64,34 @@ class ReportEmailServicePathTest(unittest.TestCase):
         self.assertEqual("manager@example.com", saved.recipient)
         self.assertEqual(saved.recipient, loaded.recipient)
 
+    def testClearsAutomaticReportRecipient(self):
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            with patch.dict(
+                os.environ,
+                {
+                    "RPA_STATE_DIRECTORY": temporaryDirectory,
+                    "RPA_REPORT_RECIPIENTS": "fallback@example.com",
+                },
+            ):
+                reportEmailService.saveSettings(
+                    ReportEmailSettingsRequest(
+                        recipient="manager@example.com"
+                    )
+                )
+                cleared = reportEmailService.saveSettings(
+                    ReportEmailSettingsRequest(recipient=None)
+                )
+                loaded = reportEmailService.getSettings()
+
+        self.assertFalse(cleared.configured)
+        self.assertIsNone(cleared.recipient)
+        self.assertEqual(
+            "자동 보고서 이메일 수신을 해제했습니다.",
+            cleared.message,
+        )
+        self.assertFalse(loaded.configured)
+        self.assertIsNone(loaded.recipient)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -225,6 +225,24 @@ class ApiControllerBroadcastTest(
         self.assertEqual(expected, response)
         saveSettings.assert_called_once_with(request)
 
+    async def testReportEmailSettingsAcceptsEmptyRecipientForUnsubscribe(self):
+        request = ReportEmailSettingsRequest(recipient="   ")
+        expected = ReportEmailSettingsResponse(
+            configured=False,
+            recipient=None,
+            message="자동 보고서 이메일 수신을 해제했습니다.",
+        )
+
+        with patch(
+            "controllers.api.reportEmailService.saveSettings",
+            return_value=expected,
+        ) as saveSettings:
+            response = api.saveReportEmailSettings(request)
+
+        self.assertIsNone(request.recipient)
+        self.assertEqual(expected, response)
+        saveSettings.assert_called_once_with(request)
+
     async def testReportEmailSettingsFailureReturnsHttp500(self):
         request = ReportEmailSettingsRequest(
             recipient="manager@example.com",
