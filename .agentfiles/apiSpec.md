@@ -1,6 +1,6 @@
 # apiSpec.md
 
-v0.1(MVP), 구현 기준일 2026-08-18. Base URL `http://localhost:8047`(배포 시 로컬 배포 서버 `<LOCAL_BACKEND_IP>:8047`, 실제 IP는 Notion 참고 — 백엔드는 GPU 서버가 아니라 로컬에서 구동, `architecture.md` 참고). JSON camelCase. 인증 없음(내부망).
+v0.1(MVP), 구현 기준일 2026-08-24(EP-12 추가). Base URL `http://localhost:8047`(배포 시 로컬 배포 서버 `<LOCAL_BACKEND_IP>:8047`, 실제 IP는 Notion 참고 — 백엔드는 GPU 서버가 아니라 로컬에서 구동, `architecture.md` 참고). JSON camelCase. 인증 없음(내부망).
 
 새 엔드포인트 추가 시 이 문서 형식(EP-번호, 표) 그대로 유지.
 
@@ -8,10 +8,10 @@ v0.1(MVP), 구현 기준일 2026-08-18. Base URL `http://localhost:8047`(배포 
 
 | Enum | 값 |
 |---|---|
-| CameraId | ELEV-TOP / ELEV-SIDE / REST-4F-01 — 설치 위치 1곳뿐이라 번호 없음(`.agentfiles/architecture.md` 참고). ELEV-TOP=쓰레기 종류 분류+쓰레기통 감지+투척 감지 3기능 모델, ELEV-SIDE=쓰레기통 넘침 여부만 판정 |
-| EventCategory | misclassification(투기, 위 카메라 단독 — **GPU 서버 `inference`가 감지+추적+분류**를 계속 수행, 투척 통(`binId`)과 쓰레기 종류(`detectedClass`) 비교 판정. 실시간 경로엔 LLM 미사용 — Qwen3-VL-8B는 학습 준비 단계 자동 라벨링 검증에만 사용 중) / overflow(넘침, 옆 카메라 단독 — **룰 베이스, 로컬 백엔드가 직접 처리(GPU 미사용)**, 물리 통 4개의 상태를 `BIN_STATES`로 지속 추적하다 `NORMAL`→`FULL` 전환 시점에만 생성) |
-| BinType | general / plasticCan / coffeeCup / paper — 물리 쓰레기통 4개 고정. `plasticCan` 통은 `DetectedClass`의 `plastic`/`can` 둘 다 받음(매핑 필요, `Docs/ERD.md` 참고) |
-| DetectedClass | general / paper / plastic / can / coffeeCup — 총 5종, misclassification 이벤트에서만 사용. `mixed`/`uncertain`은 제외됨 |
+| CameraId | ELEV-TOP / ELEV-SIDE / REST-4F-01 — 설치 위치 1곳뿐이라 번호 없음(`.agentfiles/architecture.md` 참고). ELEV-TOP=YOLO26(쓰레기 4종 분류+추적)+룰 베이스(통 위치, 고정 ROI) 조합, ELEV-SIDE=쓰레기통 넘침 여부만 판정(룰 베이스) |
+| EventCategory | misclassification(투기, 위 카메라 단독 — **GPU 서버(`models/trashdetect/tracking2.py`)가 감지+추적+분류+정상/오분류 판정까지 자체적으로 끝내고 `POST /api/events/aiDisposal`로 결과를 로컬 백엔드에 직접 푸시**, 백엔드는 재판정 없이 저장. 실시간 경로엔 LLM 미사용 — Qwen3-VL-8B는 학습 준비 단계 자동 라벨링 검증에만 사용 중) / overflow(넘침, 옆 카메라 단독 — **룰 베이스, 로컬 백엔드가 직접 처리(GPU 미사용)**, 물리 통 4개의 상태를 `BIN_STATES`로 지속 추적하다 `NORMAL`→`FULL` 전환 시점에만 생성) |
+| BinType | general / plasticCan / coffeeCup / paper — 물리 쓰레기통 4개 고정. `DetectedClass`와 값 체계 1:1 일치(과거엔 `plastic`/`can`이 별도였으나 통합됨, `decisionLog.md` 참고) |
+| DetectedClass | general / paper / plasticCan / coffeeCup — 총 4종, misclassification 이벤트에서만 사용. `mixed`/`uncertain`은 제외됨. 실제 YOLO26 모델이 plastic/can을 구분 못 해 `plasticCan` 하나로 통합(과거 5종에서 축소, `decisionLog.md` 참고) |
 | ActionTaken | lightAndSound / soundOnly / lightOnly / notificationOnly / none |
 | Mode | MANAGE(기본값) / COLLECT |
 | CameraStatus | ONLINE / OFFLINE |
@@ -32,7 +32,8 @@ v0.1(MVP), 구현 기준일 2026-08-18. Base URL `http://localhost:8047`(배포 
 | EP-08 | POST /api/detection/start | 녹화 시작(탐지 시작 신호) | Body: cameraId(CameraId) | 200/422/503 | `recordingService.start` 호출, recordingId 반환. 카메라 미설정/연결 실패 시 503 |
 | EP-09 | POST /api/detection/stop | 녹화 종료+GIF 업로드+이벤트 저장(탐지 종료 결과 신호) | Body: recordingId, cameraId, eventCategory(생략 시 misclassification), detectionId, binId, binType, modelVersion + 카테고리별 필드 | 200/400/404/422 | misclassification/overflow 공통. EP-02와 동일한 저장·Cooldown·WS 부수효과 적용. recordingId 없으면 404, 캡처된 프레임 없으면 400 |
 | EP-10 | GET /api/binStates | BIN_STATES 전체 조회(binId당 최신 1행, 대시보드용) | 없음 | 200 | 없음 |
-| EP-11 | POST /api/binStates | BIN_STATES 갱신(GPU `inference`가 주기 호출) | Body: binId, cameraId(기본 ELEV-SIDE), binType, sessionId, currentState(NORMAL/FULL), confidenceScore, overflowDuration, overflowThreshold?, detectionId, modelVersion | 200/422 | `currentState`가 이전 저장값과 다를 때만 전환 처리. NORMAL→FULL: EP-02와 동일한 `eventService`로 overflow EVENT 생성(detectionId 중복 방지 포함)+`activeOverflowEventId` 기록+MANAGE 모드 시 WS 브로드캐스트. FULL→NORMAL: EVENT 생성 없이 `activeOverflowEventId`만 null로 리셋. 상태 유지 시 값만 갱신 |
+| EP-11 | POST /api/binStates | BIN_STATES 갱신(로컬 백엔드의 SIDE 룰 베이스 로직이 주기 호출, GPU 미사용) | Body: binId, cameraId(기본 ELEV-SIDE), binType, sessionId, currentState(NORMAL/FULL), confidenceScore, overflowDuration, overflowThreshold?, detectionId, modelVersion | 200/422 | `currentState`가 이전 저장값과 다를 때만 전환 처리. NORMAL→FULL: EP-02와 동일한 `eventService`로 overflow EVENT 생성(detectionId 중복 방지 포함)+`activeOverflowEventId` 기록+MANAGE 모드 시 WS 브로드캐스트. FULL→NORMAL: EVENT 생성 없이 `activeOverflowEventId`만 null로 리셋. 상태 유지 시 값만 갱신 |
+| EP-12 | POST /api/events/aiDisposal | GPU 서버(`models/trashdetect/tracking2.py`)가 투척 완료 판정 시 직접 푸시하는 전용 엔드포인트 | Body: eventId, trackId, timestamp, cameraId("CAM-01" 등 GPU 쪽 값 그대로), detectedClass("normal"/"paper"/"recyclables"/"coffeecup"), binId(detectedClass와 동일 값 체계), result("correct"/"incorrect"/"unknown"), imagePath? | 200/422 | `eventService.createEventFromAiDisposal`이 GPU 쪽 값 체계(cameraId/detectedClass/binId/result)를 내부 `EventCreate`로 매핑 후 EP-02와 동일한 `createEventWithStatus`(쿨다운/멱등성) 재사용. 매핑 실패(값 미지정) 또는 `result: unknown`이면 이벤트 미생성(로그만, 에러 아님). `imagePath`는 GPU 서버 로컬 경로라 아직 GridFS 연동 안 됨(TBD) |
 
 ### EP-02. POST /api/events — 이벤트 생성
 
@@ -50,12 +51,14 @@ Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory
 
 부수효과: mode=MANAGE → `actionTaken=lightAndSound` 저장+WS 브로드캐스트(카테고리별 eventType, 실제 RPA 장치는 미구현) / mode=COLLECT → `actionTaken=none` 저장, WS 이벤트 알림 없음. misclassification은 동일 cameraId+detectedClass 5초 내 재호출 무시(Cooldown), overflow는 `detectionId` 유니크 제약으로 저장 중복만 방지(시간 Cooldown 없음)
 
-### EP-08/EP-09. POST /api/detection/start, stop — 탐지 파이프라인 임시 스텁
+### EP-08/EP-09. POST /api/detection/start, stop — 녹화 파이프라인 진입점
 
-`services/detectionService.py`: **데모용 임시 스텁** — GPU 서버 `inference`(TOP) 실제 연동 전까지,
-시작/종료 신호를 `debug/detection/`의 스크립트로 수동 HTTP 요청을 보내 DB에 이벤트를 채워
-넣는 용도. API로 직접 받아 `recordingService`(녹화)→`mediaService`(GIF 인코딩+GridFS 업로드)→
-`eventService.createEvent`(EP-02와 동일 로직, Cooldown 포함)를 그대로 호출하는 HTTP 연결부.
+`services/detectionService.py`: `recordingService`(녹화)→`mediaService`(GIF 인코딩+GridFS
+업로드)→`eventService.createEvent`(EP-02와 동일 로직, Cooldown 포함)를 그대로 호출하는 HTTP
+연결부. TOP은 `presenceGateService.py`(사람 존재 감지 게이팅)가 EP-08/EP-09를 내부적으로
+호출해 라이브뷰/DB 클립용 녹화만 시작·종료(**GPU 오분류 판정과는 완전히 별개 경로** — 실제
+오분류 판정은 EP-12로 별도 수신, `architecture.md`의 "탐지 파이프라인" 참고). 수동
+검증(`debug/detection/simulateEventPipeline.py`)도 이 두 엔드포인트를 직접 호출한다.
 EP-09는 `eventCategory`에 따라 misclassification/overflow를 모두 처리하며, 기존 호출과의
 호환성을 위해 `eventCategory`를 생략하면 misclassification으로 처리한다. misclassification은
 `detectedClass`/`isMisclassified`/`confidenceScore`가 필수이고, overflow는 해당 필드를 보내지
@@ -65,8 +68,8 @@ EP-09는 `eventCategory`에 따라 misclassification/overflow를 모두 처리�
 이벤트의 `isMisclassified=false`, Cooldown, 중복 `detectionId` 판정보다 먼저 실행되므로 현재는
 Event가 새로 저장되지 않아도 GridFS 파일이 먼저 생성될 수 있다.
 현재 `recordingId`에 저장된 시작 카메라와 stop 요청의 `cameraId`가 같은지는 검증하지 않는다.
-GPU `inference`→백엔드 신호 전달 방식(MQTT/HTTP/WS, `architecture.md` 기준 TBD)이 확정되면
-진입점만 그쪽으로 바꾸고 `detectionService` 내부 로직은 재사용 예정.
+GPU→백엔드 오분류 판정 신호는 이 EP-08/09가 아니라 별도의 EP-12(`POST
+/api/events/aiDisposal`)로 확정 수신한다 — 위 "EP-12" 참고.
 
 ### EP-07. WS /ws/events — 실시간 스트림
 
@@ -104,6 +107,10 @@ sidebar.html은 라우트 아님 — 각 페이지에 공통 포함되는 사이
 
 ## 해결된 TBD
 
+- **GPU↔백엔드 오분류 판정 신호 전달 방식 확정** → 로컬 백엔드가 프레임을 GPU로 보내는
+  방향이 아니라, GPU(`models/trashdetect/tracking2.py`)가 자체 판정 후 `POST
+  /api/events/aiDisposal`(EP-12)로 결과를 직접 푸시하는 방향으로 확정(`decisionLog.md`
+  참고). `DetectedClass`도 5종→4종(plastic/can 통합)으로 축소
 - `BIN_STATES` 조회/갱신 API → EP-10(`GET /api/binStates`)/EP-11(`POST /api/binStates`)로 구현
   완료(`schemas/binState.py`, `repositories/binStateRepository.py`, `services/binStateService.py`).
   EP-02/EP-09로 직접 만드는 overflow 이벤트는 여전히 상태 전환 검증 없는 수동/디버그 경로로 남음

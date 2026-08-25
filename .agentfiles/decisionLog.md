@@ -125,3 +125,49 @@
   걱정도, GPU 자원을 상시로 낭비하는 문제도 둘 다 해소됨(SIDE의 룰 베이스 판정과 마찬가지로
   "완전 자동화 이전에 사람이 실제로 관여하는 순간에만 무거운 연산을 쓴다"는 원칙과도 일치).
   구체적인 사람 존재 감지 구현 방식은 TBD. 상세는 `architecture.md`의 "탐지 파이프라인" 참고
+- **GPU 연동 방식을 "로컬 백엔드가 프레임 샘플링해 GPU API 호출·폴링"에서 "GPU가 자체
+  판단 후 로컬 백엔드로 결과 푸시"로 재차 전환** → 위 두 항목(세션 API 설계, 존재 감지
+  게이팅)은 GPU `inference`를 우리가 새로 만드는 서비스라고 가정하고 세운 설계였음. 실제로
+  모델팀이 이미 작성해둔 코드(`models/trashdetect/tracking2.py`)를 확인해보니, 이 스크립트가
+  **TOP 카메라 영상을 직접 열어서 YOLO26+BoT-SORT로 자체적으로 투척 완료를 판단**하고
+  (쓰레기 bbox가 통 bbox 안에서 머물다 사라지면 확정), `detectedClass`/`binId`/정상·오분류
+  판정(`result`)까지 전부 스크립트 안에서 계산해서 **자기가 먼저 로컬 백엔드로 결과를
+  POST하는 구조**로 이미 설계돼 있었음(`handle_disposal_event()`에 백엔드 POST 예시가
+  주석으로 준비돼 있음). "이미 이걸로 모델링 중이니 스크립트를 고치기보다 백엔드가
+  맞추자"는 방향으로 결정 — 로컬 백엔드가 프레임을 보내고 폴링하는 세션 API(`EP-INF-01~03`
+  형태로 초안까지 잡았던 것, `Docs/skills`에 반영 전 폐기)는 전제 자체가 틀려서 만들지
+  않기로 함. 대신 `POST /api/events/aiDisposal`(신규, `controllers/api.py`)을 만들어
+  `tracking2.py`의 JSON을 그대로 받아 내부 `EventCreate`로 변환 후 기존
+  `eventService.createEventWithStatus`(쿨다운/멱등성 파이프라인)를 재사용. 사람 존재
+  감지 게이팅(`presenceGateService.py`)은 폐기하지 않고 유지하되, 역할이 "GPU 프레임
+  전송 트리거"에서 "라이브뷰/DB 클립용 녹화 시작·종료 트리거"로 재정의됨(GPU 판정과는
+  무관, 완전히 독립된 경로) — 이 결정으로 `_startGpuSamplingStub`/`_stopGpuSamplingStub`
+  스텁도 제거함(GPU에 프레임을 보낼 일 자체가 없어짐). 상세는 `architecture.md`의
+  "탐지 파이프라인"/"배포 전략" 참고
+- **`DetectedClass`를 5종(general/paper/plastic/can/coffeeCup)에서 4종(general/paper/
+  plasticCan/coffeeCup)으로 축소, plastic·can 통합** → 위 결정 과정에서 `tracking2.py`의
+  실제 YOLO26 모델이 plastic과 can을 구분하지 못하고 `recyclables` 하나로만 낸다는 게
+  확인됨(**당시엔 "8클래스 모델: 쓰레기 4종+통 4종"로 오인했으나, 이후 아래 항목에서
+  실제로는 쓰레기 4종만 학습된 모델이라는 게 확인됨** — 이 축소 결정 자체(plastic/can
+  통합)는 영향 없이 그대로 유효). 과거 "plastic/can을 별도 클래스로 유지하고 `binType`에
+  다대일로 매핑"하기로 확정했던 결정(위 `binType`은 `plasticCan` 유지 항목)을 다시 뒤집음
+  — 모델이 애초에 구분을 못 하는 상황에서 스키마만 분리해봤자 `can` 값이 영구히 안 나오는
+  죽은 값이 되고, 물리적으로도 플라스틱과 캔은 같은 통에 버려서 실용상 구분할 이유가
+  약하다고 판단. `DetectedClass.PLASTIC_CAN = "plasticCan"` 하나로 통합해서
+  `BinType.PLASTIC_CAN`과 값이 완전히 일치하게 됨(예전의 "여러 DetectedClass가 하나의
+  binType에 매핑"되는 다대일 관계가 사실상 해소). 관련 테스트/디버그 스크립트 전부
+  `plasticCan`으로 갱신, `schemas/event.py`/`services/eventService.py` 참고
+- **통(bin) 위치 판정은 YOLO 모델이 아니라 룰 베이스(고정 ROI)로 확정, `tracking2.py`의
+  YOLO26 모델은 쓰레기 4종만 담당** → 바로 위 항목에서 "8클래스 모델(쓰레기 4종+통 4종)"로
+  판단했던 게 실제로는 착오였음이 실기기 테스트로 드러남. GPU 서버에서 `tracking2.py`를
+  실제로 돌려보니 `model.names`가 쓰레기 4종만 반환(통 클래스 0개, `[WARNING] class 4~7:
+  actual=None`)하고 투입 확정 이벤트가 하나도 안 생김 — 처음엔 "모델 파일이 잘못됐다"고
+  판단했으나, 모델팀에 확인한 결과 **통 위치는 애초에 러닝 베이스가 아니라 룰 베이스로
+  설계된 것**이었음(SIDE 카메라의 `roi.json` 고정 좌표 패턴과 동일한 원리를 통 4개로
+  확장). 실제로 받은 개선 버전 스크립트에는 `RULE_BASED_BIN_ROIS`(통 4개의 화면 비율
+  좌표, 0~1 정규화)가 이미 반영돼 있었고, 이걸로 재테스트하니 정상적으로 투입 이벤트가
+  생성됨(데모 영상 기준 최초 확정 이벤트: `result: correct`, `POST
+  /api/events/aiDisposal`까지 end-to-end 성공). 즉 `current.pt`(쓰레기 4종만 학습)는
+  처음부터 올바른 모델 파일이었고, 문제는 모델 파일이 아니라 `tracking2.py`의 구버전이
+  통 위치까지 모델에 요청하도록(`model.predict(classes=BIN_CLASS_IDS)`) 잘못 짜여 있었던
+  것 — 상세는 `architecture.md`의 "탐지 파이프라인" 참고

@@ -45,6 +45,26 @@ docker info | grep -i rootless      # 값 나오면 성공
 ```
 `No cpuset/io.weight support` 경고는 rootless cgroup 제약이라 무시 가능(이 프로젝트는 미사용).
 
+## Python venv (sudo 없이, `models/trashdetect/tracking2.py` 등 호스트 직접 실행용)
+
+`soma` 계정은 sudo가 없어서 `apt install python3-venv`(ensurepip 의존)가 안 됨 —
+`python3 -m venv`가 "ensurepip is not available"로 실패한다. `pip`로 설치 가능한
+`virtualenv` 패키지로 우회(ensurepip 불필요):
+
+```bash
+cd ~/SortMaster
+python3 -m pip install --user --break-system-packages virtualenv
+python3 -m virtualenv .venv-inference
+source .venv-inference/bin/activate
+pip install opencv-python-headless ultralytics requests
+```
+
+`--break-system-packages`는 `--user`라 홈 디렉터리 안에만 설치되는 거라 시스템 자체엔
+영향 없음(PEP 668 externally-managed-environment 보호를 사용자 레벨 설치에서만 우회).
+`.venv-inference`라는 이름은 `.gitignore`에 이미 예약돼 있던 패턴 — `tracking2.py`를
+Docker로 컨테이너화할지 systemd+venv로 호스트에서 직접 돌릴지가 아직 TBD(`architecture.md`
+참고)라, 컨테이너화하면 이 venv는 버려도 되고 systemd로 가면 그대로 운영 환경이 됨.
+
 ## GPU 카드 격리 & 포트
 
 - `.env`의 `GPU_DEVICE_ID=<nvidia-smi 인덱스>` → `training`/`inference`/`llm` 서비스가
@@ -61,29 +81,30 @@ docker info | grep -i rootless      # 값 나오면 성공
 
 ## 외부 접속 — SSH 터널 (2222 외 포트포워딩 불가)
 
-> **`-L`(GPU서버→로컬 보기)에 `inference` API 포트 추가 필요** — GPU 연동 방식이 "라즈베리
-> 파이→GPU 서버 RTSP 상시 전송"에서 "로컬 백엔드가 프레임을 샘플링해 GPU 추론 API를 호출"로
-> 바뀌면서(`architecture.md`의 "탐지 파이프라인" 참고), 로컬 백엔드가 GPU 서버의 `inference`
-> API 포트에 닿아야 함 — 방향이 `-R`이 아니라 `-L`(로컬이 GPU 서버 쪽을 보러 가는 방향).
-> 정확한 포트는 `inference` 컨테이너 구현 시 확정(TBD). `llm` 포트는 여전히 실시간
-> 경로용으로는 불필요(학습 준비 단계의 자동 라벨링 검증은 `training`↔`llm`이 둘 다 GPU
-> 서버 안에 있어서 컨테이너 간 통신으로 충분).
+> **GPU→로컬 백엔드는 `-R`(반대 방향으로 최종 확정)** — 처음엔 "로컬 백엔드가 GPU
+> 추론 API를 호출"(`-L` 필요)로 예상했지만, 실제 모델팀 코드(`models/trashdetect/
+> tracking2.py`)를 확인한 뒤 **"GPU가 판정 완료 시마다 로컬 백엔드로 직접 POST"**하는
+> 방향으로 뒤집힘(`decisionLog.md` 참고) — MongoDB용 `-R 27020`과 같은 방향, 같은 SSH
+> 세션에 포트만 추가하면 됨. `llm` 포트(`-L 8099`)는 여전히 실시간 경로용으로는 불필요
+> (학습 준비 단계의 자동 라벨링 검증은 `training`↔`llm`이 둘 다 GPU 서버 안에 있어서
+> 컨테이너 간 통신으로 충분).
 > **`-R`(로컬→GPU서버 보내기)의 Mongo 포트는 상시 필요** — `training`이 학습용 원본
 > 이미지를 로컬 GridFS에서 직접 가져오기로 확정(`architecture.md`)했기 때문.
-> **RTSP 포트(8554) 역터널은 더 이상 불필요** — 과거엔 TOP 카메라 RTSP를 GPU 서버
-> `inference`가 SSH 역터널로 직접 당겨받는 방식이었으나, 프레임 샘플링 API 호출 방식으로
-> 바뀌면서 라즈베리파이가 GPU 서버와 직접 연결될 일이 없어짐(`decisionLog.md` 참고) —
-> 이 역터널이 갖고 있던 "끊기면 탐지 전체가 멈추는 단일 장애점" 리스크가 해소됨. 로컬
-> 백엔드 → GPU API 연결(`-L`)은 여전히 끊기면 그 동안 AI 판정이 안 되므로, 재연결 전략
-> (`autossh` 등)은 이쪽으로 옮겨서 검토 필요.
+> **RTSP 포트(8554) 역터널은 더 이상 불필요** — 과거엔 TOP 카메라 RTSP를 GPU 서버가
+> SSH 역터널로 직접 당겨받는 방식이었으나, GPU가 자체적으로 TOP 영상을 보고(현재는 로컬
+> 데모 영상, 실제 RTSP 연결은 TBD) 판정 결과만 로컬 백엔드로 보내는 방식으로 바뀌면서
+> 이 역터널이 갖고 있던 "끊기면 탐지 전체가 멈추는 단일 장애점" 리스크가 해소됨. GPU →
+> 로컬 백엔드 연결(`-R 8299`)은 여전히 끊기면 그 동안 오분류 이벤트가 유실되므로, 재연결
+> 전략(`autossh` 등)은 검토 필요.
 
 ```bash
-# GPU 서버 서비스를 노트북/로컬 백엔드에서 보기(-L). inference API 포트는 컨테이너 구현
-# 후 추가(TBD), 8099(llm)은 실시간 경로에 안 쓰는 한 불필요
+# GPU 서버 서비스를 노트북/로컬 백엔드에서 보기(-L). 8099(llm)은 실시간 경로에 안 쓰는 한 불필요
 ssh -p 2222 -L 8899:localhost:8899 -L 8099:localhost:8099 soma@<GPU_SERVER_IP>
-# 노트북/로컬 DB를 GPU 서버로 보내기(-R, 반대 방향). 27020은 로컬 MongoDB(학습용 원본
-# 이미지 조회, training이 사용)
-ssh -p 2222 -R 27020:localhost:27020 soma@<GPU_SERVER_IP>
+# 노트북/로컬 리소스를 GPU 서버로 보내기(-R, 반대 방향). 27020은 로컬 MongoDB(학습용
+# 원본 이미지 조회, training이 사용), 8299는 로컬 백엔드(포트는 도커 PC 자기 자신의
+# 실제 백엔드 포트, 예: 8047 — GPU 서버 쪽 문(-R 앞 숫자)만 팀 공유 규칙상 99로 끝나야
+# 해서 8299 사용. tracking2.py가 오분류 판정 시 이 포트로 POST /api/events/aiDisposal)
+ssh -p 2222 -R 27020:localhost:27020 -R 8299:localhost:8047 soma@<GPU_SERVER_IP>
 ```
 `-R`로 받은 포트는 컨테이너 안에서 호스트의 `localhost`에 직접 못 닿으므로, `training`
 서비스에 `extra_hosts: ["host.docker.internal:host-gateway"]`를 적용하고 MongoDB 접속

@@ -5,9 +5,11 @@
 > 손 감지 조합 판정은 폐지되고 쓰레기 감지 자체가 트리거로 바뀜 — 옆 카메라(`ELEV-SIDE`)는
 > **룰 베이스로 로컬 백엔드가 직접**(GPU 미사용) 물리 쓰레기통 4개(일반/플라스틱·캔/커피컵/
 > 종이)의 상태를 `BIN_STATES`로 지속 추적하다가 **NORMAL→FULL로 전환되는 순간에만** 넘침
-> 이벤트 생성+알림. 위 카메라(`ELEV-TOP`)는 **GPU 서버 `inference`의 YOLO26**이 투척 추적+
-> 쓰레기 종류 분류를 계속 수행하고, 로컬 백엔드가 통 상태/쿨다운과 종합해 최종 판정(메인보드가
-> 라즈베리파이로 바뀌면서 엣지가 아니라 GPU 서버가 추론 주체). Qwen3-VL-8B(LLM)는 실시간
+> 이벤트 생성+알림. 위 카메라(`ELEV-TOP`)는 **GPU 서버의 YOLO26(`models/trashdetect/
+> tracking2.py`)**이 투척 추적+쓰레기 종류 분류+정상/오분류 판정까지 자체적으로 끝내고,
+> 결과를 로컬 백엔드로 직접 푸시(`POST /api/events/aiDisposal`) — 로컬 백엔드는 값을
+> 그대로 저장할 뿐 재판정하지 않음(메인보드가 라즈베리파이로 바뀌면서 엣지가 아니라 GPU
+> 서버가 추론 주체). Qwen3-VL-8B(LLM)는 실시간
 > 탐지 경로엔 없고 학습 준비 단계 자동 라벨링 검증에 이미 사용 중(`architecture.md`의
 > "LLM 활용" 참고). 이벤트는 여전히
 > `misclassification`(투기)/`overflow`(넘침) 두 카테고리로 나뉨. 상세는 `architecture.md`의
@@ -30,7 +32,7 @@ erDiagram
     BIN_STATES {
         string binId PK "물리 쓰레기통 4개 중 하나(신규 확정: 일반/플라스틱·캔/커피컵/종이). ELEV-SIDE 시야 안에 고정 설치"
         string cameraId "현재 구조상 항상 ELEV-SIDE(넘침 감지는 옆 카메라 전담이라 다른 값 없음)"
-        string binType "general/plasticCan/coffeeCup/paper(플라스틱·캔 통은 캔+플라스틱 둘 다 받음 — AI가 이미 캔/플라스틱을 별도 detectedClass로 구분해서 학습 중이라 값 통일 안 함, 아래 참고). binId와 사실상 1:1, 조인 없이 필터링하려는 비정규화 필드"
+        string binType "general/plasticCan/coffeeCup/paper(플라스틱·캔 통은 캔+플라스틱 둘 다 받음 — 실제 YOLO26 모델이 캔/플라스틱을 구분 못 해서 DetectedClass도 plasticCan 하나로 통합됨, 아래 참고). binId와 사실상 1:1, 조인 없이 필터링하려는 비정규화 필드"
         string sessionId "넘침 감지(로컬 백엔드, 룰 베이스) 프로세스 시작 시 새 UUID 생성 — 재시작/재연결마다 갱신(확정)"
         string currentState "NORMAL / FULL"
         float confidenceScore "최근 판정 신뢰도"
@@ -41,16 +43,16 @@ erDiagram
 
     EVENT {
         string eventId PK "uuid, 백엔드 생성"
-        string detectionId UK "신규 — 감지 시점에 UUID로 생성(eventId와 동일 방식, 확정) — misclassification은 GPU 서버 `inference`, overflow는 로컬 백엔드(룰 베이스)가 생성. trackingId 조합 방식은 세션 종속이라 배제. 유니크 인덱스로 중복 저장 방지 — GPU 서버↔중앙 백엔드 신호 전달 방식이 아직 TBD라 at-least-once 가능성 대비(overflow는 로컬 내부라 해당 없음)"
+        string detectionId UK "신규 — 감지 시점에 UUID로 생성(eventId와 동일 방식, 확정) — misclassification은 GPU 서버(models/trashdetect/tracking2.py)가 자체 생성한 eventId를 그대로 사용, overflow는 로컬 백엔드(룰 베이스)가 생성. trackingId 조합 방식은 세션 종속이라 배제. 유니크 인덱스로 중복 저장 방지 — GPU→백엔드 HTTP POST가 at-least-once일 가능성 대비(overflow는 로컬 내부라 해당 없음)"
         int trackingId "nullable, misclassification만. YOLO26 트래커가 부여한 추적 ID — 세션 리셋 시 재사용될 수 있어 전역 유니크 아님(그래서 detectionId가 따로 필요), 디버깅/추적용"
         datetime timestamp
         string cameraId FK "CameraId enum(ELEV-TOP/ELEV-SIDE)"
         string eventCategory "misclassification(투기, ELEV-TOP 단독) / overflow(넘침, ELEV-SIDE 단독 — BIN_STATES가 NORMAL→FULL로 전환되는 순간에만 생성)"
-        string detectedClass "nullable, misclassification만. YOLO26(GPU 서버 `inference`)이 직접 분류(쓰레기 아니면 해당 표기), 학습 시엔 자동 라벨링+LLM 검증으로 정확도 개선 진행 중. general/paper/plastic/can(신규 — 캔은 플라스틱과 별도 클래스로 이미 학습 중, 아래 참고)/coffeeCup — 총 5종. mixed/uncertain은 제외 확정(아래 참고)"
-        string binId FK "물리 통 4개 중 하나 — misclassification: GPU `inference`가 추적한 실제 투척 통 / overflow: 어느 통이 가득 찼는지. 과거 초안의 thrownBinId를 대체, 두 카테고리 모두 사용"
-        string binType "general/plasticCan/coffeeCup/paper — BIN_STATES.binType과 동일 값 비정규화 저장"
-        boolean isMisclassified "nullable, misclassification만. GPU `inference`가 detectedClass→binType 매핑(plastic/can 둘 다 plasticCan에 매핑 등, 아래 참고)으로 변환 후 binId의 실제 binType과 비교해 판정한 결과를 전달, 백엔드는 쿨다운 검증 후 그대로 저장"
-        float confidenceScore "nullable, misclassification만, 0.0~1.0. YOLO26(GPU 서버 `inference`) 분류 신뢰도"
+        string detectedClass "nullable, misclassification만. YOLO26(GPU 서버 tracking2.py)이 직접 분류. general/paper/plasticCan(모델이 plastic/can을 구분 못 해서 통합, 아래 참고)/coffeeCup — 총 4종. mixed/uncertain은 제외 확정(아래 참고)"
+        string binId FK "물리 통 4개 중 하나 — misclassification: GPU(tracking2.py)가 추적한 실제 투척 통 / overflow: 어느 통이 가득 찼는지. 과거 초안의 thrownBinId를 대체, 두 카테고리 모두 사용"
+        string binType "general/plasticCan/coffeeCup/paper — BIN_STATES.binType과 동일 값 비정규화 저장, detectedClass와 값 체계 1:1 일치"
+        boolean isMisclassified "nullable, misclassification만. GPU(tracking2.py)가 자체적으로 detectedClass vs 투입된 통을 비교해 판정한 결과(result: correct/incorrect)를 로컬 백엔드가 그대로 boolean으로 변환해 저장 — 백엔드가 재계산하지 않음(아래 참고)"
+        float confidenceScore "nullable, misclassification만, 0.0~1.0. tracking2.py 응답에 값이 없어 현재는 고정값 저장(TBD, 아래 참고)"
         float overflowDuration "nullable, overflow만. 전환 확정 시점의 BIN_STATES.overflowDuration 스냅샷"
         float overflowThreshold "nullable, overflow만. FULL 판정 기준 시간(모델/설정값)"
         string actionTaken "lightAndSound/soundOnly/lightOnly/notificationOnly/none"
@@ -100,7 +102,7 @@ erDiagram
 - **CAMERA**: 별도 컬렉션 없음. `CameraId` Enum + 설정값으로만 존재하는 개념적 엔티티. 현재 코드는 3개 고정(`ELEV-TOP`, `ELEV-SIDE`, `REST-4F-01`) — `.agentfiles/architecture.md` 참고.
 - **통계(`GET /api/statistics`)**: 저장 없이 매 요청마다 `EVENT`에서 온디맨드 집계 — 별도 엔티티 아님. `overflow`는 `detectedClass`별 집계에 안 섞고(애초에 `detectedClass`가 없음), `overflowCount` 같은 별도 필드로 분리 집계(확정 — 성격이 다른 카테고리를 같은 막대그래프에 억지로 합치면 오히려 헷갈림).
 - **SystemState.mode**(`MANAGE`/`COLLECT`): 전역 상태로만 언급되고 영속화 계층(DB/파일) 명시 없어 ERD에서 제외.
-- 탐지 모델(TOP=YOLO26/GPU 서버 `inference` 상시 추론, SIDE=룰 베이스/로컬 백엔드, Qwen3-VL-8B=GPU 서버 학습용 자동 라벨링 검증) 자체는 DB에 영속화되는 대상이 아니라 ERD 범위 밖.
+- 탐지 모델(TOP=YOLO26/GPU 서버 `models/trashdetect/tracking2.py` 상시 추론, SIDE=룰 베이스/로컬 백엔드, Qwen3-VL-8B=GPU 서버 학습용 자동 라벨링 검증) 자체는 DB에 영속화되는 대상이 아니라 ERD 범위 밖.
 - **DB 실행 위치**: MongoDB는 **로컬**(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)에서 `backend`와 같이 구동(배포
   위치 재조정 확정 — GPU 서버로 이전했던 건 보류됨, `.agentfiles/architecture.md` 참고).
   `training`(GPU 서버)이 학습용 이미지를 가져올 때만 역방향 SSH 터널로 이 DB에 접속 —
@@ -141,19 +143,16 @@ erDiagram
 - 이미지/영상 필드 공용 여부 → `imageFileId` 하나로 공용 확정. `misclassification`/`overflow`
   둘 다 GIF로 저장(별도 `videoFileId` 안 둠). 녹화 길이도 고정 10초가 아니라 트리거
   시작~종료 신호 사이 실제 구간으로 계산(`services/recordingService.py`)
-- **`binType`은 `plasticCan` 유지, `DetectedClass`에 `can` 추가하는 걸로 확정** → 물리 통은
-  플라스틱과 캔을 같이 받지만(`plasticCan` 통 1개), AI 학습은 이미 캔/플라스틱을 별도
-  클래스로 구분 중이라 `DetectedClass`를 값 통일하는 대신 `can`을 추가하는 쪽으로 결정
-  (한때 `plastic`으로 값 통일하는 안을 검토했다가 번복). `DetectedClass`의 "클래스 경계 =
-  목표 통 경계" 원칙(커피컵 몸체=`coffeeCup`/뚜껑=`plastic`처럼 재질이 아니라 배출 통
-  기준으로 나뉨)은 그대로 유지되지만, `plasticCan` 통 하나에 `plastic`/`can` 클래스 둘 다
-  대응되는 **다대일 관계**라 `isMisclassified` 판정에 매핑(`{plastic: plasticCan, can:
-  plasticCan, paper: paper, coffeeCup: coffeeCup, general: general}`)이 필요 —
-  `schemas/event.py`의 `DetectedClass`에 `can` 값 추가 완료
+- ~~**`binType`은 `plasticCan` 유지, `DetectedClass`에 `can` 추가하는 걸로 확정**~~ →
+  **번복됨(`decisionLog.md` 참고)**. 실제 YOLO26 모델(`models/trashdetect/tracking2.py`)이
+  plastic/can을 구분 못 하고 `recyclables` 하나로만 내놓는다는 게 확인돼, `can`을 다시
+  제거하고 `DetectedClass.PLASTIC_CAN`(`"plasticCan"`) 하나로 통합함. 아래 남은 문단은
+  당시 맥락 기록용으로 남겨둠 — 지금은 `DetectedClass`와 `binType`이 값 체계까지 완전히
+  1:1이라 다대일 매핑 자체가 필요 없음
 - **`DetectedClass`에서 `mixed`/`uncertain` 제외 확정** → 라벨링 기준을 정하려다가, 팀
-  자체 라벨링 시엔 어차피 모든 대상을 5종(general/paper/plastic/can/coffeeCup) 중
+  자체 라벨링 시엔 어차피 모든 대상을 4종(general/paper/plasticCan/coffeeCup) 중
   하나로 분류할 수 있다고 판단해서 아예 클래스에서 뺌. `DetectedClass`가 `binType`(4종)에
-  다대일로 완전히 매핑되는 닫힌 집합이 되어, "매핑 없는 값" 예외 처리 자체가 불필요해짐
+  1:1로 완전히 매핑되는 닫힌 집합이 되어, "매핑 없는 값" 예외 처리 자체가 불필요해짐
   (예전에 검토했던 "mixed/uncertain은 매핑 없어서 자동 오분류" 로직도 같이 폐기)
 - **`BIN_STATES`는 `binId`당 최신 상태 1행만 유지(upsert) 확정** → 상태 변경 이력은
   `EVENT`(overflow 카테고리)가 이미 담당해서 중복 보관 불필요. `sessionId`는 로컬 백엔드의
@@ -162,7 +161,7 @@ erDiagram
   시점만 저장"(`architecture.md`) 원칙 유지 — 복귀는 문제 상황이 아니라 정상 회복이라
   `BIN_STATES.currentState`만 갱신, `activeOverflowEventId`는 이때 `null`로 리셋
 - **`detectionId` 생성 방식 확정** → 감지 시점에 UUID 생성(`eventId`와 동일 방식) —
-  misclassification은 GPU 서버 `inference`, overflow는 로컬 백엔드(룰 베이스)가 생성.
+  misclassification은 GPU 서버 `tracking2.py`, overflow는 로컬 백엔드(룰 베이스)가 생성.
   `cameraId`+`trackingId` 조합안은 `trackingId`가 세션 종속이라 배제
 - **통계에서 `overflow`는 별도 필드로 분리 집계 확정** → `detectedClass`별 집계와 안 섞음
   (`overflow`엔 애초에 `detectedClass`가 없어서)

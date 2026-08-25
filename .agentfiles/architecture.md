@@ -34,22 +34,21 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
 > **메인보드를 Jetson Orin Nano Super에서 라즈베리파이로 전환하면서 YOLO26 추론 위치도
 > 엣지→GPU 서버로 이관 확정**(과거 "엣지 YOLO26 단독" 결정을 다시 뒤집음). 라즈베리파이는
 > 추론 성능이 부족해 **캡처+RTSP 송신+GPIO(전구/스피커)만 담당**하고, **YOLO26 상시 추론
-> (감지+추적+분류+판정)은 GPU 서버의 신규 `inference` 컨테이너가 전담**.
+> (감지+추적+분류+판정)은 GPU 서버의 `models/trashdetect/tracking2.py`가 전담**.
 >
-> **GPU 연동 방식은 "RTSP 상시 pull"이 아니라 "사람 존재 여부로 게이팅한 프레임 샘플링
-> API 호출"로 확정**(과거 "GPU가 SSH 역터널로 RTSP를 직접 당겨받는" 결정을 뒤집음, 이유는
-> `decisionLog.md` 참고). TOP 카메라 RTSP는 이제 SIDE처럼 **로컬 백엔드로만** 들어오고
-> (관리자 웹 실시간 송출과 같은 스트림, `cameraManager.py` 변경 불필요). 로컬 백엔드가
-> **사람이 통 근처에 있는 동안만** `readFrame()`으로 **5~10fps 샘플링**해서 GPU `inference`의
-> 추론 API를 호출(사람이 없으면 GPU 호출 자체가 없음) — 모션 감지처럼 거친 트리거는 투척
-> 시작 순간을 놓칠 수 있어서, "동작 감지"가 아니라 더 안정적인 "사람 존재 감지"로 게이팅
-> 하기로 확정(가능하면 로컬에서 YOLO 없이 가벼운 방식으로). GPU 서버는 더 이상 RTSP/ffmpeg
-> 파이프라인을 직접 다룰 필요가 없어짐 — 이 덕분에 라즈베리파이→GPU 서버 SSH 역터널
-> 자체가 없어져서, 예전에 "끊기면 탐지 전체가 멈추는 단일 장애점"이었던 그 연결이 사라짐
-> (API 호출이 실패/지연돼도 그 순간 AI 판정만 스킵되고 라이브뷰/녹화는 영향 없음). 사람이
-> 없는 대부분의 시간엔 GPU 연산 자체가 없어서 `training`/다른 팀과의 카드 경합도 줄어듦.
-> LLM(Qwen3-VL-8B)은 여전히 이 실시간 경로엔 없음(고도화 전용, 아래 "LLM 활용" 참고) —
-> **`inference`와 `llm`은 서로 다른 GPU 컨테이너**.
+> **GPU 연동 방식은 "로컬 백엔드가 프레임을 샘플링해 GPU API를 호출·폴링"이 아니라
+> "GPU가 TOP 카메라를 직접 보고 자체 판단한 뒤 결과를 로컬 백엔드로 푸시"로 최종
+> 확정됨**(모델팀이 이미 작성한 `tracking2.py`를 실제로 확인한 뒤 뒤집힌 결정 — 과거
+> "GPU가 SSH 역터널로 RTSP를 직접 당겨받는" 설계와 "로컬 백엔드가 사람 존재 감지로
+> 게이팅해 프레임을 GPU에 세션 단위로 전송" 설계 둘 다 폐기, 이유는 `decisionLog.md`
+> 참고). TOP 카메라 RTSP는 여전히 SIDE처럼 **로컬 백엔드로 들어와서 라이브뷰/녹화에
+> 쓰이지만**, 이건 GPU 판정과는 **완전히 별개 경로**다 — 로컬 백엔드의 사람 존재 감지
+> 게이팅(`presenceGateService.py`)은 녹화 시작/종료 타이밍만 결정하고, GPU에 프레임을
+> 보내거나 GPU 응답을 기다리지 않는다. GPU 쪽(`tracking2.py`)은 별도로 TOP 카메라 영상을
+> 직접 열어서(현재는 RTSP 소스로 전환 필요, 아래 참고) 상시 감지+추적하다가 투입이
+> 확정되면 `POST /api/events/aiDisposal`로 로컬 백엔드에 결과를 전송한다(구현 완료,
+> `services/eventService.py`의 `createEventFromAiDisposal`). LLM(Qwen3-VL-8B)은 여전히
+> 이 실시간 경로엔 없음(고도화 전용, 아래 "LLM 활용" 참고).
 
 - **넘침(overflow) 판정**(**옆 카메라** 단독, **로컬 백엔드, 룰 베이스 — GPU 미사용**): 옆
   카메라 라즈베리파이가 보낸 RTSP를 로컬 백엔드가 LAN으로 그대로 받아(관리자 웹 송출과
@@ -57,48 +56,70 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
   전혀 관여하지 않음 — `NORMAL`→`FULL` 전환 시점마다 바로 `BIN_STATES` 갱신+`EVENT`
   생성(기존과 동일). SIDE 카메라는 GPU 서버와 아예 연결되지 않음(TOP도 이제 RTSP가 아니라
   API로만 GPU와 통신하므로, 어느 카메라든 GPU 서버로 RTSP를 직접 보내는 경우 자체가 없음)
-- **투기(misclassification) 판정**(**위 카메라** 단독, 로컬 백엔드가 사람 존재 감지로
-  게이팅 + 프레임 샘플링 + GPU 추론 API 호출 + 백엔드 판정):
-  1. 위 카메라 라즈베리파이가 보낸 RTSP를 **로컬 백엔드가 상시 수신**(SIDE와 동일한 경로,
-     `cameraManager.py`) → **사람이 통 근처에 감지되면** 이 시점부터 녹화 시작(DB 저장용)
-     + GPU 프레임 전송 시작. 사람 존재 감지는 YOLO 없이 로컬에서 가벼운 방식으로
-     구현됨(**구현 완료**) — `cv2.createBackgroundSubtractorMOG2` 배경 차분으로
-     프레임별 전경 픽셀 비율을 구하고(`detection/presenceDetector.py`), 임계값+
-     디바운스(진입 확인 시간/이탈 유예 시간)를 적용한 상태 머신(`services/
-     presenceGateService.py`, ABSENT/PRESENT 2상태)으로 게이팅 신호를 만듦. 진입 시
-     `detectionService.startDetection`으로 녹화 시작, 이탈(약 3초 유예 후) 시
-     `recordingService.stop`을 직접 호출해 녹화만 종료(GPU 판정 결과가 없어 `Event`
-     미생성 — `inference` 연동 전까지의 중간 단계, 아래 "TBD" 참고)
-  2. **사람이 감지되는 동안만** 로컬 백엔드가 `cameraManager.readFrame()`으로 **5~10fps
-     정도 샘플링**해서 GPU `inference`의 추론 API로 전송(사람이 없으면 아예 안 보냄 —
-     `recordingService.py`가 이미 5fps로 자체 샘플링하는 패턴에 존재 감지 게이팅을 더한
-     형태). GPU `inference`는 **감지+추적+쓰레기 종류 분류를 세션 단위로 유지**(투척
-     궤적처럼 프레임 간 연속성이 필요한 상태는 GPU 쪽에서 트래킹 세션으로 들고 있음 —
-     세션 시작/프레임 전송/종료 형태의 API로 예상, 정확한 스펙은 TBD)
-  3. 투척 완료를 GPU가 판단하면 분류 결과+`trackingId`를 담아 **"판정 완료" 응답**을
-     로컬 백엔드로 전달 → 백엔드가 이미 갖고 있는 통 상태/쿨다운(5초) 로직으로 최종
-     오분류 여부 확정 → **`EVENT` 저장** → 불일치 시 RPA 트리거 신호를 라즈베리파이로 전송
-  4. 사람이 통 근처에서 벗어나면(또는 투척 완료 후 **약 3초 텀**) 녹화 종료 + GPU 프레임
-     전송도 같이 종료(신호는 백엔드가 자체 타이머/존재 감지로 처리)
-  - 로컬 백엔드 ↔ GPU `inference` 통신은 원본 RTSP가 아니라 **샘플링된 프레임(이미지)+
-    소형 JSON**이라, 예전처럼 영상 자체가 상시로 GPU 서버까지 나갈 필요가 없어짐(아래
-    "배포 전략" 참고). 사람이 없는 대부분의 시간엔 이 통신 자체가 없음. 실제 API 스펙
-    (요청/응답 형식, 세션 관리)은 TBD — 사람 존재 감지 자체는 구현 완료(위 참고)
+- **투기(misclassification) 판정**(**위 카메라** 단독, **GPU 서버가 자체적으로 판정 결과를
+  로컬 백엔드에 푸시하는 방식으로 확정** — 과거 "로컬 백엔드가 프레임을 샘플링해서 GPU
+  세션 API를 호출·폴링" 설계는 실제 모델팀 코드(`models/trashdetect/tracking2.py`)를
+  확인한 뒤 폐기됨, `decisionLog.md` 참고):
+  1. **녹화(라이브뷰/DB 클립)는 오분류 판정과 완전히 독립적으로 동작** — 위 카메라
+     라즈베리파이가 보낸 RTSP를 로컬 백엔드가 상시 수신(SIDE와 동일한 경로,
+     `cameraManager.py`), **사람이 통 근처에 감지되면** 녹화 시작, 이탈(약 3초 유예 후)
+     녹화 종료. 사람 존재 감지는 YOLO 없이 로컬에서 가벼운 방식으로 구현됨(**구현
+     완료**) — `cv2.createBackgroundSubtractorMOG2` 배경 차분으로 프레임별 전경 픽셀
+     비율을 구하고(`detection/presenceDetector.py`), 임계값+디바운스를 적용한 상태
+     머신(`services/presenceGateService.py`, ABSENT/PRESENT 2상태)으로 게이팅. 이
+     녹화 흐름은 GPU 판정과 신호를 주고받지 않음(**구현 완료**)
+  2. **오분류 판정은 GPU 서버의 `models/trashdetect/tracking2.py`가 전담** — 이 스크립트가
+     TOP 카메라 RTSP(또는 영상 소스)를 **직접 열어서** YOLO26(**쓰레기 4종만** — 통은
+     아래 참고)으로 쓰레기를 감지, BoT-SORT로 트래킹하면서 **쓰레기 bbox 하단 중앙점이
+     특정 통 영역 안에 일정 프레임 이상 머물다 사라지면 투입 확정**으로 판단(로컬 백엔드의
+     존재 감지 게이팅과 무관하게 독립적으로 상시 동작). **통 위치는 YOLO가 아니라 화면 고정
+     비율 ROI(룰 베이스)로 판정** — SIDE 카메라의 `roi.json`(단일 영역)과 같은 패턴을 통
+     4개로 확장한 것(`tracking2.py`의 `RULE_BASED_BIN_ROIS`, 정규화 좌표 0~1). 처음엔
+     "쓰레기 4종+통 4종을 한 YOLO 모델이 같이 인식"하는 8클래스 설계로 오인했으나(모델팀이
+     넘긴 실제 코드에 모델 호출 흔적이 있었음), 실기기 테스트로 모델이 4클래스만 알고 있는
+     걸 확인한 뒤 모델팀 확인 결과 **통은 애초에 룰 베이스가 맞는 설계**였음이 드러남
+     (`decisionLog.md` 참고). `detectedClass`/`binId`/정상·오분류 판정(`result:
+     correct/incorrect`)까지 **전부 GPU 쪽에서 직접 계산**(백엔드는 재계산 안 함) —
+     커피컵→재활용통도 정상으로 인정하는 등 배출 규칙도 스크립트 안에 있음
+  3. 투입이 확정되면 이 스크립트가 **`POST /api/events/aiDisposal`로 로컬 백엔드에 결과를
+     직접 전송**(로컬 백엔드가 GPU를 호출하는 게 아니라 **GPU가 로컬 백엔드를 호출**하는
+     방향 — 반대 방향이었던 옛 설계와 헷갈리지 말 것). 백엔드는 이 값을 내부 `EventCreate`로
+     매핑해 기존 `eventService.createEventWithStatus`(쿨다운/멱등성 포함)를 그대로
+     재사용해 `EVENT` 저장(**구현 완료**, `services/eventService.py`의
+     `createEventFromAiDisposal`). `result: unknown`이나 매핑 안 되는 값은 방어적으로
+     무시(로그만 남김)
+  4. **쓰레기 종류는 4종(normal/paper/recyclables/coffeecup)으로 축소 확정** — 모델이
+     plastic/can을 구분 못 해서 `DetectedClass.PLASTIC_CAN` 하나로 통합(물리적으로도 같은
+     통에 버려서 실용상 문제없다고 판단, `decisionLog.md` 참고). 기존 `general`/`paper`/
+     `coffeeCup` + 통합된 `plasticCan` 총 4종
+  - **GPU 서버 → 로컬 백엔드 실제 푸시 검증 완료**(데모 영상 기준) — GPU 서버에서
+    `tracking2.py` 실행 → 투입 확정 → SSH 역터널(포트는 팀 공유 규칙상 99로 끝나야 해서
+    `8299` 사용, `gpuServerOps.md` 참고)로 `POST /api/events/aiDisposal` 호출까지 end-to-end
+    확인됨. 단, 백엔드가 아직 이 엔드포인트를 반영 안 한 배포본이면 405(경로는 `GET
+    /api/events/{id}`와 우연히 매칭되지만 메서드가 안 맞음)가 뜸 — 코드 배포(재빌드) 필요
+  - **아직 안 된 것**: `tracking2.py`는 지금 데모 mp4/웹캠(`SOURCE`)을 보는 로컬 스크립트
+    상태 — 실제 TOP RTSP를 보게 설정 변경 필요, GPU 서버에서 상시 서비스로 도는 형태(예:
+    systemd)로 배포 필요, `CAMERA_ID="CAM-01"`→실제 값 확인(백엔드는 `CAM-01`을
+    `ELEV-TOP`으로 매핑해서 받아둔 상태라 스크립트 수정 없이도 동작은 함). `RULE_BASED_BIN_ROIS`
+    좌표도 지금은 데모 영상 기준값이라, 실제 설치 후 카메라 구도에 맞게 재보정 필요. 이
+    스크립트가 자체 저장하는 이미지(`waste_events/*.jpg`)는 아직 백엔드의 GridFS와 연동
+    안 됨 — `imageFileId` 없이 저장됨
 - **역할 분담**:
   - **라즈베리파이(엣지, TOP+SIDE 공통)**: 캡처+RTSP 송신+GPIO(전구 릴레이)+스피커(경고음) —
     **추론 없음, RTSP는 로컬 백엔드로만 전송**(TOP/SIDE 둘 다 GPU 서버와 직접 연결 안 함)
-  - **로컬 백엔드**: TOP/SIDE 둘 다 RTSP 상시 수신(관리자 웹 송출 겸용) + TOP은 프레임을
-    샘플링해서 GPU `inference` 추론 API 호출까지 담당. 통 상태(`BIN_STATES`)/쿨다운/최종
-    `EVENT` 생성/녹화 시작·종료 타이밍/RPA 트리거 신호 송신은 TOP/SIDE 공통으로 백엔드가
-    맡고, SIDE는 룰 베이스 판정 자체(딥러닝 미사용)까지 전부 백엔드가 직접 수행 — 지속
-    상태는 전부 백엔드(로컬 MongoDB) 소유
-  - **GPU 서버 `inference`(TOP 전용)**: 로컬 백엔드가 보내는 샘플링된 프레임을 API로 받아
-    YOLO26 추론(감지+추적+분류) 수행, 투척 궤적처럼 프레임 연속성이 필요한 판정은 세션
-    단위로 GPU 쪽에서 유지(상태는 진행 중인 투척 1건 범위 내에서만 GPU가 들고 있음) — 더
-    이상 RTSP를 직접 받지 않음(과거 SSH 역터널 방식 폐기, `decisionLog.md` 참고)
-  - GPU 서버 컨테이너는 `training`(전처리+자동 라벨링+학습)/`inference`(YOLO26 TOP 모델,
-    API로 프레임 받아 추론)/`llm`(Qwen3-VL-8B, 자동 라벨링 검증용으로 이미 사용 중 — 실시간
-    탐지 경로엔 여전히 없음) 3개
+  - **로컬 백엔드**: TOP/SIDE 둘 다 RTSP 상시 수신(관리자 웹 송출 겸용) + `POST
+    /api/events/aiDisposal`로 GPU가 보내는 오분류 판정 결과를 수신. 통 상태
+    (`BIN_STATES`)/쿨다운/녹화 시작·종료 타이밍/RPA 트리거 신호 송신은 TOP/SIDE 공통으로
+    백엔드가 맡고, SIDE는 룰 베이스 판정 자체(딥러닝 미사용)까지 전부 백엔드가 직접 수행 —
+    지속 상태는 전부 백엔드(로컬 MongoDB) 소유
+  - **GPU 서버(`models/trashdetect/tracking2.py`, TOP 전용)**: TOP 카메라 영상을 직접 열어
+    YOLO26(감지+통 인식)+BoT-SORT(추적)로 투입 확정까지 자체 판단, 결과를 로컬 백엔드로
+    푸시(로컬 백엔드가 GPU를 호출하는 게 아니라 **GPU가 로컬 백엔드를 호출**) — 더 이상
+    RTSP를 로컬 백엔드로부터 받지 않고 자체 소스를 봄(과거 "SSH 역터널로 RTSP 직접 받기"/
+    "로컬 백엔드가 프레임 샘플링해서 세션 API 호출" 두 설계 모두 폐기, `decisionLog.md` 참고)
+  - GPU 서버 컨테이너/프로세스는 `training`(전처리+자동 라벨링+학습)/`models/trashdetect/
+    tracking2.py`(YOLO26 TOP 모델, 위 설명대로 자체 실행+결과 푸시)/`llm`(Qwen3-VL-8B,
+    자동 라벨링 검증용으로 이미 사용 중 — 실시간 탐지 경로엔 여전히 없음) 3개
 
 ## LLM 활용
 
@@ -124,24 +145,27 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 ## 추론 인프라
 
 - NVIDIA L40S 총 4장, **팀당 1장씩 전용 할당**(다른 팀과 경합 없음)
-- 모델/역할 분담은 위 "탐지 파이프라인" 참고(YOLO26 TOP 모델만 GPU 서버 `inference`, SIDE는
-  로컬 백엔드 룰 베이스, LLM은 자동 라벨링 검증용 — 실시간 탐지엔 미사용)
-- **GPU 서버엔 컨테이너 3개**: `training`(전처리+자동 라벨링+학습, 필요할 때만 기동) /
-  `inference`(YOLO26 TOP 모델 상시 추론, 상시 기동) / `llm`(Qwen3-VL-8B 서빙, vLLM — 자동
-  라벨링 검증용으로 **이미 사용 중**, `training`과 함께 필요할 때만 기동. 실시간 탐지
-  경로엔 여전히 없음). `backend`/`mongo`는 GPU 서버가 아니라 **로컬에서 구동**(아래 "배포
-  전략" 참고)
-- `inference`는 `training`과 같은 카드(`GPU_DEVICE_ID`)를 공유하는 상시 컨테이너라, 학습을
-  돌리는 시간대엔 두 워크로드가 VRAM/연산을 나눠 써야 함 — `llm`처럼 GPU 메모리 사용량을
-  제한해두는 게 안전(실측 후 조정 필요, 아래 TBD 참고)
-- (과거 TBD였던) `training`에서 나온 `.pt` 가중치를 젯슨(엣지)에 배포하는 문제는 이번 이관으로
-  해소 — `training`/`inference` 둘 다 GPU 서버 안에 있어 로컬 파일/볼륨 공유로 충분(원격 배포
-  불필요)
+- 모델/역할 분담은 위 "탐지 파이프라인" 참고(YOLO26 TOP 모델은 GPU 서버의
+  `models/trashdetect/tracking2.py`, SIDE는 로컬 백엔드 룰 베이스, LLM은 자동 라벨링
+  검증용 — 실시간 탐지엔 미사용)
+- **GPU 서버에서 도는 것 3가지**: `training`(전처리+자동 라벨링+학습, 필요할 때만 기동,
+  Docker 컨테이너) / `models/trashdetect/tracking2.py`(YOLO26 TOP 모델 추론+판정,
+  **아직 Docker 컨테이너가 아니라 독립 실행 Python 스크립트** — 상시 서비스화는 TBD, 아래
+  참고) / `llm`(Qwen3-VL-8B 서빙, vLLM — 자동 라벨링 검증용으로 **이미 사용 중**,
+  `training`과 함께 필요할 때만 기동, Docker 컨테이너). `backend`/`mongo`는 GPU 서버가
+  아니라 **로컬에서 구동**(아래 "배포 전략" 참고)
+- `tracking2.py`는 `training`과 같은 카드(`GPU_DEVICE_ID`)를 공유해서 상시 돌게 될 예정이라,
+  학습을 돌리는 시간대엔 두 워크로드가 VRAM/연산을 나눠 써야 함 — `llm`처럼 GPU 메모리
+  사용량을 제한해두는 게 안전(실측 후 조정 필요, 아래 TBD 참고)
+- (과거 TBD였던) `training`에서 나온 `.pt` 가중치를 젯슨(엣지)에 배포하는 문제는 해소됨 —
+  `training`/`tracking2.py` 둘 다 GPU 서버 안에 있어 로컬 파일/볼륨 공유로 충분(원격 배포
+  불필요, 실제로 학습 산출물을 `autoTraining/promotedModels/current.pt`로 옮겨서 검증함)
 - `training` 컨테이너는 JupyterLab을 띄워서 팀원이 브라우저로 같이 접속해 학습 코드 작성
   (`.env`의 `JUPYTER_PORT`/`JUPYTER_TOKEN`, 진짜 멀티유저 격리는 아니라 동시 실행 지양).
   GPU 서버 운영 실무(계정/rootless Docker/포트/SSH 터널 등)는 `gpuServerOps.md` 참고
-- `inference` 컨테이너 자체(FastAPI+ultralytics 등 실제 구현/Dockerfile/docker-compose.yml
-  서비스 정의)는 아직 미착수 — 위 "탐지 파이프라인" 설계대로 구현 예정
+- `tracking2.py`를 GPU 서버에서 재부팅해도 자동으로 도는 상시 서비스(systemd 등, 라즈베리파이
+  RTSP 송신에 적용한 것과 같은 패턴)로 만드는 작업은 **아직 미착수** — 지금은 사람이 직접
+  실행해야 함
 
 ## 배포 전략
 
@@ -153,26 +177,27 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 >
 > **메인보드를 Jetson Orin Nano Super → 라즈베리파이로 전환하며 TOP 카메라 YOLO26 추론도
 > 엣지→GPU 서버로 이관** — 라즈베리파이는 추론 성능이 부족해 엣지 단독 추론이 불가능해짐.
-> 이 결정으로 GPU 서버가 실시간 경로에 들어옴(단, LLM이 아니라 YOLO26 `inference`만, SIDE는
-> 애초에 GPU 미사용). **단, GPU 연동은 RTSP 상시 수신이 아니라 로컬 백엔드가 프레임을
-> 샘플링해 API로 보내는 방식**(아래 참고, `decisionLog.md`) — 라즈베리파이는 GPU 서버와
-> 직접 연결되지 않고 로컬 백엔드로만 RTSP를 보냄. 상세는 위 "탐지 파이프라인" 참고
+> 이 결정으로 GPU 서버가 실시간 경로에 들어옴(단, LLM이 아니라 YOLO26 `tracking2.py`만,
+> SIDE는 애초에 GPU 미사용). **GPU 연동은 로컬 백엔드가 프레임을 보내는 방식이 아니라
+> GPU가 결과를 로컬 백엔드로 푸시하는 방식으로 최종 확정**(아래 참고, `decisionLog.md`) —
+> 라즈베리파이는 여전히 GPU 서버와 직접 연결되지 않고 로컬 백엔드로만 RTSP를 보내지만,
+> **GPU 쪽(`tracking2.py`)이 TOP 영상을 볼 수 있어야 하므로 별도 경로 확보 필요**(아래
+> "TBD" 참고 — 로컬 백엔드가 중계하거나, GPU가 라즈베리파이 RTSP를 직접 볼 수 있게 하거나
+> 둘 중 하나 확정 필요). 상세는 위 "탐지 파이프라인" 참고
 
 - 개발: Windows+Docker, 로컬 웹캠 테스트(기존과 동일)
 - **배포**: `backend`+`mongo`는 로컬 `<LOCAL_BACKEND_IP>`(확정, 실제 값은 Notion 참고)에서
-  `docker compose up backend mongo`로 실행. `training`/`inference`/`llm`은 GPU 서버로 이전해서
-  `training`/`llm`은 `docker compose --profile training up`/`--profile llm up`(둘 다 자동
-  라벨링 검증 파이프라인 돌 때만 같이 기동), `inference`는 `docker compose up inference`
-  (YOLO26 TOP 모델 상시 추론, 상시 기동)로 실행 — **하나의 `docker-compose.yml`을 그대로
-  쓰되, 호스트/시점마다 띄우는 서비스 조합만 다름**(별도 compose 파일 분리 불필요)
-- **로컬 백엔드 → GPU 서버 `inference` 연결은 상시 필요(단, RTSP가 아니라 API 호출)** —
-  TOP 카메라 RTSP는 라즈베리파이→로컬 백엔드로만 가고(SIDE와 동일 경로, `cameraManager.py`
-  변경 불필요), 로컬 백엔드가 5~10fps로 샘플링한 프레임을 GPU `inference`의 추론 API로
-  보내는 방향. 예전 "라즈베리파이→GPU 서버 SSH 역터널로 RTSP 상시 전송" 방식은 폐기(아래
-  TBD/`decisionLog.md` 참고) — 이 터널이 끊겨도 라이브뷰/녹화는 영향 없고 AI 판정만 그
-  순간 스킵되므로, 예전만큼의 단일 장애점 위험은 아니지만 API 호출 자체는 여전히 상시
-  필요(끊기면 그 동안 오분류 감지가 안 됨). `training`처럼 간헐적 연결보다는 안정성
-  요구가 높음 — 재연결/재시도 전략은 TBD
+  `docker compose up backend mongo`로 실행. `training`/`llm`은 GPU 서버로 이전해서
+  `docker compose --profile training up`/`--profile llm up`(둘 다 자동 라벨링 검증
+  파이프라인 돌 때만 같이 기동). `tracking2.py`는 아직 Docker화 안 됨(TBD) — 지금은 GPU
+  서버에서 스크립트로 직접 실행
+- **GPU(`tracking2.py`) → 로컬 백엔드 연결이 상시 필요(반대로 뒤집힌 방향)** — 예전엔
+  "로컬 백엔드 → GPU API 호출"을 상시 유지해야 한다고 봤는데, 실제로는 **GPU가 판정 완료
+  시마다 로컬 백엔드의 `POST /api/events/aiDisposal`을 호출**하는 구조로 확정돼 방향이
+  반대가 됨. GPU 서버 SSH 세션(`gpuServerOps.md`)에 로컬 백엔드 포트로의 **역방향 터널
+  (`-R`)이 필요**(기존 MongoDB용 `-R 27020`과 같은 세션에 포트만 추가하면 됨) — 이 연결이
+  끊기면 그 동안 오분류 이벤트가 유실되지만, 라이브뷰/녹화(별도 경로)는 영향 없음. 재연결/
+  재시도 전략은 TBD
 - **백엔드(로컬) → LLM(GPU 서버) 실시간 연결은 여전히 불필요** — 이건 향후 LLM을 실시간
   탐지 경로에 쓰게 될 때 얘기고, 지금 진행 중인 자동 라벨링 검증은 `training`↔`llm`이 둘 다
   GPU 서버 안에 있어 SSH 터널 없이 컨테이너 간 통신으로 충분함. 실시간 경로에 쓰게 되면 그때
@@ -318,28 +343,24 @@ Detect → Create Event → Save Event → Check mode
   (`PRESENCE_ENTRY_CONFIRM_SECONDS`)/이탈 유예 시간(`PRESENCE_EXIT_GRACE_SECONDS`,
   스펙상 3초) 수치 자체는 실제 TOP 카메라 설치 위치/거리 기준 실측 후 조정 필요 —
   `README.md`의 "오탐 confidence threshold"와 같은 성격의 수치 튜닝 TBD
-- **GPU 추론 API 스펙 설계** — 로컬 백엔드가 프레임을 어떤 형식으로 보내고(단건 vs 세션
-  기반), 투척 궤적처럼 프레임 간 연속성이 필요한 상태를 GPU 쪽에서 세션으로 어떻게
-  유지할지(세션 시작/프레임 전송/종료 API 형태로 예상) 구체 스펙 미정
-- **프레임 샘플링 레이트 확정** — 사람이 있는 동안 5~10fps로 가정 중이나 실제
-  라즈베리파이+GPU API 연동 후 궤적 추적 정확도를 보고 조정 필요
-- **로컬 백엔드 → GPU API 연결 방식/재연결 전략** — SSH `-L` 터널을 쓸지 등 구체 방식과,
-  끊겼을 때 자동 재연결(`autossh` 등) 필요 여부 미정(예전 RTSP 역터널만큼 치명적이진
-  않지만 — 끊기면 AI 판정만 스킵되고 라이브뷰/녹화는 안 죽음 — 여전히 상시 연결이라 검토 필요)
-- **GPU 서버 `inference` 컨테이너 실제 구현 미착수** — FastAPI+ultralytics 등 구체 스택,
-  Dockerfile, `docker-compose.yml` 서비스 정의(GPU 카드 공유 방식은 `training`/`llm` 패턴
-  재사용 예정) 전부 TBD
-- **GPU 카드 공유 시 `inference`-`training` 동시 실행 지연/자원 경합 실측 필요** — 사람
-  존재 감지로 게이팅되면서 `inference`가 실제로 GPU를 쓰는 시간은 카메라 앞에 사람이
-  있는 짧은 구간뿐일 것으로 예상되나, 정확한 부하는 실측 필요
+- **GPU→로컬 백엔드 연결 방식/재연결 전략** — SSH 역터널(`-R`)이 필요한 건 확정됐지만
+  (위 "배포 전략" 참고), 끊겼을 때 자동 재연결(`autossh` 등) 필요 여부는 미정 — 끊기면
+  그 동안 오분류 이벤트가 유실되지만 라이브뷰/녹화는 영향 없음
+- **`tracking2.py`를 GPU 서버 상시 서비스로 배포** — 지금은 로컬 데모 스크립트 상태(mp4/
+  웹캠 대상), 실제 TOP RTSP를 보도록 `SOURCE` 변경 + systemd 등으로 상시 기동 + Docker화
+  여부(GPU 카드 공유 방식은 `training`/`llm` 패턴 재사용 예정) 전부 TBD
+- **GPU 카드 공유 시 `tracking2.py`-`training` 동시 실행 지연/자원 경합 실측 필요** —
+  `tracking2.py`가 상시 도는 구조라 `training`을 돌리는 시간대엔 자원을 나눠 써야 함,
+  정확한 부하는 실측 필요
 - LLM 자동 라벨링 검증의 세부 프롬프트/자동 라벨링 도구 구현(진행 중), "환경별 통 모양 인식
   데이터 생성"의 구체적 방식(아직 미착수)
-- `DetectedClass`→`binType` 매핑표를 어디에 둘지(GPU `inference` 코드 하드코딩 vs 설정 파일
-  등) — 매핑표 자체는 확정(`Docs/ERD.md` 참고), 위치만 미정
+- `tracking2.py`가 자체 저장하는 이미지(`waste_events/*.jpg`)를 백엔드 GridFS(`imageFileId`)와
+  연동할지, 한다면 어떻게 전송할지(GPU→로컬 파일 전송 필요) — 아직 미착수, 지금은
+  `imageFileId` 없이 이벤트만 저장됨
 - misclassification Cooldown 5초 조정 여부(overflow는 상태 전환 기반으로 확정돼 별도
   Cooldown 없음 — 해결된 TBD 참고)
-- 경고 전구 HW/GPIO 연동 상세, 라즈베리파이↔중앙 백엔드(RPA 트리거)/GPU 서버↔백엔드(판정
-  결과) 신호 전달 방식(MQTT/HTTP/WS, 둘 다 미정)
+- 경고 전구 HW/GPIO 연동 상세, 라즈베리파이↔중앙 백엔드(RPA 트리거) 신호 전달 방식
+  (MQTT/HTTP/WS 중 미정, GPU 서버↔백엔드는 HTTP POST로 확정됨 — 위 "탐지 파이프라인" 참고)
 - 안면인식 레포 포함 여부
 - **GPU 서버 CPU/디스크/네트워크 병목 실측**: GPU(VRAM)는 팀별 카드 분리로 경합 없음
   확인됨(아래 "해결된 TBD" 참고). CPU(192스레드)/디스크(2.8GB/s)는 여유 있어 보이지만
