@@ -50,8 +50,8 @@ tracking2.py 재시작 + smoke test, 실패 시 rollback
 `requirements.txt`에 반영했고 Python 구문, CLI import, 의존성 충돌, GridFS GIF 프레임 추출
 smoke test까지 통과했습니다.
 
-다만 현재 저장소에는 기존 학습 데이터셋과 Golden Test가 없고 일일 입력도 0개입니다. 로컬에서
-설정된 Qwen `/v1/models` 주소에도 연결되지 않았습니다. bootstrap 체크포인트의 snake_case
+다만 현재 저장소에는 기존 학습 데이터셋과 Golden Test가 없고 일일 입력도 0개입니다. Qwen용
+localhost 포트의 SSH 리스너에는 도달하지만 원격 측이 `/v1/models` HTTP 응답 전에 연결을 종료합니다. bootstrap 체크포인트의 snake_case
 클래스명은 설정의 camelCase 계약과 다르므로 현재 상태로 Label부터 전체 E2E를 실행할 수 없습니다.
 
 | 항목 | 상태 | 확인 결과 |
@@ -66,7 +66,7 @@ smoke test까지 통과했습니다.
 | Collect 저장소 연동 | 구현됨, 실DB 미검증 | MongoDB `events`를 읽고 `ELEV-TOP`/`misclassification`의 `topMedia` GridFS GIF를 수집하도록 구현 |
 | GIF 프레임 추출 | 테스트 통과 | 생성한 다중 프레임 GIF를 Collect 매니페스트 기준으로 Extract하는 smoke test 통과 |
 | Qwen-VL 주소 구성 | 구현됨 | `.env`의 `LLM_PORT`와 `qwenVl.apiHost`를 조합하고 포트 범위를 검증 |
-| Qwen-VL 실제 연결 | 현재 PC에서 실패 | `/v1/models` 단기 연결 검사에서 `URLError`; GPU 서버의 vLLM 기동·포트 공개 상태 확인 필요 |
+| Qwen-VL 실제 연결 | SSH 터널 도달, vLLM 응답 실패 | TCP 연결과 SSH 리스너는 확인했지만 `/v1/models` 3회 모두 `ConnectionResetError`; GPU 서버의 vLLM 기동·로그·원격 목적지 포트 확인 필요 |
 | bootstrap 모델 파일 | 로드 가능 | `models/bootstrap/best.pt`, 5,393,150바이트, SHA-256 `757F...B7F2` |
 | 모델 클래스 계약 | 불일치 | 체크포인트는 `trash_normal`, `trash_paper`, `trash_recyclables`, `trash_coffeecup`; 설정은 camelCase 4종 |
 | 활성 모델 포인터 | 초기 상태 | `models/current.json`이 없어 최초 사이클은 bootstrap 모델을 선택 |
@@ -137,6 +137,8 @@ smoke test까지 통과했습니다.
 3. **최신 데이터 수집과 운영 재시작 미연결**
    - Qwen Review는 Compose의 vLLM OpenAI 호환 API로 변경했고, 사람 결정 JSONL 승인 게이트와
      `bestTop.pt` 배포·롤백 파일 교체까지 구현했습니다.
+   - 로컬 `LLM_PORT`는 SSH 프로세스가 리스닝하고 TCP 연결도 성공하지만 `/v1/models` 요청은
+     3회 모두 원격 종료됐습니다. GPU 서버 내부에서 vLLM 상태와 같은 API를 먼저 확인해야 합니다.
    - MongoDB `events.imageFileId`와 카메라별 GridFS 계약을 사용한 Collect를 구현했습니다.
      실제 로컬 DB, 역방향 SSH 터널과 운영 이벤트를 연결한 검증은 아직 필요합니다.
    - Deploy 이후 `tracking2.py` 프로세스 재시작, smoke test와 실패 감지에 따른 자동 rollback은
@@ -499,6 +501,20 @@ qwenVl:
 Review는 조합한 주소의 vLLM OpenAI 호환 `/v1/models`, `/v1/chat/completions`를 호출합니다.
 GPU 서버 외부에서 파이프라인을 실행한다면 `apiHost`를 GPU 서버 주소로 바꾸되 실제 주소와
 인증정보는 공개 문서에 기록하지 않습니다.
+
+2026-08-25 재연결 시험에서는 localhost의 설정 포트까지 TCP 연결됐고 해당 포트를 SSH 프로세스가
+리스닝하는 것도 확인했습니다. 그러나 `/v1/models` 요청은 3회 모두 HTTP 응답 전에
+`ConnectionResetError`로 종료됐습니다. 이는 로컬 파이프라인에서 SSH 터널 입구까지는 도달했지만
+터널 뒤의 vLLM 서비스가 정상 응답하지 않는 상태를 의미합니다. GPU 서버에서 다음을 확인해야 합니다.
+
+```bash
+docker compose ps llm
+docker compose logs --tail=100 llm
+curl http://127.0.0.1:${LLM_PORT}/v1/models
+```
+
+GPU 서버 내부의 `curl`이 성공한 뒤 로컬 터널을 다시 시험하고, 이후 실제 이미지가 포함된
+`/v1/chat/completions` 멀티모달 요청까지 확인해야 Review를 실환경 검증 완료로 판단합니다.
 
 ## 메모리 및 I/O 최적화
 
