@@ -3,8 +3,8 @@ import json
 import uuid
 from pathlib import Path
 from datetime import datetime
-from statistics import median
 from ultralytics import YOLO
+import requests
 
 
 # ============================================================
@@ -15,14 +15,44 @@ SOURCE = "mvpTop.mp4"      # 시연 영상 / 웹캠 사용 시 SOURCE = 0
 # SOURCE = 0
 CAMERA_ID = "CAM-01"
 
+# 로컬 백엔드 주소 — GPU 서버 포트는 팀 공유 규칙상 99로 끝나야 해서 8047을 그대로 못 씀.
+# SSH 역터널(-R 8299:localhost:8047)로 도커 PC의 8047을 GPU 서버의 8299로 매핑해서 접속
+BACKEND_URL = "http://127.0.0.1:8299/api/events/aiDisposal"
+
+# GPU 서버는 화면(디스플레이)이 없는 헤드리스 환경이라 cv2.imshow를 그대로 쓰면 에러 남
+HEADLESS = True
+
+# CPU 실시간 처리 프로필. 10 FPS 카메라보다 처리 속도를 높여 프레임이
+# 대기열에 쌓이지 않게 한다.
+REALTIME_MODE = True
+INFERENCE_IMAGE_SIZE = 416
+# botsort_mvp.yaml만 실제로 존재함(bytetrack_mvp.yaml은 없는 파일이라 그대로 두면 에러 남,
+# 아래 주석의 "BoT-SORT" 설명과도 이쪽이 일치)
+TRACKER_CONFIG = "botsort_mvp.yaml"
+SAVE_OUTPUT_VIDEO = False
+
+# Used only when SOURCE is a camera index such as 0. Exposure values depend
+# on the camera driver; lower values commonly mean a shorter exposure.
+CAMERA_MANUAL_EXPOSURE = True
+CAMERA_EXPOSURE = -6.0
+CAMERA_GAIN = 0.0
+
+# Enhance only the image passed to YOLO. Output video and event crops keep the
+# original pixels. Turn this off to make a quick A/B comparison.
+ENABLE_DETECTION_ENHANCEMENT = False
+CLAHE_CLIP_LIMIT = 2.0
+BLUR_VARIANCE_THRESHOLD = 80.0
+UNSHARP_SIGMA = 1.0
+UNSHARP_AMOUNT = 0.45
+
 # Tracking 중 낮은 confidence 탐지도 활용
-CONFIDENCE = 0.25
+# Keep this low enough for BoT-SORT to reuse weak detections from blurred
+# frames. NEW_TRASH_CONFIDENCE below still prevents weak detections from
+# creating brand-new event tracks.
+CONFIDENCE = 0.05
 
 # 새로운 쓰레기 Track을 우리 이벤트 시스템에 등록하는 최소 confidence
 NEW_TRASH_CONFIDENCE = 0.45
-
-# 쓰레기통 위치를 처음에 잡을 때 사용할 confidence
-BIN_CONFIDENCE = 0.30
 
 # 쓰레기통 bbox 전체를 투입 영역으로 사용
 MIN_INSIDE_FRAMES = 2
@@ -33,8 +63,15 @@ EXIT_RESET_FRAMES = 3
 # YOLO가 늦게 잡아 처음 탐지 시 이미 쓰레기통 bbox 안일 수 있기 때문
 MIN_TRACK_VISIBLE_FRAMES = 5
 
+# At 10 FPS a fast object can be undetectable for a few motion-blurred frames.
+# Extrapolate only an already reliable track across this short detection gap.
+BLUR_GAP_BRIDGE_FRAMES = 3
+MOTION_HISTORY_SIZE = 4
+MIN_MOTION_PIXELS_PER_FRAME = 2.0
+BIN_ENTRY_MARGIN_RATIO = 0.06
+
 # 실제 FPS 기준 시간 설정
-DISAPPEAR_CONFIRM_SECONDS = 1.0   # 시연용: 약 1초 미탐지 시 투입 확정
+DISAPPEAR_CONFIRM_SECONDS = 0.5   # 약 0.5초 미탐지 시 투입 확정
 TRACK_EXPIRE_SECONDS = 4.0        # 아무 통에도 안 들어간 Track 정리
 
 # Track이 끊긴 직후 같은 통에서 새 ID로 다시 생성되는 경우를 중복으로 보기 위한 시간
@@ -45,10 +82,21 @@ FRAGMENT_DUPLICATE_GAP_SECONDS = 1.5
 # 이벤트 이미지 crop 여백
 CROP_MARGIN_RATIO = 0.15
 
-# 고정 카메라: 시작 시 쓰레기통 bbox를 여러 프레임에서 수집 후 고정
-BIN_CALIBRATION_FRAMES = 25
-BIN_MIN_SAMPLES = 8
-BIN_CALIBRATION_MAX_FRAMES = 100
+# 고정 카메라 쓰레기통 ROI (x1, y1, x2, y2), 각 값은 화면 비율 0~1.
+# 기존 640x480 영상에서 사용하던 통 위치를 비율로 변환한 기본값이다.
+# 카메라 구도가 바뀌면 이 값만 수정하면 된다.
+RULE_BASED_BIN_ROIS = {
+    # 왼쪽 위 원형 커피컵 통의 투입구
+    "box_coffeecup": (0.000, 0.155, 0.160, 0.345),
+
+    # 아래쪽 세 통의 전면 투입구만 지정
+    "box_recyclables": (0.105, 0.500, 0.315, 0.830),
+    "box_paper": (0.430, 0.500, 0.630, 0.860),
+    "box_normal": (0.755, 0.500, 0.960, 0.860),
+}
+
+# 원형/타원형 투입구는 bbox의 네 모서리를 진입 영역에서 제외한다.
+ELLIPTICAL_BIN_ROIS = {"box_coffeecup"}
 
 # 결과 영상 저장
 OUTPUT_VIDEO_PATH = "result_tracking_demo.mp4"
@@ -59,6 +107,14 @@ SAVE_DIR = Path("waste_events")
 EVENT_LOG_FILE = SAVE_DIR / "events.jsonl"
 SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
+# Hard examples for later labeling/retraining. Images are saved without drawn
+# boxes so they can be imported directly into a labeling tool.
+HARD_EXAMPLE_DIR = Path("image")
+SAVE_HARD_EXAMPLES = False
+MAX_HARD_EXAMPLE_IMAGES = 1000
+RUN_SESSION_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
+HARD_EXAMPLE_DIR.mkdir(parents=True, exist_ok=True)
+
 
 # ============================================================
 # 2. 클래스 / 분리배출 규칙
@@ -68,27 +124,15 @@ EXPECTED_CLASS_NAMES = {
     1: "trash_paper",
     2: "trash_recyclables",
     3: "trash_coffeecup",
-    4: "box_normal",
-    5: "box_paper",
-    6: "box_recyclables",
-    7: "box_coffeecup",
 }
 
 TRASH_CLASS_IDS = [0, 1, 2, 3]
-BIN_CLASS_IDS = [4, 5, 6, 7]
 
 TRASH_CLASSES = {
     "trash_normal",
     "trash_paper",
     "trash_recyclables",
     "trash_coffeecup",
-}
-
-BIN_CLASSES = {
-    "box_normal",
-    "box_paper",
-    "box_recyclables",
-    "box_coffeecup",
 }
 
 TRASH_TYPE_MAP = {
@@ -132,6 +176,26 @@ cap = cv2.VideoCapture(SOURCE)
 if not cap.isOpened():
     raise RuntimeError("카메라 또는 영상 파일을 열 수 없습니다.")
 
+if isinstance(SOURCE, int):
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+    if CAMERA_MANUAL_EXPOSURE:
+        # 0.25 selects manual exposure on common Windows DirectShow cameras.
+        auto_ok = cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
+        exposure_ok = cap.set(cv2.CAP_PROP_EXPOSURE, CAMERA_EXPOSURE)
+        gain_ok = cap.set(cv2.CAP_PROP_GAIN, CAMERA_GAIN)
+
+        print(
+            "[CAMERA] manual exposure request: "
+            f"auto={auto_ok}, exposure={exposure_ok}, gain={gain_ok}"
+        )
+        print(
+            "[CAMERA] reported values: "
+            f"auto={cap.get(cv2.CAP_PROP_AUTO_EXPOSURE):.2f}, "
+            f"exposure={cap.get(cv2.CAP_PROP_EXPOSURE):.2f}, "
+            f"gain={cap.get(cv2.CAP_PROP_GAIN):.2f}"
+        )
+
 frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 source_fps = float(cap.get(cv2.CAP_PROP_FPS))
@@ -166,31 +230,50 @@ print(
     f"(~{FRAGMENT_DUPLICATE_GAP_SECONDS:.1f}s)"
 )
 
-fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-video_writer = cv2.VideoWriter(
-    OUTPUT_VIDEO_PATH,
-    fourcc,
-    output_fps,
-    (frame_width, frame_height),
-)
+video_writer = None
 
-if not video_writer.isOpened():
-    raise RuntimeError("결과 영상 저장 파일을 열 수 없습니다.")
+if SAVE_OUTPUT_VIDEO:
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    video_writer = cv2.VideoWriter(
+        OUTPUT_VIDEO_PATH,
+        fourcc,
+        output_fps,
+        (frame_width, frame_height),
+    )
 
-print(
-    f"결과 영상 저장 시작: {OUTPUT_VIDEO_PATH} "
-    f"({frame_width}x{frame_height}, {output_fps:.2f} FPS)"
-)
+    if not video_writer.isOpened():
+        raise RuntimeError("결과 영상 저장 파일을 열 수 없습니다.")
+
+    print(
+        f"결과 영상 저장 시작: {OUTPUT_VIDEO_PATH} "
+        f"({frame_width}x{frame_height}, {output_fps:.2f} FPS)"
+    )
+else:
+    print("[REALTIME] 결과 영상 인코딩 비활성화")
 
 
 # ============================================================
 # 4. 런타임 상태
 # ============================================================
-# 쓰레기통은 ByteTrack 대상이 아니다.
-# 처음 몇 프레임에서 predict()로 위치만 잡고 이후 고정한다.
-bin_boxes = {}
-bin_box_samples = {name: [] for name in BIN_CLASSES}
-bin_boxes_locked = False
+# 쓰레기통은 모델이 탐지하지 않고 고정된 화면 비율 ROI를 사용한다.
+def normalized_roi_to_bbox(roi):
+    x1, y1, x2, y2 = roi
+    return (
+        int(round(x1 * frame_width)),
+        int(round(y1 * frame_height)),
+        int(round(x2 * frame_width)),
+        int(round(y2 * frame_height)),
+    )
+
+
+bin_boxes = {
+    name: normalized_roi_to_bbox(roi)
+    for name, roi in RULE_BASED_BIN_ROIS.items()
+}
+
+print("[BIN] 룰 기반 쓰레기통 ROI 적용")
+for name, bbox in bin_boxes.items():
+    print(f"  - {name}: {bbox}")
 
 # key = ByteTrack 내부 raw ID
 active_tracks = {}
@@ -207,6 +290,8 @@ confirmed_event_count = 0
 last_confirmed_track_by_bin = {}
 
 frame_index = 0
+saved_hard_example_keys = set()
+saved_hard_example_count = 0
 
 
 # ============================================================
@@ -217,13 +302,167 @@ def point_inside_box(x, y, bbox):
     return x1 <= x <= x2 and y1 <= y <= y2
 
 
+def point_inside_bin_roi(x, y, bin_class, bbox, margin_ratio=0.0):
+    """Check a rectangular ROI or the coffee-bin elliptical opening."""
+    test_bbox = (
+        expand_bbox(bbox, margin_ratio)
+        if margin_ratio > 0.0
+        else bbox
+    )
+
+    if bin_class not in ELLIPTICAL_BIN_ROIS:
+        return point_inside_box(x, y, test_bbox)
+
+    x1, y1, x2, y2 = test_bbox
+    center_x = (x1 + x2) / 2.0
+    center_y = (y1 + y2) / 2.0
+    radius_x = max(1.0, (x2 - x1) / 2.0)
+    radius_y = max(1.0, (y2 - y1) / 2.0)
+
+    return (
+        ((x - center_x) / radius_x) ** 2
+        + ((y - center_y) / radius_y) ** 2
+        <= 1.0
+    )
+
+
+def save_hard_example(frame, reason, raw_track_id):
+    """Save one raw frame per track/reason for future model retraining."""
+    global saved_hard_example_count
+
+    if not SAVE_HARD_EXAMPLES or frame is None:
+        return
+
+    if saved_hard_example_count >= MAX_HARD_EXAMPLE_IMAGES:
+        return
+
+    key = (reason, raw_track_id)
+    if key in saved_hard_example_keys:
+        return
+
+    safe_track_id = "none" if raw_track_id is None else str(raw_track_id)
+    filename = (
+        f"{RUN_SESSION_ID}_frame_{frame_index:06d}_"
+        f"track_{safe_track_id}_{reason}.jpg"
+    )
+    image_path = HARD_EXAMPLE_DIR / filename
+
+    if cv2.imwrite(str(image_path), frame):
+        saved_hard_example_keys.add(key)
+        saved_hard_example_count += 1
+        print(f"[HARD-EXAMPLE] {image_path}")
+
+
+_detection_clahe = cv2.createCLAHE(
+    clipLimit=CLAHE_CLIP_LIMIT,
+    tileGridSize=(8, 8),
+)
+
+
+def prepare_detection_frame(frame):
+    """Improve local contrast and sharpen only genuinely soft frames."""
+    if not ENABLE_DETECTION_ENHANCEMENT:
+        return frame
+
+    lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+    lightness, channel_a, channel_b = cv2.split(lab)
+    lightness = _detection_clahe.apply(lightness)
+    enhanced = cv2.cvtColor(
+        cv2.merge((lightness, channel_a, channel_b)),
+        cv2.COLOR_LAB2BGR,
+    )
+
+    gray = cv2.cvtColor(enhanced, cv2.COLOR_BGR2GRAY)
+    blur_score = cv2.Laplacian(gray, cv2.CV_64F).var()
+
+    if blur_score < BLUR_VARIANCE_THRESHOLD:
+        soft = cv2.GaussianBlur(enhanced, (0, 0), UNSHARP_SIGMA)
+        enhanced = cv2.addWeighted(
+            enhanced,
+            1.0 + UNSHARP_AMOUNT,
+            soft,
+            -UNSHARP_AMOUNT,
+            0,
+        )
+
+    return enhanced
+
+
 def find_entry_bin(x, y):
     """
     쓰레기통 YOLO bbox 전체를 투입 영역으로 사용한다.
     쓰레기통 bbox끼리 겹치지 않는다는 MVP 전제.
     """
+    candidates = [
+        (bin_class, bbox)
+        for bin_class, bbox in bin_boxes.items()
+        if point_inside_bin_roi(x, y, bin_class, bbox)
+    ]
+
+    if not candidates:
+        return None
+
+    # ROI가 조금 겹치면 더 작은(구체적인) 영역을 우선한다.
+    return min(
+        candidates,
+        key=lambda item: (
+            (item[1][2] - item[1][0])
+            * (item[1][3] - item[1][1])
+        ),
+    )[0]
+
+
+def expand_bbox(bbox, margin_ratio):
+    """Expand a bin ROI slightly to tolerate sparse 10 FPS observations."""
+    x1, y1, x2, y2 = bbox
+    margin_x = int(max(1, x2 - x1) * margin_ratio)
+    margin_y = int(max(1, y2 - y1) * margin_ratio)
+
+    return (
+        max(0, x1 - margin_x),
+        max(0, y1 - margin_y),
+        min(frame_width - 1, x2 + margin_x),
+        min(frame_height - 1, y2 + margin_y),
+    )
+
+
+def predict_missing_bottom_center(track, target_frame):
+    """Linearly extrapolate a reliable track across a very short blur gap."""
+    history = track["motion_history"]
+    if len(history) < 2:
+        return None
+
+    first_frame, first_x, first_y = history[0]
+    last_frame, last_x, last_y = history[-1]
+    elapsed = last_frame - first_frame
+
+    if elapsed <= 0:
+        return None
+
+    velocity_x = (last_x - first_x) / elapsed
+    velocity_y = (last_y - first_y) / elapsed
+    speed = (velocity_x ** 2 + velocity_y ** 2) ** 0.5
+
+    if speed < MIN_MOTION_PIXELS_PER_FRAME:
+        return None
+
+    gap = target_frame - last_frame
+    return (
+        int(round(last_x + velocity_x * gap)),
+        int(round(last_y + velocity_y * gap)),
+    )
+
+
+def find_predicted_entry_bin(x, y):
+    """Use a small tolerance only for short, motion-blurred detection gaps."""
     for bin_class, bbox in bin_boxes.items():
-        if point_inside_box(x, y, bbox):
+        if point_inside_bin_roi(
+            x,
+            y,
+            bin_class,
+            bbox,
+            BIN_ENTRY_MARGIN_RATIO,
+        ):
             return bin_class
     return None
 
@@ -248,19 +487,6 @@ def crop_with_margin(frame, bbox):
     crop = frame[cy1:cy2, cx1:cx2]
 
     return crop.copy() if crop.size > 0 else None
-
-
-def median_bbox(samples):
-    """여러 프레임 bbox의 좌표별 중앙값."""
-    if not samples:
-        return None
-
-    return (
-        int(median([b[0] for b in samples])),
-        int(median([b[1] for b in samples])),
-        int(median([b[2] for b in samples])),
-        int(median([b[3] for b in samples])),
-    )
 
 
 # ============================================================
@@ -360,122 +586,47 @@ def handle_disposal_event(event):
     with EVENT_LOG_FILE.open("a", encoding="utf-8") as file:
         file.write(json.dumps(event, ensure_ascii=False) + "\n")
 
-    # FastAPI 연동 예시
-    # import requests
-    # response = requests.post(
-    #     "http://127.0.0.1:8000/api/events",
-    #     json=event,
-    #     timeout=3,
-    # )
-    # print(response.status_code)
+    try:
+        response = requests.post(
+            BACKEND_URL,
+            json=event,
+            timeout=3,
+        )
+        print(f"[BACKEND] POST {BACKEND_URL} -> {response.status_code}")
+    except requests.RequestException as error:
+        # 네트워크 문제로 백엔드 전송이 실패해도 트래킹 루프 자체는 계속 돈다 —
+        # 이 이벤트는 위 JSONL 로그에 이미 남아있음
+        print(f"[BACKEND] 전송 실패: {error}")
 
 
 # ============================================================
-# 9. 쓰레기통 초기 위치 보정
-# ============================================================
-def update_bin_calibration(frame):
-    """
-    ByteTrack을 쓰지 않고 YOLO predict()로 쓰레기통만 찾는다.
-
-    중요:
-        classes=[4,5,6,7]
-        → 쓰레기통에는 Track ID를 발급하지 않는다.
-    """
-    global bin_boxes_locked
-
-    results = model.predict(
-        source=frame,
-        classes=BIN_CLASS_IDS,
-        conf=BIN_CONFIDENCE,
-        agnostic_nms=True,
-        verbose=False,
-    )
-
-    result = results[0]
-
-    if result.boxes is None or len(result.boxes) == 0:
-        return
-
-    boxes = result.boxes.xyxy.cpu().numpy()
-    classes = result.boxes.cls.cpu().numpy()
-    confidences = result.boxes.conf.cpu().numpy()
-
-    # 한 프레임에서 같은 종류 통이 여러 개 나오면 confidence 가장 높은 것 사용
-    best_bins = {}
-
-    for box, cls, conf in zip(boxes, classes, confidences):
-        class_name = model.names[int(cls)]
-
-        if class_name not in BIN_CLASSES:
-            continue
-
-        bbox = tuple(map(int, box))
-        previous = best_bins.get(class_name)
-
-        if previous is None or float(conf) > previous["confidence"]:
-            best_bins[class_name] = {
-                "bbox": bbox,
-                "confidence": float(conf),
-            }
-
-    for bin_name, data in best_bins.items():
-        bin_box_samples[bin_name].append(data["bbox"])
-
-        stable_box = median_bbox(bin_box_samples[bin_name])
-        if stable_box is not None:
-            bin_boxes[bin_name] = stable_box
-
-    enough_samples = all(
-        len(bin_box_samples[name]) >= BIN_MIN_SAMPLES
-        for name in BIN_CLASSES
-    )
-
-    normal_lock = (
-        frame_index >= BIN_CALIBRATION_FRAMES
-        and enough_samples
-    )
-
-    forced_lock = frame_index >= BIN_CALIBRATION_MAX_FRAMES
-
-    if normal_lock or forced_lock:
-        for bin_name in BIN_CLASSES:
-            stable_box = median_bbox(bin_box_samples[bin_name])
-
-            if stable_box is not None:
-                bin_boxes[bin_name] = stable_box
-
-        missing_bins = [
-            name for name in BIN_CLASSES
-            if name not in bin_boxes
-        ]
-
-        if missing_bins:
-            print(
-                "[WARNING] 다음 쓰레기통 bbox를 충분히 찾지 못했습니다:",
-                missing_bins,
-            )
-
-        bin_boxes_locked = True
-
-        print("[BIN] 쓰레기통 bbox 고정 완료")
-        for name, bbox in bin_boxes.items():
-            print(f"  - {name}: {bbox}")
-
-
-# ============================================================
-# 10. 쓰레기통 화면 표시
+# 9. 쓰레기통 화면 표시
 # ============================================================
 def draw_bins(frame):
     for bin_name, bbox in bin_boxes.items():
         x1, y1, x2, y2 = bbox
 
-        cv2.rectangle(
-            frame,
-            (x1, y1),
-            (x2, y2),
-            (255, 255, 0),
-            2,
-        )
+        if bin_name in ELLIPTICAL_BIN_ROIS:
+            center = (int((x1 + x2) / 2), int((y1 + y2) / 2))
+            axes = (max(1, int((x2 - x1) / 2)), max(1, int((y2 - y1) / 2)))
+            cv2.ellipse(
+                frame,
+                center,
+                axes,
+                0,
+                0,
+                360,
+                (255, 255, 0),
+                2,
+            )
+        else:
+            cv2.rectangle(
+                frame,
+                (x1, y1),
+                (x2, y2),
+                (255, 255, 0),
+                2,
+            )
 
         cv2.putText(
             frame,
@@ -500,45 +651,18 @@ try:
             break
 
         frame_index += 1
+        clean_frame = frame.copy()
+        detection_frame = prepare_detection_frame(clean_frame)
 
-        # =====================================================
-        # 11-1. 시작 시 쓰레기통 위치만 predict()로 보정
-        # =====================================================
-        if not bin_boxes_locked:
-            update_bin_calibration(frame)
-            draw_bins(frame)
-
-            cv2.putText(
-                frame,
-                "Calibrating bins...",
-                (20, 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (255, 255, 255),
-                2,
-            )
-
-            video_writer.write(frame)
-            cv2.imshow("YOLO26 + BoT-SORT ReID Waste MVP", frame)
-
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
-
-            # 쓰레기통 고정이 끝난 다음 프레임부터 trash Tracking 시작
-            continue
-
-        # =====================================================
-        # 11-2. 쓰레기만 YOLO + BoT-SORT + ReID
-        # =====================================================
-        # ★ 가장 중요한 수정
-        # classes=[0,1,2,3]
-        # 쓰레기통 4~7은 ByteTrack에 들어가지 않는다.
+        # 쓰레기만 YOLO + BoT-SORT + ReID로 추적한다.
+        # 쓰레기통은 위에서 지정한 고정 ROI를 사용한다.
         results = model.track(
-            source=frame,
+            source=detection_frame,
             persist=True,
-            tracker="botsort_mvp.yaml",
+            tracker=TRACKER_CONFIG,
             classes=TRASH_CLASS_IDS,
             conf=CONFIDENCE,
+            imgsz=INFERENCE_IMAGE_SIZE,
             agnostic_nms=True,
             verbose=False,
         )
@@ -587,6 +711,11 @@ try:
                 # =============================================
                 if raw_track_id not in active_tracks:
                     if float(conf) < NEW_TRASH_CONFIDENCE:
+                        save_hard_example(
+                            clean_frame,
+                            "low_confidence",
+                            raw_track_id,
+                        )
                         # 약하게 순간적으로 잡힌 새 ID는 이벤트 객체로 등록하지 않음
                         continue
 
@@ -614,6 +743,8 @@ try:
                         "best_confidence": -1.0,
                         "best_crop": None,
                         "last_bbox": (x1, y1, x2, y2),
+                        "motion_history": [],
+                        "blur_bridge_frames": 0,
                     }
 
                     print(
@@ -624,6 +755,19 @@ try:
 
                 track = active_tracks[raw_track_id]
                 current_trash_ids.add(raw_track_id)
+
+                previous_type = get_final_trash_type(track)
+                current_detection_type = TRASH_TYPE_MAP[class_name]
+
+                if (
+                    previous_type is not None
+                    and previous_type != current_detection_type
+                ):
+                    save_hard_example(
+                        clean_frame,
+                        "class_changed",
+                        raw_track_id,
+                    )
 
                 # =============================================
                 # 14. 쓰레기 종류 누적 판정
@@ -654,6 +798,14 @@ try:
                 # 쓰레기 bbox의 하단 중앙점 사용
                 bottom_x = int((x1 + x2) / 2)
                 bottom_y = y2
+
+                track["motion_history"].append(
+                    (frame_index, bottom_x, bottom_y)
+                )
+                track["motion_history"] = track["motion_history"][
+                    -MOTION_HISTORY_SIZE:
+                ]
+                track["blur_bridge_frames"] = 0
 
                 current_bin = find_entry_bin(
                     bottom_x,
@@ -734,6 +886,40 @@ try:
 
             track = active_tracks[raw_track_id]
             track["missing_frames"] += 1
+
+            if (
+                track["missing_frames"] == 1
+                and track["visible_frames"] >= MIN_TRACK_VISIBLE_FRAMES
+            ):
+                save_hard_example(
+                    clean_frame,
+                    "track_missing",
+                    raw_track_id,
+                )
+
+            # If YOLO completely misses a few blurred frames, project the last
+            # observed motion into the bin. It cannot create a new track.
+            if (
+                track["visible_frames"] >= MIN_TRACK_VISIBLE_FRAMES
+                and track["missing_frames"] <= BLUR_GAP_BRIDGE_FRAMES
+            ):
+                predicted_point = predict_missing_bottom_center(
+                    track,
+                    frame_index,
+                )
+
+                if predicted_point is not None:
+                    predicted_bin = find_predicted_entry_bin(*predicted_point)
+
+                    if predicted_bin is not None:
+                        if track["inside_bin"] == predicted_bin:
+                            track["inside_frames"] += 1
+                        else:
+                            track["inside_bin"] = predicted_bin
+                            track["inside_frames"] = 1
+
+                        track["outside_frames"] = 0
+                        track["blur_bridge_frames"] += 1
 
             valid_bin_candidate = (
                 # 시연용 완화 조건:
@@ -870,17 +1056,23 @@ try:
         # =====================================================
         # 23. 결과 영상 저장 / 화면 출력
         # =====================================================
-        video_writer.write(frame)
-        cv2.imshow("YOLO26 + BoT-SORT ReID Waste MVP", frame)
+        if video_writer is not None:
+            video_writer.write(frame)
 
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
+        if not HEADLESS:
+            cv2.imshow("YOLO + ByteTrack Waste Realtime", frame)
+
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
 
 
 finally:
     cap.release()
-    video_writer.release()
+    if video_writer is not None:
+        video_writer.release()
     cv2.destroyAllWindows()
 
-    print(f"결과 영상 저장 완료: {OUTPUT_VIDEO_PATH}")
+    if video_writer is not None:
+        print(f"결과 영상 저장 완료: {OUTPUT_VIDEO_PATH}")
     print(f"최종 확정 이벤트 수: {confirmed_event_count}")
+    print(f"Hard example 저장 수: {saved_hard_example_count}")
