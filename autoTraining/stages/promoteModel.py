@@ -1,5 +1,6 @@
 """8단계: 검증된 후보를 불변 레지스트리에 등록하고 활성 포인터를 교체합니다."""
 import json
+import math
 from pathlib import Path
 
 from common.modelRegistry import calculateFileSha256, promoteToRegistry, resolveActiveModel
@@ -13,10 +14,15 @@ class PromoteModelStage:
         cfg = self.config["promotion"]
         baseline = result["baseline"]
         candidate = result["candidate"]
-        if candidate["map50"] < baseline["map50"] - float(cfg["maximumMap50Drop"]):
-            raise RuntimeError("mAP50 품질 게이트 실패로 모델을 승격하지 않습니다.")
-        if candidate["recall"] < baseline["recall"] - float(cfg["maximumRecallDrop"]):
-            raise RuntimeError("recall 품질 게이트 실패로 모델을 승격하지 않습니다.")
+        metricValues = [baseline["map50"], baseline["recall"], candidate["map50"], candidate["recall"]]
+        if not all(math.isfinite(float(value)) for value in metricValues):
+            raise RuntimeError("평가 지표에 NaN 또는 무한대가 있어 모델을 승격하지 않습니다.")
+        minimumMap50Gain = float(cfg["minimumMap50Gain"])
+        minimumRecallGain = float(cfg["minimumRecallGain"])
+        if candidate["map50"] < baseline["map50"] + minimumMap50Gain:
+            raise RuntimeError("mAP50이 최소 향상 기준을 통과하지 못해 모델을 승격하지 않습니다.")
+        if candidate["recall"] < baseline["recall"] + minimumRecallGain:
+            raise RuntimeError("recall이 최소 향상 기준을 통과하지 못해 모델을 승격하지 않습니다.")
 
         active = resolveActiveModel(self.bootstrapModel, self.activeModelPointer)
         if active.sha256 != result["baselineSha256"]:

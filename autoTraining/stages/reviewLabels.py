@@ -28,8 +28,8 @@ class ReviewLabelsStage:
     ) -> dict[str, Any]:
         """설정된 Qwen-VL API 서버로 JSON 요청을 전송합니다.
 
-        현재 서버는 모델 목록과 채팅을 위해 /api/tags, /api/chat 규격을 제공합니다.
-        이 이름은 통신 런타임이 아니라 실제 검수 모델인 Qwen-VL의 역할을 나타냅니다.
+        프로젝트 Compose의 vLLM OpenAI 호환 API를 사용합니다.
+        모델 목록은 /v1/models, 검수 요청은 /v1/chat/completions로 호출합니다.
         """
         apiBaseUrl = self.config["qwenVl"]["apiBaseUrl"].rstrip("/")
         requestData = (
@@ -61,10 +61,10 @@ class ReviewLabelsStage:
         if configuredModel.lower() != "auto":
             return configuredModel
 
-        response = self._requestQwenVl("GET", "/api/tags")
+        response = self._requestQwenVl("GET", "/v1/models")
         modelNames = [
-            str(model.get("name", ""))
-            for model in response.get("models", [])
+            str(model.get("id", ""))
+            for model in response.get("data", [])
         ]
         qwenVlModels = [
             name
@@ -171,33 +171,32 @@ class ReviewLabelsStage:
             f"허용 클래스: {classes}. YOLO 결과: "
             f"{json.dumps(detections, ensure_ascii=False)}"
         )
-        images = [
-            base64.b64encode(
-                Path(row["imagePath"]).read_bytes()
-            ).decode("ascii"),
-            base64.b64encode(
-                Path(row["annotatedPath"]).read_bytes()
-            ).decode("ascii"),
-        ]
+        imageContents = []
+        for imagePathValue in (row["imagePath"], row["annotatedPath"]):
+            encoded = base64.b64encode(Path(imagePathValue).read_bytes()).decode("ascii")
+            imageContents.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+            })
         payload = {
             "model": qwenVlModel,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt,
-                    "images": images,
-                }
-            ],
-            "stream": False,
-            "think": False,
-            "format": self._reviewSchema(),
-            "options": {
-                "temperature": 0,
-                "seed": 42,
+            "messages": [{
+                "role": "user",
+                "content": [{"type": "text", "text": prompt}, *imageContents],
+            }],
+            "temperature": 0,
+            "seed": 42,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "labelReview",
+                    "strict": True,
+                    "schema": self._reviewSchema(),
+                },
             },
         }
-        response = self._requestQwenVl("POST", "/api/chat", payload)
-        return self._validateReview(response["message"]["content"])
+        response = self._requestQwenVl("POST", "/v1/chat/completions", payload)
+        return self._validateReview(response["choices"][0]["message"]["content"])
 
     def review(self) -> None:
         """자동 라벨을 순차 검수하여 reviews.jsonl과 상태별 폴더에 저장합니다."""
@@ -296,3 +295,5 @@ class ReviewLabelsStage:
 def reviewLabels(pipeline: ReviewLabelsStage) -> None:
     """오케스트레이터에서 Qwen-VL 검수 단계를 실행합니다."""
     pipeline.review()
+    # Qwen의 approved/rejected도 오판할 수 있으므로 모든 결과를 사람 검수 큐로 보냅니다.
+    pipeline.exportHumanReviewQueue()
