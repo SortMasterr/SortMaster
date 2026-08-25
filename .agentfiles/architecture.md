@@ -375,10 +375,11 @@ Detect → Create Event → Save Event → Check mode
 - **GPU→로컬 백엔드 연결 방식/재연결 전략** — SSH 역터널(`-R`)이 필요한 건 확정됐지만
   (위 "배포 전략" 참고), 끊겼을 때 자동 재연결(`autossh` 등) 필요 여부는 미정 — 끊기면
   그 동안 오분류(TOP)/넘침(SIDE) 이벤트가 둘 다 유실되지만 라이브뷰/녹화는 영향 없음
-- **`tracking2.py`/`sideOverflow.py`를 GPU 서버 상시 서비스로 배포** — 실제 TOP 스트림
-  구독(로컬 백엔드 중계)까지는 확인됐고(위 "탐지 파이프라인" 참고), `sideOverflow.py`는
-  아직 실제 GPU 서버 배포/실행 자체가 안 된 상태(코드만 작성됨, `decisionLog.md` 참고).
-  Docker화(`training`/`llm` 패턴 재사용, `restart: unless-stopped`로 재부팅/크래시 복구까지
+- **`tracking2.py`/`sideOverflow.py`를 GPU 서버 상시 서비스로 배포** — 실제 TOP/SIDE 스트림
+  구독(로컬 백엔드 중계)+end-to-end 결과 푸시까지 둘 다 확인됨(위 "탐지 파이프라인" 참고,
+  2026-08-25). 지금은 둘 다 사람이 SSH 세션 열어놓고 foreground로 수동 실행 중이라, 세션
+  끊기거나 GPU 서버 재부팅되면 그냥 죽음 — Docker화(`training`/`llm` 패턴 재사용,
+  `restart: unless-stopped`로 재부팅/크래시 복구까지
   커버) 여부 및 SSH 역터널 자체의 상시 유지(`autossh` 등, 아래 "GPU→로컬 백엔드 연결 방식"
   항목과 동일 이슈)는 아직 TBD — 지금은 사람이 SSH 세션 열어두고 수동 실행
 - **GPU 쪽 헬스체크/하트비트 부재** — 지금 구조는 GPU가 오분류/넘침을 감지했을 때만

@@ -71,8 +71,8 @@ trashoverflow/`, `.agentfiles/decisionLog.md` 참고). 추론 위치는 두 번 
 구조로 통일 — SIDE 자체는 GPU가 꼭 필요하진 않지만 아키텍처 일관성 때문에 재전환,
 `.agentfiles/decisionLog.md` 참고). ROI로 크롭한 이미지를 모델에 넣어 `normal`/`overflow`
 2클래스로 분류. YOLO26(TOP)과 달리 통 위치 추적/추적 판정은 없고, 연속 30초 이상
-`overflow`로 유지되면 최종 판정(세션 상태 기반). 실제 GPU 서버 배포/실행 검증은 아직 안 됨
-(코드만 작성된 상태).
+`overflow`로 유지되면 최종 판정(세션 상태 기반). 실제 GPU 서버 배포/실행+end-to-end 검증
+완료(2026-08-25, `decisionLog.md` 참고).
 
 ## 3. 전처리·실행 위치
 

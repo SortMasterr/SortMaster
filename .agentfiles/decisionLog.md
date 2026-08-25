@@ -203,6 +203,9 @@
   아니라 GPU가 호출). **폴백 없음** — GPU 서버/터널이 끊기면 TOP처럼 SIDE도 그 동안 판정이
   멈춤(오분류 이벤트와 동일한 리스크 프로필로 통일하는 것도 일관성 목적에 포함). 로컬
   백엔드는 이제 torch/torchvision이 필요 없어져서 `infra/checkEnv.py`의 `requiredPackages`
-  에서 제거(GPU 서버 쪽 venv에서만 필요, `gpuServerOps.md` 참고). 아직 안 된 것: 실제 GPU
-  서버 배포/실행 검증(코드만 작성됨), `RULE_BASED_BIN_ROIS`처럼 `roi.json` 좌표도 데모
-  기준값 그대로라 재보정 필요
+  에서 제거(GPU 서버 쪽 venv에서만 필요, `gpuServerOps.md` 참고). **실제 GPU 서버 배포/
+  실행+end-to-end 검증 완료**(2026-08-25 — `python sideOverflow.py` 실행 → 실제 SIDE
+  스트림 구독 → 연속 30초 `overflow` 유지 → `POST /api/binStates -> 200`까지 확인, TOP과
+  동일하게 검증됨). 아직 안 된 것: 상시 서비스화(TOP과 같은 TBD), `RULE_BASED_BIN_ROIS`처럼
+  `roi.json` 좌표도 데모 기준값 그대로라 재보정 필요(지금 판정 결과 자체는 무의미 — 통
+  없이 테스트해서 confidence만 높게 나오는 상태)

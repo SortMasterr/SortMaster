@@ -105,7 +105,7 @@ docker compose up --build
   /api/events/aiDisposal`까지 확인 — 단, 상시 서비스화(systemd/Docker)와 실제 통 위치 기준
   ROI 재보정은 아직 TBD). **SIDE도 이제 TOP과 완전히 동일한 구조**(GPU 서버가
   `models/trashoverflow/sideOverflow.py`로 MobileNet_V3_Small 판정 — 코드는 작성됐지만
-  실제 GPU 배포/실행 검증은 아직 안 됨). SIDE는 원래 룰 베이스 → 로컬 백엔드 CPU 추론(GPU
+  GPU 서버 실제 배포/실행+end-to-end 검증 완료, 2026-08-25). SIDE는 원래 룰 베이스 → 로컬 백엔드 CPU 추론(GPU
   미사용) → 지금의 GPU 서버 방식까지 두 번 재전환됐음(이유는 `.agentfiles/decisionLog.md`
   참고 — 기술적 필요보다는 TOP과의 아키텍처 일관성이 마지막 전환의 이유). 메인보드를 Jetson
   Orin Nano Super→**라즈베리파이**로 전환하면서 **TOP의 YOLO26 추론 위치도 엣지→GPU 서버
@@ -196,9 +196,10 @@ GPU 서버로 이관하면서 메인보드엔 고성능 추론이 더 이상 필
    보내는 결과를 받아 통 상태/쿨다운과 종합해 저장(2026-08-25 실제 스트림 기준 end-to-end
    검증됨, `.agentfiles/architecture.md` 참고). **SIDE도 이제 완전히 같은 패턴** —
    `models/trashoverflow/sideOverflow.py`(GPU 서버, 독립 스크립트)가 MobileNet_V3_Small로
-   자체 판정 후 `POST /api/binStates`로 결과를 푸시(로컬 백엔드가 SIDE를 호출하지 않음).
-   단, TOP과 달리 실제 GPU 서버 배포/실행은 아직 검증 안 됨(코드만 작성된 상태,
-   `decisionLog.md` 참고). Qwen3-VL-8B(LLM)는 실시간 경로엔 안 들어감, 학습 준비 단계
+   자체 판정 후 `POST /api/binStates`로 결과를 푸시(로컬 백엔드가 SIDE를 호출하지 않음) —
+   TOP과 마찬가지로 실제 GPU 서버 배포/실행+end-to-end 검증 완료(2026-08-25, `overflow`
+   전환 시 `POST /api/binStates -> 200` 확인, `decisionLog.md` 참고). Qwen3-VL-8B(LLM)는
+   실시간 경로엔 안 들어감, 학습 준비 단계
    자동 라벨링 검증에만 사용. 지금 스텁(`services/detectionService.py`)도 이벤트 시작/종료
    시점마다 아래 3~5번 파이프라인(`recordingService.start`/`stop` →
    `mediaService.saveClipAsGif` → `eventService.createEvent`)을 그대로 호출함(수동 검증은
