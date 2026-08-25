@@ -11,6 +11,7 @@ from common.modelRegistry import loadCycleModel, pinCycleModel, resolveActiveMod
 from common.pipelineUtilities import loadConfig, resolvePath
 from stages.autoLabeling import AutoLabelingStage, autoLabel
 from stages.buildDataset import BuildDatasetStage, buildDataset
+from stages.collectEventMedia import CollectEventMediaStage, collectEventMedia
 from stages.deployModel import DeployModelStage, deployModel
 from stages.evaluateModel import EvaluateModelStage, evaluateModel
 from stages.extractFrames import ExtractFramesStage, extractFrames
@@ -26,7 +27,7 @@ batchIdPattern = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
 class TrainingPipeline(
-    CausalImagesMixin, ExtractFramesStage, SelectFramesStage, AutoLabelingStage,
+    CausalImagesMixin, CollectEventMediaStage, ExtractFramesStage, SelectFramesStage, AutoLabelingStage,
     ReviewLabelsStage, HumanReviewStage, BuildDatasetStage, TrainModelStage,
     EvaluateModelStage, PromoteModelStage, DeployModelStage,
 ):
@@ -45,6 +46,7 @@ class TrainingPipeline(
         # 하루치 입력을 다른 배치가 다시 처리하지 않도록 batchId 하위만 읽는다.
         self.videosDirectory = self.videosRoot / batchId
         self.workspaceRoot = resolvePath(projectRoot, paths["workspace"])
+        self.datasetStore = resolvePath(projectRoot, paths["datasetStore"])
         self.workspace = self.workspaceRoot / "batches" / batchId
         self.baseDataset = resolvePath(projectRoot, paths["baseDataset"])
         self.goldenTest = resolvePath(projectRoot, paths["goldenTest"])
@@ -62,10 +64,12 @@ class TrainingPipeline(
         self.approvedRoot = self.humanReviewRoot / "qwenApproved"
         self.manualRoot = self.humanReviewRoot / "qwenManualReview"
         self.rejectedRoot = self.humanReviewRoot / "qwenRejected"
-        self.datasetRoot = self.workspace / "datasetCurrent"
+        # Build 결과는 작업 중간 파일과 분리된 배치 버전형 학습 데이터셋 저장소에 둔다.
+        self.datasetRoot = self.datasetStore / batchId
         self.runsRoot = self.workspace / "runs"
         self._frameIndexCache = None
 
+        self.collectedMediaManifest = self.workspace / "collectedMedia.jsonl"
         self.framesManifest = self.workspace / "frames.jsonl"
         self.candidatesManifest = self.workspace / "candidates.jsonl"
         self.labelsManifest = self.workspace / "labels.jsonl"
@@ -91,7 +95,7 @@ class TrainingPipeline(
 def parseArgs() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=[
-        "extract", "select", "label", "review", "humanReview", "build", "train",
+        "collect", "extract", "select", "label", "review", "humanReview", "build", "train",
         "evaluate", "promote", "deploy", "rollback", "prepareDailyBatch",
         "continueAfterHumanReview",
     ])
@@ -105,14 +109,14 @@ def main() -> None:
     args = parseArgs()
     pipeline = TrainingPipeline(args.config.resolve(), args.batchId)
     stageHandlers = {
-        "extract": extractFrames, "select": selectFrames, "label": autoLabel,
+        "collect": collectEventMedia, "extract": extractFrames, "select": selectFrames, "label": autoLabel,
         "review": reviewLabels, "humanReview": validateHumanReview,
         "build": buildDataset, "train": trainModel, "evaluate": evaluateModel,
         "promote": promoteModel, "deploy": deployModel,
     }
     groupedStages = {
         # 사람 검수 전까지만 자동 실행하고 반드시 멈춘다.
-        "prepareDailyBatch": ["extract", "select", "label", "review"],
+        "prepareDailyBatch": ["collect", "extract", "select", "label", "review"],
         # 모든 사람 결정이 검증돼야 데이터셋 생성과 평가로 넘어간다. 승격은 별도 승인이다.
         "continueAfterHumanReview": ["humanReview", "build", "train", "evaluate"],
     }

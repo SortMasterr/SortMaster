@@ -8,6 +8,7 @@
 *.avi
 *.mov
 *.mkv
+*.gif
 /data/cctv/
 /videos/
 /data/raw/
@@ -47,6 +48,7 @@ debug/streaming/auto.key
 # Auto-training inputs and generated artifacts
 autoTraining/inputVideos/
 autoTraining/workspace/
+autoTraining/datasets/
 autoTraining/baseDataset/
 autoTraining/models/
 autoTraining/promotedModels/

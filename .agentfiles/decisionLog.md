@@ -203,6 +203,51 @@
   아니라 GPU가 호출). **폴백 없음** — GPU 서버/터널이 끊기면 TOP처럼 SIDE도 그 동안 판정이
   멈춤(오분류 이벤트와 동일한 리스크 프로필로 통일하는 것도 일관성 목적에 포함). 로컬
   백엔드는 이제 torch/torchvision이 필요 없어져서 `infra/checkEnv.py`의 `requiredPackages`
-  에서 제거(GPU 서버 쪽 venv에서만 필요, `gpuServerOps.md` 참고). 아직 안 된 것: 실제 GPU
-  서버 배포/실행 검증(코드만 작성됨), `RULE_BASED_BIN_ROIS`처럼 `roi.json` 좌표도 데모
-  기준값 그대로라 재보정 필요
+  에서 제거(GPU 서버 쪽 venv에서만 필요, `gpuServerOps.md` 참고). **실제 GPU 서버 배포/
+  실행+end-to-end 검증 완료**(2026-08-25 — `python sideOverflow.py` 실행 → 실제 SIDE
+  스트림 구독 → 연속 30초 `overflow` 유지 → `POST /api/binStates -> 200`까지 확인, TOP과
+  동일하게 검증됨). 아직 안 된 것: 상시 서비스화(TOP과 같은 TBD), `RULE_BASED_BIN_ROIS`처럼
+  `roi.json` 좌표도 데모 기준값 그대로라 재보정 필요(지금 판정 결과 자체는 무의미 — 통
+  없이 테스트해서 confidence만 높게 나오는 상태)
+- **`tracking2.py`/`sideOverflow.py` 상시 서비스화: systemd 대신 Docker화로 확정** → GPU
+  서버가 재부팅돼도 알아서 다시 뜨게 만드는 방법으로 라즈베리파이 RTSP 송신에 쓴 systemd
+  패턴을 검토했으나, GPU 서버는 이미 rootless Docker + `sudo loginctl enable-linger soma`
+  설정이 돼 있어서(`gpuServerOps.md`, 원래 `training`/`llm` 컨테이너 유지 목적으로 구성)
+  Docker 데몬 자체가 재부팅 시 자동 기동됨 — 그러면 `restart: unless-stopped`만으로 새
+  systemd 유닛 없이 같은 효과를 냄. `WebApps/backend/models/trashdetect/Dockerfile`/
+  `WebApps/backend/models/trashoverflow/Dockerfile`(둘 다 `training/Dockerfile`과 같은
+  `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime` 베이스, GPU 드라이버 호환 검증된 태그
+  재사용) + `docker-compose.yml`의 `inference`/`sideOverflow` 서비스(`training`/`llm`과
+  달리 profile 없이 상시 기동)로 구현. 가중치 파일(`bestTop.pt`/`bestSide.pt`, 둘 다
+  `.gitignore` 대상)은 이미지에 안 굽고 `training`처럼 디렉터리 전체를 볼륨 마운트 —
+  재빌드 없이 가중치만 교체 가능. 컨테이너 안에서는 `127.0.0.1`이 컨테이너 자신을
+  가리켜서 SSH 터널에 못 닿으므로, `tracking2.py`/`sideOverflow.py`에 `BACKEND_HOST`
+  환경변수(기본값 `127.0.0.1`, compose에서 `host.docker.internal`로 오버라이드)를
+  추가해서 호스트 직접 실행/Docker 실행 둘 다 코드 수정 없이 지원. **이걸로도 SSH 역터널
+  자체가 살아있는지는 안 풀림** — 그건 로컬 배포 서버 쪽 `autossh` 문제로 별개(TBD). 실제
+  GPU 서버에서 이 이미지를 빌드+기동해본 적은 아직 없음(코드/설정만 작성, 검증은 다음 단계)
+- **`DetectedClass`/`BinType` 값을 `general`/`plasticCan`에서 `normal`/`recyclables`로
+  리네임(별도 세션에서 진행, `52bd86a`)하는 과정에서 `tracking2.py`의 `EXPECTED_CLASS_NAMES`/
+  `TRASH_CLASSES`/`TRASH_TYPE_MAP` snake_case 값도 같이 camelCase(`trashNormal` 등)로
+  "정리"됐다가 발견 즉시 되돌림** → 이 세 dict의 문자열은 API 계약(`DetectedClass`)이
+  아니라 **학습된 모델 파일(`bestTop.pt`)의 `model.names`와 비교하는 용도**라 코드
+  컨벤션과 무관한 외부 고정값(2026-08-25 GPU 서버 실행 결과: `{0: 'trash_normal', 1:
+  'trash_paper', 2: 'trash_recyclables', 3: 'trash_coffeecup'}`, 전부 snake_case).
+  camelCase로 바꾸면 `model.names[i]`가 `TRASH_CLASSES`에 하나도 안 걸려서 **TOP 탐지가
+  전부 조용히 무시됨**(에러 없이 감지 이벤트가 그냥 하나도 안 생기는 형태라 발견이 늦어질
+  위험이 큼) — `dev`에 merge된 상태로 며칠 있었으면 실제 배포에서 조용히 터졌을 사안.
+  발견 즉시 snake_case로 되돌리고 `naming.md`에 "모델이 내놓는 고정 문자열은 camelCase
+  변환 대상 아님" 예외 추가. `RULE_BASED_BIN_ROIS`/`BIN_TYPE_MAP`의 `boxNormal` 등은
+  모델 출력과 무관한 내부 전용 키라 camelCase로 남겨둬도 문제없음(둘 다 서로 일관되게
+  이미 바뀌어 있었음, 그쪽은 그대로 유지)
+- **TOP 모델 클래스명 표기를 snake_case로 영구 고정 확정(재학습해도 camelCase로 전환
+  안 함)** → 위 회귀를 되돌리는 과정에서, `autoTraining/README.md`/`pipelineConfig.yaml`에
+  팀원 `ukjin`이 별도로 남긴 "다음 재학습부터는 camelCase 목표"라는 계획(`10aff38`)과
+  충돌하는 게 발견됨 — 처음엔 "지금 모델은 snake_case 유지, 다음 재학습되는 새 모델부터
+  camelCase로 전환, 그 시점에 `tracking2.py`도 같이 바꾼다"는 과도기 방안으로 절충했으나,
+  재학습이 당장 가능한 상태가 아니고(`autoTraining/README.md`의 "실행 전 반드시 해결할
+  문제"에 입력 영상/기존 데이터셋 미준비, 전체 E2E 미검증 등이 남아있음) 나중에 또 같은
+  종류의 혼선이 재발할 여지가 있다고 판단, **"TOP 관련 클래스명은 항상 snake_case"를
+  `naming.md`의 영구 예외로 확정**하는 쪽으로 단순화함. `pipelineConfig.yaml`의
+  `dataset.classes`도 camelCase 목표값에서 다시 snake_case로 되돌림 — 앞으로 재학습을
+  하더라도 이 표기는 그대로 유지(camelCase 전환 계획 자체를 폐기)

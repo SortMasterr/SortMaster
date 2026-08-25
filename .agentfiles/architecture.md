@@ -164,12 +164,15 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
   `models/trashoverflow/sideOverflow.py`가 담당, LLM은 자동 라벨링 검증용 — 실시간 탐지엔
   미사용)
 - **GPU 서버에서 도는 것 4가지**: `training`(전처리+자동 라벨링+학습, 필요할 때만 기동,
-  Docker 컨테이너) / `models/trashdetect/tracking2.py`(YOLO26 TOP 모델 추론+판정) /
-  `models/trashoverflow/sideOverflow.py`(MobileNet_V3_Small SIDE 넘침 판정, TOP과 같은
-  패턴) — **둘 다 아직 Docker 컨테이너가 아니라 독립 실행 Python 스크립트** — 상시
-  서비스화는 TBD, 아래 참고 / `llm`(Qwen3-VL-8B 서빙, vLLM — 자동 라벨링 검증용으로 **이미
-  사용 중**, `training`과 함께 필요할 때만 기동, Docker 컨테이너). `backend`/`mongo`는
-  GPU 서버가 아니라 **로컬에서 구동**(아래 "배포 전략" 참고)
+  Docker 컨테이너) / `inference`(TOP, `models/trashdetect/tracking2.py` — YOLO26 모델
+  추론+판정) / `sideOverflow`(SIDE, `models/trashoverflow/sideOverflow.py` —
+  MobileNet_V3_Small 넘침 판정, TOP과 같은 패턴) / `llm`(Qwen3-VL-8B 서빙, vLLM — 자동
+  라벨링 검증용으로 **이미 사용 중**, `training`과 함께 필요할 때만 기동, Docker 컨테이너).
+  `inference`/`sideOverflow` 둘 다 `docker-compose.yml`에 정의 완료(`training`/`llm`과
+  달리 profile 없이 상시 기동) — **단, 실제 GPU 서버에서 빌드+기동해서 검증한 적은 아직
+  없음**(지금까지는 venv+`python tracking2.py`/`sideOverflow.py`로 직접 실행해서만
+  end-to-end 검증됨, 아래 참고). `backend`/`mongo`는 GPU 서버가 아니라 **로컬에서
+  구동**(아래 "배포 전략" 참고)
 - `tracking2.py`/`sideOverflow.py`는 `training`과 같은 카드(`GPU_DEVICE_ID`)를 공유해서
   상시 돌게 될 예정이라, 학습을 돌리는 시간대엔 세 워크로드가 VRAM/연산을 나눠 써야 함 —
   `llm`처럼 GPU 메모리 사용량을 제한해두는 게 안전(실측 후 조정 필요, 아래 TBD 참고. 단,
@@ -180,9 +183,13 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 - `training` 컨테이너는 JupyterLab을 띄워서 팀원이 브라우저로 같이 접속해 학습 코드 작성
   (`.env`의 `JUPYTER_PORT`/`JUPYTER_TOKEN`, 진짜 멀티유저 격리는 아니라 동시 실행 지양).
   GPU 서버 운영 실무(계정/rootless Docker/포트/SSH 터널 등)는 `gpuServerOps.md` 참고
-- `tracking2.py`를 GPU 서버에서 재부팅해도 자동으로 도는 상시 서비스(systemd 등, 라즈베리파이
-  RTSP 송신에 적용한 것과 같은 패턴)로 만드는 작업은 **아직 미착수** — 지금은 사람이 직접
-  실행해야 함
+- `tracking2.py`/`sideOverflow.py`를 GPU 서버 재부팅에도 자동으로 살아나는 상시 서비스로
+  만드는 작업 — **systemd가 아니라 Docker화로 방향 확정**(`inference`/`sideOverflow`
+  서비스, `restart: unless-stopped`). GPU 서버가 이미 rootless Docker에
+  `loginctl enable-linger`를 걸어둬서(`gpuServerOps.md` 참고) Docker 데몬 자체가 재부팅
+  시 자동 기동되므로, 새 systemd 유닛 없이 있는 인프라(`training`/`llm`과 같은 방식)를
+  재사용. 코드/compose 정의는 완료됐지만 **실제 GPU 서버에서 빌드+기동 자체는 아직
+  안 해봄** — 지금은 사람이 SSH 세션에서 직접 실행 중
 
 ## 배포 전략
 
@@ -374,12 +381,14 @@ Detect → Create Event → Save Event → Check mode
 - **GPU→로컬 백엔드 연결 방식/재연결 전략** — SSH 역터널(`-R`)이 필요한 건 확정됐지만
   (위 "배포 전략" 참고), 끊겼을 때 자동 재연결(`autossh` 등) 필요 여부는 미정 — 끊기면
   그 동안 오분류(TOP)/넘침(SIDE) 이벤트가 둘 다 유실되지만 라이브뷰/녹화는 영향 없음
-- **`tracking2.py`/`sideOverflow.py`를 GPU 서버 상시 서비스로 배포** — 실제 TOP 스트림
-  구독(로컬 백엔드 중계)까지는 확인됐고(위 "탐지 파이프라인" 참고), `sideOverflow.py`는
-  아직 실제 GPU 서버 배포/실행 자체가 안 된 상태(코드만 작성됨, `decisionLog.md` 참고).
-  Docker화(`training`/`llm` 패턴 재사용, `restart: unless-stopped`로 재부팅/크래시 복구까지
-  커버) 여부 및 SSH 역터널 자체의 상시 유지(`autossh` 등, 아래 "GPU→로컬 백엔드 연결 방식"
-  항목과 동일 이슈)는 아직 TBD — 지금은 사람이 SSH 세션 열어두고 수동 실행
+- **`tracking2.py`/`sideOverflow.py`를 GPU 서버 상시 서비스로 배포** — 실제 TOP/SIDE 스트림
+  구독(로컬 백엔드 중계)+end-to-end 결과 푸시까지 둘 다 확인됨(위 "탐지 파이프라인" 참고,
+  2026-08-25). Docker화(`inference`/`sideOverflow` 서비스, `restart: unless-stopped`)로
+  방향 확정하고 `docker-compose.yml`/`Dockerfile` 작성 완료 — **단, GPU 서버에서 실제
+  빌드+기동은 아직 안 해봄**(지금까지 검증은 전부 venv+수동 `python` 실행 기준). SSH
+  역터널 자체의 상시 유지(`autossh`, 로컬 배포 서버 쪽에 필요 — 아래 "GPU→로컬 백엔드
+  연결 방식" 항목과 동일 이슈)는 별개로 여전히 TBD — Docker화해도 터널이 안 살아있으면
+  둘 다 그냥 재연결 대기 상태로 남음
 - **GPU 쪽 헬스체크/하트비트 부재** — 지금 구조는 GPU가 오분류/넘침을 감지했을 때만
   백엔드로 푸시하는 방식이라, "아무 일도 없어서 조용한 것"과 "GPU 스크립트 크래시/SSH 터널
   끊김으로 아예 판정 자체가 안 되는 것"이 백엔드 입장에서 구분이 안 됨(둘 다 그냥 이벤트가

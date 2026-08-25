@@ -83,7 +83,8 @@
     서버의 `models/trashoverflow/sideOverflow.py`가 자체 추론+판정
     (`WebApps/backend/models/trashoverflow/` — 룰 베이스 → 로컬 백엔드 CPU 추론(GPU
     미사용) → 지금의 GPU 서버 방식까지 두 번 재전환됨, 마지막 전환은 TOP과의 아키텍처
-    일관성이 이유. `decisionLog.md` 참고. 단, 실제 GPU 배포/실행 검증은 아직 안 됨)
+    일관성이 이유. `decisionLog.md` 참고. 실제 GPU 서버 배포/실행+end-to-end 검증
+    완료(2026-08-25))
   * 손 감지 조건 폐지 — 쓰레기 감지 자체가 트리거
   * 옆 카메라(SIDE, MobileNet_V3_Small)가 넘침 상태와 대상 물리 통(`binId`)을 감지 → 위
     카메라 연동 없이 바로 알림+DB 저장

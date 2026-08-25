@@ -1,3 +1,4 @@
+import os
 import cv2
 import json
 import time
@@ -13,13 +14,19 @@ import requests
 # ============================================================
 MODEL_PATH = "bestTop.pt"
 
+# SSH 역터널(-R 8299:localhost:8047, gpuServerOps.md 참고)이 열어주는 주소 — 호스트에서
+# 직접(SSH 세션 안에서 python으로) 돌릴 땐 127.0.0.1, Docker 컨테이너 안에서 돌릴 땐
+# 컨테이너가 호스트를 가리키는 host.docker.internal이어야 함(컨테이너 안의 127.0.0.1은
+# 컨테이너 자기 자신이라 터널에 안 닿음). docker-compose.yml이 BACKEND_HOST 환경변수로
+# host.docker.internal을 넘겨준다 — 코드/실행 방식 둘 다 그대로 두고 이 값만 바뀜.
+BACKEND_HOST = os.getenv("BACKEND_HOST", "127.0.0.1")
+
 # 실제 TOP 카메라(ELEV-TOP) 영상 — 라즈베리파이는 GPU 서버와 직접 연결되지 않고
 # 로컬 백엔드로만 RTSP를 보낸다(architecture.md "탐지 파이프라인" 참고). GPU는 로컬
 # 백엔드가 이미 상시 서빙 중인 MJPEG 스트림(GET /api/stream/ELEV-TOP)을, 아래
-# BACKEND_URL과 동일한 SSH 역터널(-R 8299:localhost:8047, gpuServerOps.md 참고)로
-# 그대로 구독한다 — 별도 포트/터널 불필요. cv2.VideoCapture는 multipart MJPEG를
-# 일반 영상 소스처럼 그대로 읽을 수 있다.
-SOURCE = "http://127.0.0.1:8299/api/stream/ELEV-TOP"
+# BACKEND_URL과 동일한 SSH 역터널로 그대로 구독한다 — 별도 포트/터널 불필요.
+# cv2.VideoCapture는 multipart MJPEG를 일반 영상 소스처럼 그대로 읽을 수 있다.
+SOURCE = f"http://{BACKEND_HOST}:8299/api/stream/ELEV-TOP"
 # 데모 영상 / 로컬 웹캠으로 되돌리려면:
 # SOURCE = "mvpTop.mp4"
 # SOURCE = 0
@@ -37,7 +44,7 @@ CAMERA_ID = "CAM-01"
 
 # 로컬 백엔드 주소 — GPU 서버 포트는 팀 공유 규칙상 99로 끝나야 해서 8047을 그대로 못 씀.
 # SSH 역터널(-R 8299:localhost:8047)로 도커 PC의 8047을 GPU 서버의 8299로 매핑해서 접속
-BACKEND_URL = "http://127.0.0.1:8299/api/events/aiDisposal"
+BACKEND_URL = f"http://{BACKEND_HOST}:8299/api/events/aiDisposal"
 
 # GPU 서버는 화면(디스플레이)이 없는 헤드리스 환경이라 cv2.imshow를 그대로 쓰면 에러 남
 HEADLESS = True
@@ -139,27 +146,34 @@ HARD_EXAMPLE_DIR.mkdir(parents=True, exist_ok=True)
 # ============================================================
 # 2. 클래스 / 분리배출 규칙
 # ============================================================
+# 아래 3개 dict의 문자열 값은 코드 컨벤션(camelCase)이 아니라 학습된 모델 파일
+# (bestTop.pt)의 model.names가 실제로 내놓는 고정 문자열과 정확히 일치해야 함 —
+# 2026-08-25 GPU 서버 실제 실행 결과로 snake_case인 게 확인됨(모델 클래스:
+# {0: 'trash_normal', 1: 'trash_paper', 2: 'trash_recyclables', 3: 'trash_coffeecup'}).
+# camelCase로 바꾸면 model.names와 안 맞아서 모든 감지가 TRASH_CLASSES에 안 걸리고
+# 조용히 무시됨(naming.md의 "프레임워크 강제 이름" 예외와 같은 성격 — 모델 재학습 없이는
+# 못 바꾸는 외부 고정값).
 EXPECTED_CLASS_NAMES = {
-    0: "trashNormal",
-    1: "trashPaper",
-    2: "trashRecyclables",
-    3: "trashCoffeeCup",
+    0: "trash_normal",
+    1: "trash_paper",
+    2: "trash_recyclables",
+    3: "trash_coffeecup",
 }
 
 TRASH_CLASS_IDS = [0, 1, 2, 3]
 
 TRASH_CLASSES = {
-    "trashNormal",
-    "trashPaper",
-    "trashRecyclables",
-    "trashCoffeeCup",
+    "trash_normal",
+    "trash_paper",
+    "trash_recyclables",
+    "trash_coffeecup",
 }
 
 TRASH_TYPE_MAP = {
-    "trashNormal": "normal",
-    "trashPaper": "paper",
-    "trashRecyclables": "recyclables",
-    "trashCoffeeCup": "coffeecup",
+    "trash_normal": "normal",
+    "trash_paper": "paper",
+    "trash_recyclables": "recyclables",
+    "trash_coffeecup": "coffeecup",
 }
 
 BIN_TYPE_MAP = {
