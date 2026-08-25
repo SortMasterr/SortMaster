@@ -5,9 +5,11 @@ CCTV 영상에서 학습 후보 프레임을 만들고, 기존 YOLO 모델로 �
 ## 전체 흐름
 
 ```text
-하루치 입력 영상 또는 향후 GridFS 수집 배치
+MongoDB events + 카메라별 GridFS 이벤트 영상 저장소
   ↓
-1. Extract  : 영상 프레임 추출
+0. Collect  : 해당 날짜 ELEV-TOP 투기 이벤트의 topMedia GIF 수집
+  ↓
+1. Extract  : GIF/영상 프레임 추출
   ↓
 2. Select   : 학습 후보 프레임 선별
   ↓
@@ -44,18 +46,18 @@ tracking2.py 재시작 + smoke test, 실패 시 rollback
 
 2026-08-25 기준으로 Conda `env_py311` 환경에서 CLI import와 bootstrap 모델 로드까지
 확인했습니다. 일일 배치 준비부터 운영 모델 파일 배포까지의 단계별 로직은 구현되어 있지만 입력 영상과 기존 데이터셋이 없고,
-bootstrap 체크포인트와 설정의 클래스명이 일치하지 않고 최신 운영 데이터 수집·추론 경로가 아직
-자동화 코드에 연결되지 않아 현재는 전체 E2E를 실행할 수 없습니다.
+bootstrap 체크포인트와 설정의 클래스 및 입력 전처리 계약을 확정하지 않았고 실제 GridFS·Qwen·GPU를
+연결한 검증이 없어 현재는 전체 E2E를 실행할 수 없습니다.
 
 | 항목 | 상태 | 설명 |
 |---|---|---|
 | 일일 2구간 CLI | 구현됨 | `prepareDailyBatch`와 `continueAfterHumanReview`가 사람 검수 지점에서 분리됨 |
-| Python 구문·설정 | 확인됨 | Python 파일 16개 AST, YAML, CLI import 검사 통과 |
+| Python 구문·설정 | 확인됨 | Python 파일 17개 AST, YAML, CLI import 검사 통과 |
 | Python 환경 | 실행 가능 | Conda `env_py311`, Python 3.11.15 확인 |
 | 필수 import | 실행 가능 | OpenCV 4.14.0, NumPy 2.4.4, PyYAML 6.0.3, Ultralytics 8.4.117 import 성공 |
 | requirements 일치 | 불일치 | 현재 NumPy·OpenCV 버전이 `requirements.txt` 고정 버전과 다르므로 재현 환경으로는 추가 정리가 필요함 |
 | CLI | 실행 가능 | `trainingPipeline.py --help` 정상 실행 |
-| 입력 영상 | 준비 안 됨 | `inputVideos` 파일 0개이며 Extract의 `FileNotFoundError` 선행조건 확인 |
+| 입력 영상 | 준비 안 됨 | GridFS 운영 데이터는 아직 연결하지 않았으며 localDirectory 입력도 없음 |
 | 기존 데이터셋 | 준비 안 됨 | `autoTraining/baseDataset`이 존재하지 않음 |
 | bootstrap 모델 | 로드 가능, 설정 불일치 | 5,393,150바이트 `.pt` 로드 성공. 4개 클래스는 최신 의미 계약과 맞지만 설정의 표기법이 다름 |
 | 활성 모델 포인터 | 초기 상태 | 아직 `models/current.json`이 없어 최초 사이클은 bootstrap 모델을 선택함 |
@@ -63,13 +65,14 @@ bootstrap 체크포인트와 설정의 클래스명이 일치하지 않고 최�
 | 모델 레지스트리 | 테스트 통과 | bootstrap 선택, 사이클 고정, SHA-256 검증, registry 승격과 active 포인터 해석 확인 |
 | 감사 체크포인트 해시 | 불일치 | 로컬 bootstrap은 `757F...B7F2`, 문서의 `bestTop.pt`는 `2AF2...DFFC`이므로 동일 파일로 간주할 수 없음 |
 | 운영 입력 호환성 | 불일치 | 자동화 기본값은 causal/416, `tracking2.py`는 단일 BGR 프레임/416, 데이터셋 문서는 640×640 letterbox를 명시함 |
-| 학습 원본 수집 | 미구현 | 최신 설계는 로컬 GridFS 재사용이지만 현재 Extract는 `inputVideos`의 영상 파일만 읽음 |
+| 학습 원본 수집 | 구현됨, 실DB 검증 필요 | `events`에서 날짜·카메라·이벤트 종류를 조회하고 `topMedia` GridFS GIF를 배치 입력으로 수집 |
 | 운영 모델 파일 반영 | 구현됨, 재시작은 수동 | Deploy가 `tracking2.py`용 `bestTop.pt`를 해시 검증 후 원자적으로 교체하며 재시작·smoke test는 별도임 |
 | 전체 E2E | 미검증 | 실제 영상, 기존 데이터셋, Qwen-VL 서버와 GPU 학습을 연결한 실행 기록이 없음 |
 
 ### 구현된 기능
 
-- CCTV 영상 프레임 추출과 JPG 저장
+- MongoDB `events`와 `topMedia` GridFS에서 일일 TOP 투기 이벤트 GIF 수집
+- CCTV/GIF 영상 프레임 추출과 JPG 저장
 - 상대 경로 해시 기반 영상 키로 같은 파일명의 카메라 영상 충돌 방지
 - JSONL 스트리밍과 프로세스별 임시 파일·`fsync`·원자적 교체
 - Select 단계의 간격 선검사 및 blur/brightness 단일 grayscale 계산
@@ -91,17 +94,20 @@ bootstrap 체크포인트와 설정의 클래스명이 일치하지 않고 최�
 ### 실행 전 반드시 해결할 문제
 
 1. **최신 TOP 클래스 계약과 현재 설정**
-   - 최신 기준은 쓰레기 4종만 YOLO가 구분하는 구조입니다. 체크포인트 외부 클래스명과 순서는
-     `trash_normal`, `trash_paper`, `trash_recyclables`, `trash_coffeecup`입니다(코드
-     컨벤션과 무관하게 모델에 박힌 고정값 — 임의로 camelCase로 바꾸면 `tracking2.py`가
-     감지를 전부 무시하는 회귀가 남, `.agentfiles/decisionLog.md` 참고).
-   - API 의미값은 각각 `normal`, `paper`, `recyclables`, `coffeeCup`으로 매핑됩니다.
-     플라스틱과 캔은 `trash_recyclables`/`recyclables` 하나로 통합됐습니다.
+   - 최신 기준은 쓰레기 4종만 YOLO가 구분하는 구조입니다.
+   - **TOP 모델 외부 클래스명과 순서는 snake_case로 영구 고정**(`trash_normal`,
+     `trash_paper`, `trash_recyclables`, `trash_coffeecup`, 2026-08-25 팀 결정) —
+     `naming.md`의 camelCase 컨벤션 예외 항목. 이미 학습 완료된 `bestTop.pt`에 박힌
+     고정값이라 코드만으로는 못 바꾸며, 앞으로 재학습해도 이 표기는 그대로 유지한다.
+     `tracking2.py`의 `EXPECTED_CLASS_NAMES`/`TRASH_CLASSES`/`TRASH_TYPE_MAP`과
+     `pipelineConfig.yaml`의 `dataset.classes` 둘 다 이 값을 그대로 써야 하며, 임의로
+     camelCase로 바꾸면 감지가 전부 무시되는 회귀가 난다(이미 한 번 발생,
+     `.agentfiles/decisionLog.md` 참고).
+   - API 의미값은 각각 `normal`, `paper`, `recyclables`, `coffeeCup`으로 매핑됩니다(이건
+     위 클래스명 표기법과 별개로 이미 확정, `.agentfiles/decisionLog.md` 참고). 플라스틱과
+     캔은 `recyclables` 하나로 통합됐습니다.
    - 물리 통은 4개지만 YOLO 클래스가 아닙니다. `tracking2.py`의 `RULE_BASED_BIN_ROIS`가
      고정 화면 ROI로 통 위치를 판정하므로 자동 학습 데이터에 통 클래스를 추가하면 안 됩니다.
-   - `pipelineConfig.yaml`도 같은 camelCase 클래스명과 순서를 사용해야 합니다. 기존 snake_case
-     클래스명의 체크포인트는 새 계약과 불일치하므로 재학습하거나 모델 메타데이터를 명시적으로
-     마이그레이션하기 전에는 운영 모델로 승격하지 않습니다.
 
 2. **체크포인트 신원과 입력 전처리 불일치**
    - 로컬 `models/bootstrap/best.pt`의 SHA-256은
@@ -117,14 +123,14 @@ bootstrap 체크포인트와 설정의 클래스명이 일치하지 않고 최�
 3. **최신 데이터 수집과 운영 재시작 미연결**
    - Qwen Review는 Compose의 vLLM OpenAI 호환 API로 변경했고, 사람 결정 JSONL 승인 게이트와
      `bestTop.pt` 배포·롤백 파일 교체까지 구현했습니다.
-   - 최신 아키텍처의 MongoDB GridFS 학습 원본 수집은 전용 버킷·메타데이터 계약이 없어 아직
-     구현하지 않았습니다. 현재 Extract는 수동 `inputVideos`만 처리합니다.
+   - MongoDB `events.imageFileId`와 카메라별 GridFS 계약을 사용한 Collect를 구현했습니다.
+     실제 로컬 DB, 역방향 SSH 터널과 운영 이벤트를 연결한 검증은 아직 필요합니다.
    - Deploy 이후 `tracking2.py` 프로세스 재시작, smoke test와 실패 감지에 따른 자동 rollback은
      운영 방식(systemd/Docker)이 확정되지 않아 자동화하지 않았습니다.
 4. **필수 데이터와 실행 자원**
    - Python 3.11과 필수 import는 준비되어 있습니다.
-   - 현재 저장소에는 입력 영상과 `baseDataset`이 없습니다. 최신 설계대로라면 단순히 영상
-     폴더를 채우는 것보다 GridFS 수집 단계와 데이터셋 생성 계약을 먼저 구현해야 합니다.
+   - 현재 저장소에는 `baseDataset`이 없습니다. GridFS Collect를 실제 DB에 연결해 입력을 수집하고
+     기존 데이터셋과 Golden Test를 준비해야 전체 실행이 가능합니다.
    - GPU 서버에서 `tracking2.py`, training, Qwen vLLM이 같은 할당 GPU를 공유하므로 동시 실행
      시 VRAM·연산 경합을 실측하고 제한해야 합니다.
 
@@ -147,7 +153,7 @@ bootstrap 체크포인트와 설정의 클래스명이 일치하지 않고 최�
   추가 필드를 충분히 검사하지 않아 일부 잘못된 응답에서 전체 Review가 중단될 수 있습니다.
 - Review를 다시 실행할 때 `approved`, `manualReview`, `rejected` 폴더를 정리하지 않아 최신
   `reviews.jsonl`과 과거 큐 파일이 서로 다를 수 있습니다. Build는 JSONL을 기준으로 처리합니다.
-- Build는 기존 `datasetCurrent`를 먼저 삭제하므로 생성 중 실패하면 이전 정상 데이터셋도
+- Build는 기존 `datasets/<batchId>`를 먼저 삭제하므로 생성 중 실패하면 이전 정상 데이터셋도
   잃을 수 있습니다. JSONL 매니페스트와 달리 데이터셋 디렉터리는 원자적으로 교체하지 않습니다.
 - 설정 스키마 검증이 없어 잘못된 `inputMode`, 비율, device 또는 누락 키가 처리 도중에야
   오류로 나타날 수 있습니다.
@@ -168,13 +174,12 @@ bootstrap 체크포인트와 설정의 클래스명이 일치하지 않고 최�
 - Deploy 후 `tracking2.py` 재시작, smoke test 및 실패 시 자동 rollback
 - 실제 GPU 서버에서의 전체 E2E 테스트
 - 실제 vLLM·Golden Test·GPU 학습을 포함한 단계별 단위 테스트와 소규모 E2E 자동 테스트
-- MongoDB GridFS 학습 원본 수집 어댑터
 
 ### 권장 작업 순서
 
 1. 확정된 쓰레기 4종의 외부 class names를 그대로 설정하고 bootstrap 체크포인트 신원을 확정합니다.
 2. 자동화와 `tracking2.py`의 입력 방식·크기 계약을 통일하고 설정 스키마 검증을 추가합니다.
-3. 실제 vLLM 서버로 멀티모달 JSON Schema 응답을 검증하고 GridFS 학습 원본 수집 단계를 구현합니다.
+3. 실제 MongoDB/GridFS 수집과 vLLM 멀티모달 JSON Schema 응답을 운영 환경에서 검증합니다.
 4. split별 최소 영상·이미지·클래스 수 검증과 Build의 안전한 임시 디렉터리 교체를 구현합니다.
 5. 구현된 원자적 Deploy/rollback 뒤 `tracking2.py` 재시작·smoke test를 자동화합니다.
 6. 사람 승인 단계를 포함해 GPU 서버에서 자동 라벨링→학습→평가→운영 반영 E2E를 검증합니다.
@@ -191,6 +196,7 @@ autoTraining/
 │  ├─ modelRegistry.py
 │  └─ pipelineUtilities.py
 ├─ stages/
+│  ├─ collectEventMedia.py
 │  ├─ extractFrames.py
 │  ├─ selectFrames.py
 │  ├─ autoLabeling.py
@@ -201,7 +207,8 @@ autoTraining/
 │  ├─ evaluateModel.py
 │  ├─ promoteModel.py
 │  └─ deployModel.py
-├─ inputVideos/<batchId>/
+├─ inputVideos/<batchId>/       # GridFS 수집 사본 또는 localDirectory 개발 입력
+├─ datasets/<batchId>/          # Build가 생성한 버전형 학습 데이터셋 저장소
 ├─ baseDataset/
 ├─ goldenTest/
 │  ├─ images/
@@ -270,24 +277,26 @@ CLI 실행에는 성공했지만 OpenCV와 NumPy는 고정 버전과 다릅니�
 
 ## 입력 준비
 
-### 현재 코드의 수동 입력 방식
+### 이벤트 영상 저장소 입력
 
-현재 구현된 Extract는 같은 `--batchId`의 CCTV 영상 파일만 다음 위치에서 읽습니다.
+운영 기본값은 `eventStore.source: gridFs`입니다. Collect는 `--batchId`의 한국 시간 하루 동안 생성된
+`ELEV-TOP`/`misclassification` 이벤트 중 `imageFileId`가 있는 문서만 조회하고, 같은 DB의
+`topMedia` GridFS GIF를 다음 작업 입력 폴더에 복사합니다. MongoDB/GridFS 원본은 수정하지 않습니다.
 
 ```text
-autoTraining/inputVideos/<batchId>/
+autoTraining/inputVideos/<batchId>/<eventId>.gif
+autoTraining/workspace/batches/<batchId>/collectedMedia.jsonl
 ```
 
-지원 확장자는 `.mp4`, `.avi`, `.mov`, `.mkv`, `.webm`, `.m4v`입니다. 이 방식은 로컬 개발과
-수동 검증에는 사용할 수 있지만 최신 운영 데이터 수집 계약은 아닙니다.
+연결정보는 백엔드와 동일하게 `.env`의 `MONGO_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`,
+`DB_NAME`을 사용합니다. GPU 서버에서는 문서에 정한 역방향 SSH 터널이 먼저 연결되어야 합니다.
+로컬 파일로 개발할 때만 `eventStore.source: localDirectory`로 변경하고 위 입력 폴더에 직접
+영상을 넣습니다. 두 입력 방식을 한 배치에서 혼합하지 않습니다.
 
-### 최신 운영 데이터 수집 계약
+### 학습 데이터셋 저장소
 
-최신 아키텍처에서는 이벤트의 학습용 원본 이미지를 로컬 MongoDB GridFS에서 재사용하고,
-GPU 서버의 training 프로세스가 역방향 SSH 터널을 통해 읽기로 확정했습니다. 현재 파이프라인에는
-GridFS 조회·다운로드·수집 매니페스트 생성 단계가 없으므로 별도 구현이 필요합니다. 운영 자동화가
-완성되기 전까지 `inputVideos` 방식과 GridFS 방식의 결과를 같은 실행에서 혼합하지 않습니다.
-
+Build 결과는 작업 중간 파일과 분리하여 `autoTraining/datasets/<batchId>`에 저장합니다.
+Train과 Evaluate는 같은 배치의 이 버전형 데이터셋을 읽으며 Golden Test는 계속 별도로 유지합니다.
 기존 YOLO 데이터셋을 수동으로 사용할 때의 현재 코드 요구 구조:
 
 ```text
@@ -318,6 +327,7 @@ Qwen 모델로 멀티모달 요청 호환성과 응답 형식을 E2E 검증해�
 paths:
   videos: autoTraining/inputVideos
   workspace: autoTraining/workspace
+  datasetStore: autoTraining/datasets
   baseDataset: autoTraining/baseDataset
   bootstrapModel: autoTraining/models/bootstrap/best.pt
   modelRegistry: autoTraining/models/registry
@@ -371,7 +381,7 @@ inference:
 python autoTraining/trainingPipeline.py prepareDailyBatch --batchId 2026-08-25
 ```
 
-위 명령은 Extract → Select → Label → Qwen Review를 실행하고
+위 명령은 Collect → Extract → Select → Label → Qwen Review를 실행하고
 `workspace/batches/2026-08-25/humanReviewQueue.jsonl`을 만든 뒤 멈춥니다.
 
 사람은 같은 배치 폴더에 `humanDecisions.jsonl`을 작성합니다.
@@ -410,12 +420,13 @@ Deploy와 Rollback은 모델 파일만 원자적으로 교체합니다. 이후 `
 
 | 단계 | 주요 출력 |
 |---|---|
+| Collect | `inputVideos/<batchId>/*.gif`, `collectedMedia.jsonl` |
 | Extract | `workspace/batches/<batchId>/framesAll`, `frames.jsonl` |
 | Select | 배치별 `candidates`, `candidates.jsonl` |
 | Label | `workspace/autoLabels`, `annotated`, `labels.jsonl` |
 | Review | `reviews.jsonl`, `humanReviewQueue.jsonl`, Qwen 판정별 참고 폴더 |
 | HumanReview | `humanReviews.jsonl` |
-| Build | 배치별 `datasetCurrent`, `data.yaml` |
+| Build | `datasets/<batchId>`, `data.yaml` |
 | Train | `workspace/runs`, `models/candidates/<batchId>/<runName>/best.pt`, `trainingResult.json` |
 | Evaluate | `workspace/evaluation.json` |
 | Promote | `models/registry/model-<version>.pt`, `models/current.json` |
@@ -427,6 +438,7 @@ Deploy와 Rollback은 모델 파일만 원자적으로 교체합니다. 이후 `
 
 | 파일 | 내용 |
 |---|---|
+| `collectedMedia.jsonl` | Event/GridFS 식별자와 내려받은 클립 경로 |
 | `frames.jsonl` | 원본 영상과 추출 프레임 정보 |
 | `candidates.jsonl` | 선별된 학습 후보 |
 | `labels.jsonl` | 자동 라벨, bbox, 검수 이미지 경로 |
@@ -465,8 +477,13 @@ Docker는 실행 환경과 의존성을 고정하는 수단이고, GPU는 YOLO �
 ## 주의 사항
 
 - Qwen 판정과 무관하게 사람의 최종 `approved`만 Build에 포함됩니다.
-- Build는 해당 배치의 `workspace/batches/<batchId>/datasetCurrent`를 새로 생성하므로 필요한 결과는 먼저 백업합니다.
-- TOP 모델 외부 클래스명은 `trash_normal`, `trash_paper`, `trash_recyclables`, `trash_coffeecup` 순서를 보존해야 합니다(모델에 박힌 고정값, camelCase 변환 대상 아님).
+- Build는 해당 배치의 `datasets/<batchId>`를 새로 생성하므로 필요한 결과는 먼저 백업합니다.
+- **TOP 모델 외부 클래스명은 `trash_normal`, `trash_paper`, `trash_recyclables`,
+  `trash_coffeecup`(snake_case) 순서로 영구 고정**(2026-08-25 팀 결정, `naming.md`
+  camelCase 컨벤션의 예외) — 재학습해도 이 표기는 그대로 유지한다. `tracking2.py`의
+  `EXPECTED_CLASS_NAMES`/`TRASH_CLASSES`/`TRASH_TYPE_MAP`과 이 파일의
+  `dataset.classes` 둘 다 이 값을 그대로 써야 하며, camelCase로 바꾸면 감지가 전부
+  무시되는 회귀가 난다(이미 한 번 발생, `.agentfiles/decisionLog.md` 참고).
 - 통 위치는 모델 학습 클래스가 아니라 `tracking2.py`의 고정 ROI 계약입니다.
 - Promote 전에는 `evaluation.json`의 mAP50과 recall을 확인합니다.
 - 로컬 bootstrap과 문서가 감사한 `bestTop.pt`의 해시가 다르므로 기준 모델 신원을 먼저 확정합니다.

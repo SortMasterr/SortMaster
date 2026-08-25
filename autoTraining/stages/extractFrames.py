@@ -5,7 +5,13 @@ from pathlib import Path
 
 import cv2
 
-from common.pipelineUtilities import ManifestWriter, createFrameId, videoExtensions
+from common.pipelineUtilities import (
+    ManifestWriter,
+    createFrameId,
+    iterateManifest,
+    manifestHasRows,
+    videoExtensions,
+)
 
 
 class ExtractFramesStage:
@@ -29,10 +35,20 @@ class ExtractFramesStage:
         if not 1 <= jpegQuality <= 100:
             raise ValueError("frames.jpegQuality는 1~100이어야 합니다.")
 
-        videoPaths = sorted(
-            path for path in self.videosDirectory.rglob("*")
-            if path.is_file() and path.suffix.lower() in videoExtensions
-        )
+        if self.config["eventStore"].get("source", "gridFs") == "gridFs":
+            if not manifestHasRows(self.collectedMediaManifest):
+                raise RuntimeError("먼저 collect 단계를 실행하세요.")
+            # GridFS 모드에서는 수집 매니페스트만 신뢰한다. 이전 재실행의 고아 파일이나
+            # 사용자가 수동으로 넣은 파일이 같은 학습 배치에 섞이는 것을 방지한다.
+            videoPaths = sorted(
+                Path(row["mediaPath"])
+                for row in iterateManifest(self.collectedMediaManifest)
+            )
+        else:
+            videoPaths = sorted(
+                path for path in self.videosDirectory.rglob("*")
+                if path.is_file() and path.suffix.lower() in videoExtensions
+            )
         if not videoPaths:
             raise FileNotFoundError(f"영상이 없습니다: {self.videosDirectory}")
 

@@ -2,6 +2,8 @@
 paths:
   videos: autoTraining/inputVideos
   workspace: autoTraining/workspace
+  # Build가 만든 배치별 학습 데이터셋의 영속 저장소입니다.
+  datasetStore: autoTraining/datasets
   baseDataset: autoTraining/baseDataset
   # 사람 검수로 고정한 평가셋이며 일일 학습 데이터와 자동 병합하지 않습니다.
   goldenTest: autoTraining/goldenTest
@@ -10,6 +12,12 @@ paths:
   candidateModels: autoTraining/models/candidates
   activeModelPointer: autoTraining/models/current.json
 
+eventStore:
+  # 운영은 gridFs, 로컬 영상으로 개발할 때만 localDirectory를 사용합니다.
+  source: gridFs
+  # batchId 날짜 경계를 한국 시간 기준으로 계산합니다.
+  utcOffsetHours: 9
+  serverSelectionTimeoutMs: 5000
 frames:
   # 1이면 모든 프레임을 저장하며 값이 커질수록 디스크 사용량과 처리량이 감소합니다.
   saveEveryN: 1
@@ -41,10 +49,10 @@ dataset:
   trainRatio: 0.80
   valRatio: 0.10
   testRatio: 0.10
-  # 아래 문자열은 기존 YOLO 모델(bestTop.pt)의 실제 클래스명(model.names)이므로
-  # 코드 컨벤션(camelCase)과 무관하게 절대 임의로 바꾸면 안 됩니다 — 2026-08-25에 한 번
-  # camelCase로 잘못 바뀌었다가 tracking2.py의 동일 문제와 함께 발견 즉시 되돌림
-  # (.agentfiles/decisionLog.md 참고).
+  # TOP 모델(bestTop.pt) 클래스명은 snake_case로 영구 고정(2026-08-25 팀 결정) —
+  # WebApps/backend/models/trashdetect/tracking2.py의 model.names 매칭 값과 항상
+  # 동일해야 하며, 코드 컨벤션(camelCase)과 무관한 naming.md의 예외 항목. 재학습해도
+  # 이 표기는 그대로 유지 — camelCase로 바꾸지 말 것(.agentfiles/decisionLog.md 참고).
   classes:
     - trash_normal
     - trash_paper

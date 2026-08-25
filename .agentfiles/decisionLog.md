@@ -240,3 +240,14 @@
   변환 대상 아님" 예외 추가. `RULE_BASED_BIN_ROIS`/`BIN_TYPE_MAP`의 `boxNormal` 등은
   모델 출력과 무관한 내부 전용 키라 camelCase로 남겨둬도 문제없음(둘 다 서로 일관되게
   이미 바뀌어 있었음, 그쪽은 그대로 유지)
+- **TOP 모델 클래스명 표기를 snake_case로 영구 고정 확정(재학습해도 camelCase로 전환
+  안 함)** → 위 회귀를 되돌리는 과정에서, `autoTraining/README.md`/`pipelineConfig.yaml`에
+  팀원 `ukjin`이 별도로 남긴 "다음 재학습부터는 camelCase 목표"라는 계획(`10aff38`)과
+  충돌하는 게 발견됨 — 처음엔 "지금 모델은 snake_case 유지, 다음 재학습되는 새 모델부터
+  camelCase로 전환, 그 시점에 `tracking2.py`도 같이 바꾼다"는 과도기 방안으로 절충했으나,
+  재학습이 당장 가능한 상태가 아니고(`autoTraining/README.md`의 "실행 전 반드시 해결할
+  문제"에 입력 영상/기존 데이터셋 미준비, 전체 E2E 미검증 등이 남아있음) 나중에 또 같은
+  종류의 혼선이 재발할 여지가 있다고 판단, **"TOP 관련 클래스명은 항상 snake_case"를
+  `naming.md`의 영구 예외로 확정**하는 쪽으로 단순화함. `pipelineConfig.yaml`의
+  `dataset.classes`도 camelCase 목표값에서 다시 snake_case로 되돌림 — 앞으로 재학습을
+  하더라도 이 표기는 그대로 유지(camelCase 전환 계획 자체를 폐기)
