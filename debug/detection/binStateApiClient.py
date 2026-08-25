@@ -9,7 +9,7 @@
         "http://localhost:8047",
         {
             "binId": "BIN-GENERAL",
-            "binType": "general",
+            "binType": "normal",
             "sessionId": "감지 모델 프로세스 시작 시 생성한 UUID",
             "currentState": "FULL",
             "confidenceScore": 0.97,

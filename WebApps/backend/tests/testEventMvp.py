@@ -69,7 +69,7 @@ class MemoryEventRepository:
         )
 
 
-def createMisclassification(detectionId, detectedClass=DetectedClass.PLASTIC_CAN):
+def createMisclassification(detectionId, detectedClass=DetectedClass.RECYCLABLES):
     return EventCreate(
         cameraId=CameraId.ELEVTOP,
         eventCategory=EventCategory.MISCLASSIFICATION,
@@ -149,7 +149,7 @@ class EventMvpTest(unittest.IsolatedAsyncioTestCase):
                 eventCategory=EventCategory.OVERFLOW,
                 detectionId=detectionId,
                 binId="BIN-GENERAL",
-                binType=BinType.GENERAL,
+                binType=BinType.NORMAL,
                 overflowDuration=5.0,
                 overflowThreshold=5.0,
                 modelVersion="yolo26-mvp-1",
@@ -170,7 +170,7 @@ class EventMvpTest(unittest.IsolatedAsyncioTestCase):
                 eventCategory=EventCategory.OVERFLOW,
                 detectionId="overflow-001",
                 binId="BIN-GENERAL",
-                binType=BinType.GENERAL,
+                binType=BinType.NORMAL,
                 overflowDuration=5.0,
                 overflowThreshold=5.0,
                 modelVersion="yolo26-mvp-1",

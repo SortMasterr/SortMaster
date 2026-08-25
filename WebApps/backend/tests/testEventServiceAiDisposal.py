@@ -54,7 +54,7 @@ class EventServiceAiDisposalTest(unittest.IsolatedAsyncioTestCase):
             CameraId.ELEVTOP, result.event.cameraId
         )
         self.assertEqual(
-            DetectedClass.PLASTIC_CAN,
+            DetectedClass.RECYCLABLES,
             result.event.detectedClass,
         )
         self.assertTrue(result.event.isMisclassified)

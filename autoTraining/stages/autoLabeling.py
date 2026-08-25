@@ -228,7 +228,8 @@ class AutoLabelingStage:
                 rawImage=cv2.imread(row["imagePath"])
                 if rawImage is None:
                     continue
-                modelInput=self._makeCausalInput(row) if inferenceConfig["inputMode"]=="causal" else rawImage
+                # rawImage를 전달해 causal 합성 시 현재 JPEG를 다시 디코딩하지 않는다.
+                modelInput=self._makeCausalInput(row, rawImage) if inferenceConfig["inputMode"]=="causal" else rawImage
                 result=predictImage(model,modelInput,float(inferenceConfig["confidence"]),int(inferenceConfig["imgsz"]),inferenceConfig.get("device"))
                 labelPath=self.autoLabelsRoot/row["video"]/f"{row['id']}.txt"
                 detections=writeYoloLabel(labelPath,result,allowedClassIds)

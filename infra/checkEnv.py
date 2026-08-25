@@ -37,6 +37,13 @@ requiredPackages = [
     ("Pillow==11.1.0", "Pillow"),
     ("jinja2==3.1.6", "jinja2"),
     ("python-dotenv==1.2.2", "python-dotenv"),
+    # Windows에는 IANA time zone DB가 기본 포함되지 않음. 보고서 RPA의
+    # Asia/Seoul KST↔UTC 기간 변환에 사용한다.
+    ("tzdata==2025.2", "tzdata"),
+    # SIDE(ELEV-SIDE) 넘침 판정용 MobileNet_V3_Small 추론(CPU, GPU 서버 미사용) —
+    # models/trashoverflow/, services/overflowDetectionService.py
+    ("torch==2.13.0", "torch"),
+    ("torchvision==0.28.0", "torchvision"),
 ]
 
 requiredPython = (3, 11)

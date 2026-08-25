@@ -3,6 +3,8 @@ paths:
   videos: autoTraining/inputVideos
   workspace: autoTraining/workspace
   baseDataset: autoTraining/baseDataset
+  # 사람 검수로 고정한 평가셋이며 일일 학습 데이터와 자동 병합하지 않습니다.
+  goldenTest: autoTraining/goldenTest
   bootstrapModel: autoTraining/models/bootstrap/best.pt
   modelRegistry: autoTraining/models/registry
   candidateModels: autoTraining/models/candidates
@@ -26,8 +28,9 @@ inference:
   device: 0
 
 qwenVl:
-  # 현재 구현은 /api/tags와 /api/chat을 제공하는 Qwen-VL API 서버에 연결합니다.
-  apiBaseUrl: http://127.0.0.1:11434
+  # 프로젝트 Compose의 vLLM OpenAI 호환 API를 사용합니다.
+  # GPU 서버 Compose의 vLLM OpenAI 호환 API입니다.
+  apiBaseUrl: http://127.0.0.1:8099
   # auto이면 설치 모델 중 이름에 qwen과 vl이 포함된 첫 모델을 선택합니다.
   model: auto
   timeoutSeconds: 180
@@ -43,7 +46,7 @@ dataset:
     - trashNormal
     - trashPaper
     - trashRecyclables
-    - trashCoffeecup
+    - trashCoffeeCup
 
 training:
   epochs: 100
@@ -55,6 +58,10 @@ training:
   patience: 30
 
 promotion:
-  # 신규 모델이 기존 모델보다 허용되는 최대 성능 하락 폭입니다.
-  maximumMap50Drop: 0.0
-  maximumRecallDrop: 0.0
+  # 고정 Golden Test에서 기존 모델보다 실제로 좋아져야 승격합니다.
+  minimumMap50Gain: 0.001
+  minimumRecallGain: 0.0
+
+deployment:
+  # tracking2.py가 기본으로 읽는 운영 파일명. Promote와 Deploy는 의도적으로 분리합니다.
+  targetModel: WebApps/backend/models/trashdetect/bestTop.pt

@@ -27,7 +27,7 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
 | 카메라 구성 | **"카메라 1대 = 지점 1개 = `CameraId` 1개 = 독립 라즈베리파이 1대" 규칙 유지**(안 깨짐). 설치 위치 1곳(12층 엘리베이터 앞)에 지점 2개(위+옆). `.env` 키는 기존 하이픈 제거 규칙 그대로 `CAMERA_SOURCE_ELEVTOP`/`CAMERA_SOURCE_ELEVSIDE` |
 | 카메라 스펙 | 웹캠 실촬영 해상도 **640×480**(약 30만 화소). YOLO 입력 전처리는 **640×640**으로 통일(레터박스 패딩 방식 — 비율 유지, 단순 리사이즈 아님). TOP 카메라는 YOLO26 혼자 분류까지 끝내서 별도 모델로 좌표를 넘길 일이 없음(LLM에 좌표 넘기는 보정은 후순위 재검토 항목) |
 | 배포 구조 | 지점별(카메라별) 독립 메인보드+카메라 1대 — 설치 위치 1곳에 지점(=메인보드+카메라 세트) 2개 |
-| 클래스 | general, paper, plasticCan(플라스틱+캔 통합 — 모델이 둘을 구분 못 해서 4종으로 축소 확정, 아래 "탐지 파이프라인" 참고), coffeeCup — 총 4종. `mixed`/`uncertain`은 제외 확정(자체 라벨링 시 전부 4종 중 하나로 분류 가능하다고 판단, 아래 "해결된 TBD" 참고) |
+| 클래스 | normal, paper, recyclables(플라스틱+캔 통합), coffeeCup — 총 4종. `mixed`/`uncertain`은 제외 확정 |
 
 ## 탐지 파이프라인
 
@@ -96,9 +96,8 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
      `createEventFromAiDisposal`). `result: unknown`이나 매핑 안 되는 값은 방어적으로
      무시(로그만 남김)
   4. **쓰레기 종류는 4종(normal/paper/recyclables/coffeecup)으로 축소 확정** — 모델이
-     plastic/can을 구분 못 해서 `DetectedClass.PLASTIC_CAN` 하나로 통합(물리적으로도 같은
-     통에 버려서 실용상 문제없다고 판단, `decisionLog.md` 참고). 기존 `general`/`paper`/
-     `coffeeCup` + 통합된 `plasticCan` 총 4종
+     plastic/can을 구분 못 해서 `DetectedClass.RECYCLABLES` 하나로 통합(물리적으로도 같은
+     통에 버려서 실용상 문제없다고 판단). `normal`/`paper`/`recyclables`/`coffeeCup` 총 4종
   - **GPU 서버 → 로컬 백엔드 실제 푸시 검증 완료**(데모 영상 기준 + **실제 TOP MJPEG
     스트림 기준 둘 다**) — GPU 서버에서 `tracking2.py` 실행 → 로컬 백엔드가 상시 서빙 중인
     `GET /api/stream/ELEV-TOP`을 SSH 역터널(포트는 팀 공유 규칙상 99로 끝나야 해서 `8299`
@@ -308,10 +307,10 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 - 매 프레임 Insert 금지, 판정 시점만 저장
 - `eventCategory`로 구분: misclassification(투기, 분류 결과 포함) / overflow(넘침, 분류 없이 영상만)
 - **물리 쓰레기통 4개**(일반/플라스틱·캔/커피컵/종이, `binId`)가 옆 카메라(`ELEV-SIDE`) 시야
-  안에 고정 설치. "플라스틱·캔" 통(`binType=plasticCan`)은 캔과 플라스틱을 물리적으로 같이
-  받는데, 실제 YOLO26 모델(`tracking2.py`)도 둘을 구분하지 못해 `DetectedClass.PLASTIC_CAN`
+  안에 고정 설치. "플라스틱·캔" 통(`binType=recyclables`)은 캔과 플라스틱을 물리적으로 같이
+  받는데, 실제 YOLO26 모델(`tracking2.py`)도 둘을 구분하지 못해 `DetectedClass.RECYCLABLES`
   하나로만 낸다 — `binType`과 값 체계가 완전히 1:1 일치(과거엔 `plastic`/`can`을 별도
-  `DetectedClass`로 두고 `plasticCan`에 다대일 매핑하기로 했었으나 번복됨, `decisionLog.md`
+  `DetectedClass`로 두고 공용 통에 다대일 매핑하기로 했었으나 번복됨, `decisionLog.md`
   참고, 상세는 `Docs/ERD.md` 참고). 각 통의 현재 상태(`NORMAL`/`FULL`)를 별도
   `BIN_STATES`로 지속 추적하고,
   **`NORMAL`→`FULL`로 전환되는 순간에만** overflow `EVENT` 생성+알림(기존 "5초 Cooldown"

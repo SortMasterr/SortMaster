@@ -1,10 +1,10 @@
 """6단계: 고정된 활성 모델을 초기 가중치로 사용해 후보 모델을 학습합니다."""
-import json
 import os
 import shutil
 from datetime import datetime
 
 from common.modelRegistry import calculateFileSha256
+from common.pipelineUtilities import atomicWriteJson
 from stages.autoLabeling import loadYoloModel
 
 
@@ -41,7 +41,8 @@ class TrainModelStage:
             "candidateModel": str(candidatePath.resolve()),
             "candidateSha256": calculateFileSha256(candidatePath),
         }
-        self.trainingResult.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        # 학습이 중단된 JSON을 Evaluate가 읽지 않도록 완료된 결과만 원자적으로 공개한다.
+        atomicWriteJson(self.trainingResult, result)
         print(f"[TRAIN] 불변 후보 모델 저장: {candidatePath}")
 
 

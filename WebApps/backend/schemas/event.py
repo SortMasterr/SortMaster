@@ -16,15 +16,15 @@ class EventCategory(str, Enum):
 
 
 class DetectedClass(str, Enum):
-    GENERAL = "general"
+    NORMAL = "normal"
     PAPER = "paper"
-    PLASTIC_CAN = "plasticCan"
+    RECYCLABLES = "recyclables"
     COFFEE_CUP = "coffeeCup"
 
 
 class BinType(str, Enum):
-    GENERAL = "general"
-    PLASTIC_CAN = "plasticCan"
+    NORMAL = "normal"
+    RECYCLABLES = "recyclables"
     COFFEE_CUP = "coffeeCup"
     PAPER = "paper"
 

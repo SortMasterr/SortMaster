@@ -36,8 +36,8 @@ erDiagram
     BIN_STATES {
         string binId PK "물리 쓰레기통 4개 중 하나(신규 확정: 일반/플라스틱·캔/커피컵/종이). ELEV-SIDE 시야 안에 고정 설치"
         string cameraId "현재 구조상 항상 ELEV-SIDE(넘침 감지는 옆 카메라 전담이라 다른 값 없음)"
-        string binType "general/plasticCan/coffeeCup/paper(플라스틱·캔 통은 캔+플라스틱 둘 다 받음 — 실제 YOLO26 모델이 캔/플라스틱을 구분 못 해서 DetectedClass도 plasticCan 하나로 통합됨, 아래 참고). binId와 사실상 1:1, 조인 없이 필터링하려는 비정규화 필드"
-        string sessionId "넘침 감지(GPU 서버, MobileNet_V3_Small) 프로세스 시작 시 새 UUID 생성 — 재시작/재연결마다 갱신(확정)"
+        string binType "normal/recyclables/coffeeCup/paper(플라스틱·캔 통은 캔+플라스틱 둘 다 받으며 DetectedClass도 recyclables 하나로 통합). binId와 사실상 1:1, 조인 없이 필터링하려는 비정규화 필드"
+        string sessionId "넘침 감지(로컬 백엔드, MobileNet_V3_Small) 프로세스 시작 시 새 UUID 생성 — 재시작/재연결마다 갱신(확정)"
         string currentState "NORMAL / FULL"
         float confidenceScore "최근 판정 신뢰도"
         float overflowDuration "현재 FULL 상태로 유지된 시간(초), 실시간 갱신"
@@ -52,9 +52,9 @@ erDiagram
         datetime timestamp
         string cameraId FK "CameraId enum(ELEV-TOP/ELEV-SIDE)"
         string eventCategory "misclassification(투기, ELEV-TOP 단독) / overflow(넘침, ELEV-SIDE 단독 — BIN_STATES가 NORMAL→FULL로 전환되는 순간에만 생성)"
-        string detectedClass "nullable, misclassification만. YOLO26(GPU 서버 tracking2.py)이 직접 분류. general/paper/plasticCan(모델이 plastic/can을 구분 못 해서 통합, 아래 참고)/coffeeCup — 총 4종. mixed/uncertain은 제외 확정(아래 참고)"
+        string detectedClass "nullable, misclassification만. YOLO26(GPU 서버 tracking2.py)이 직접 분류. normal/paper/recyclables(모델이 plastic/can을 구분 못 해서 통합)/coffeeCup — 총 4종. mixed/uncertain은 제외 확정"
         string binId FK "물리 통 4개 중 하나 — misclassification: GPU(tracking2.py)가 추적한 실제 투척 통 / overflow: 어느 통이 가득 찼는지. 과거 초안의 thrownBinId를 대체, 두 카테고리 모두 사용"
-        string binType "general/plasticCan/coffeeCup/paper — BIN_STATES.binType과 동일 값 비정규화 저장, detectedClass와 값 체계 1:1 일치"
+        string binType "normal/recyclables/coffeeCup/paper — BIN_STATES.binType과 동일 값 비정규화 저장, detectedClass와 값 체계 1:1 일치"
         boolean isMisclassified "nullable, misclassification만. GPU(tracking2.py)가 자체적으로 detectedClass vs 투입된 통을 비교해 판정한 결과(result: correct/incorrect)를 로컬 백엔드가 그대로 boolean으로 변환해 저장 — 백엔드가 재계산하지 않음(아래 참고)"
         float confidenceScore "nullable, misclassification만, 0.0~1.0. tracking2.py 응답에 값이 없어 현재는 고정값 저장(TBD, 아래 참고)"
         float overflowDuration "nullable, overflow만. 전환 확정 시점의 BIN_STATES.overflowDuration 스냅샷"
@@ -150,11 +150,11 @@ erDiagram
 - ~~**`binType`은 `plasticCan` 유지, `DetectedClass`에 `can` 추가하는 걸로 확정**~~ →
   **번복됨(`decisionLog.md` 참고)**. 실제 YOLO26 모델(`models/trashdetect/tracking2.py`)이
   plastic/can을 구분 못 하고 `recyclables` 하나로만 내놓는다는 게 확인돼, `can`을 다시
-  제거하고 `DetectedClass.PLASTIC_CAN`(`"plasticCan"`) 하나로 통합함. 아래 남은 문단은
+  제거하고 현재는 `DetectedClass.RECYCLABLES`(`"recyclables"`) 하나로 통합함. 아래 남은 문단은
   당시 맥락 기록용으로 남겨둠 — 지금은 `DetectedClass`와 `binType`이 값 체계까지 완전히
   1:1이라 다대일 매핑 자체가 필요 없음
 - **`DetectedClass`에서 `mixed`/`uncertain` 제외 확정** → 라벨링 기준을 정하려다가, 팀
-  자체 라벨링 시엔 어차피 모든 대상을 4종(general/paper/plasticCan/coffeeCup) 중
+  자체 라벨링 시엔 어차피 모든 대상을 4종(normal/paper/recyclables/coffeeCup) 중
   하나로 분류할 수 있다고 판단해서 아예 클래스에서 뺌. `DetectedClass`가 `binType`(4종)에
   1:1로 완전히 매핑되는 닫힌 집합이 되어, "매핑 없는 값" 예외 처리 자체가 불필요해짐
   (예전에 검토했던 "mixed/uncertain은 매핑 없어서 자동 오분류" 로직도 같이 폐기)

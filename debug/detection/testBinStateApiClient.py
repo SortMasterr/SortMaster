@@ -62,7 +62,7 @@ class BinStateApiClientTest(unittest.TestCase):
     def testUpdateBinStateForwardsPayload(self):
         update = {
             "binId": "BIN-GENERAL",
-            "binType": "general",
+            "binType": "normal",
             "sessionId": "session-1",
             "currentState": "FULL",
             "confidenceScore": 0.97,

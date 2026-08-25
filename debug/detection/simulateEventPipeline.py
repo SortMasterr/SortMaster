@@ -66,7 +66,7 @@ async def main() -> None:
         eventCategory=EventCategory.MISCLASSIFICATION,
         detectionId=str(uuid4()),
         trackingId=1,
-        detectedClass=DetectedClass.PLASTIC_CAN,
+        detectedClass=DetectedClass.RECYCLABLES,
         binId="BIN-PAPER",
         binType=BinType.PAPER,
         isMisclassified=True,
