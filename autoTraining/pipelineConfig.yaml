@@ -3,9 +3,10 @@ paths:
   videos: autoTraining/inputVideos
   workspace: autoTraining/workspace
   baseDataset: autoTraining/baseDataset
-  baseAutoLabelModel: autoTraining/models/baseAutolabel/best.pt
-  newAutoLabelModel: autoTraining/models/newAutolabel/best.pt
-  deployedModel: autoTraining/promotedModels/current.pt
+  bootstrapModel: autoTraining/models/bootstrap/best.pt
+  modelRegistry: autoTraining/models/registry
+  candidateModels: autoTraining/models/candidates
+  activeModelPointer: autoTraining/models/current.json
 
 frames:
   # 1이면 모든 프레임을 저장하며 값이 커질수록 디스크 사용량과 처리량이 감소합니다.
@@ -37,12 +38,12 @@ dataset:
   trainRatio: 0.80
   valRatio: 0.10
   testRatio: 0.10
-  # 아래 문자열은 기존 YOLO 모델의 실제 클래스명이므로 임의로 변경하면 안 됩니다.
+  # 기존 사용자 설정을 유지합니다. 체크포인트 model.names와 반드시 일치해야 합니다.
   classes:
-    - trash_normal
-    - trash_paper
-    - trash_recyclables
-    - trash_coffeecup
+    - trashNormal
+    - trashPaper
+    - trashRecyclables
+    - trashCoffeecup
 
 training:
   epochs: 100
@@ -57,4 +58,3 @@ promotion:
   # 신규 모델이 기존 모델보다 허용되는 최대 성능 하락 폭입니다.
   maximumMap50Drop: 0.0
   maximumRecallDrop: 0.0
-  backupDirectory: autoTraining/modelArchive
