@@ -107,16 +107,16 @@ CROP_MARGIN_RATIO = 0.15
 # 카메라 구도가 바뀌면 이 값만 수정하면 된다.
 RULE_BASED_BIN_ROIS = {
     # 왼쪽 위 원형 커피컵 통의 투입구
-    "box_coffeecup": (0.000, 0.155, 0.160, 0.345),
+    "boxCoffeeCup": (0.000, 0.155, 0.160, 0.345),
 
     # 아래쪽 세 통의 전면 투입구만 지정
-    "box_recyclables": (0.105, 0.500, 0.315, 0.830),
-    "box_paper": (0.430, 0.500, 0.630, 0.860),
-    "box_normal": (0.755, 0.500, 0.960, 0.860),
+    "boxRecyclables": (0.105, 0.500, 0.315, 0.830),
+    "boxPaper": (0.430, 0.500, 0.630, 0.860),
+    "boxNormal": (0.755, 0.500, 0.960, 0.860),
 }
 
 # 원형/타원형 투입구는 bbox의 네 모서리를 진입 영역에서 제외한다.
-ELLIPTICAL_BIN_ROIS = {"box_coffeecup"}
+ELLIPTICAL_BIN_ROIS = {"boxCoffeeCup"}
 
 # 결과 영상 저장
 OUTPUT_VIDEO_PATH = "result_tracking_demo.mp4"
@@ -140,33 +140,33 @@ HARD_EXAMPLE_DIR.mkdir(parents=True, exist_ok=True)
 # 2. 클래스 / 분리배출 규칙
 # ============================================================
 EXPECTED_CLASS_NAMES = {
-    0: "trash_normal",
-    1: "trash_paper",
-    2: "trash_recyclables",
-    3: "trash_coffeecup",
+    0: "trashNormal",
+    1: "trashPaper",
+    2: "trashRecyclables",
+    3: "trashCoffeeCup",
 }
 
 TRASH_CLASS_IDS = [0, 1, 2, 3]
 
 TRASH_CLASSES = {
-    "trash_normal",
-    "trash_paper",
-    "trash_recyclables",
-    "trash_coffeecup",
+    "trashNormal",
+    "trashPaper",
+    "trashRecyclables",
+    "trashCoffeeCup",
 }
 
 TRASH_TYPE_MAP = {
-    "trash_normal": "normal",
-    "trash_paper": "paper",
-    "trash_recyclables": "recyclables",
-    "trash_coffeecup": "coffeecup",
+    "trashNormal": "normal",
+    "trashPaper": "paper",
+    "trashRecyclables": "recyclables",
+    "trashCoffeeCup": "coffeecup",
 }
 
 BIN_TYPE_MAP = {
-    "box_normal": "normal",
-    "box_paper": "paper",
-    "box_recyclables": "recyclables",
-    "box_coffeecup": "coffeecup",
+    "boxNormal": "normal",
+    "boxPaper": "paper",
+    "boxRecyclables": "recyclables",
+    "boxCoffeeCup": "coffeecup",
 }
 
 # 커피컵은 커피컵 통 또는 재활용 통 모두 정상

@@ -44,7 +44,7 @@ modelVersion = "trashoverflow-mobilenet_v3_small-v1"
 # 단일 ROI만 지원해서 우선 통 1개로 매핑(decisionLog.md 참고, 통 4개 각각 독립 판정하려면
 # ROI를 나누고 모델을 통별로 돌려야 함 — TBD).
 overflowBinId = os.getenv("OVERFLOW_BIN_ID", "bin-side-01")
-overflowBinType = BinType(os.getenv("OVERFLOW_BIN_TYPE", BinType.GENERAL.value))
+overflowBinType = BinType(os.getenv("OVERFLOW_BIN_TYPE", BinType.NORMAL.value))
 
 
 class OverflowDetectionService:

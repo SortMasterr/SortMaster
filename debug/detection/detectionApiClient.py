@@ -13,7 +13,7 @@
             "eventCategory": "overflow",
             "detectionId": "탐지 모델이 생성한 UUID",
             "binId": "BIN-GENERAL",
-            "binType": "general",
+            "binType": "normal",
             "overflowDuration": 5.2,
             "overflowThreshold": 5.0,
             "modelVersion": "overflow-mvp-1",

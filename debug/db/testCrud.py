@@ -53,7 +53,7 @@ def main() -> None:
         "eventCategory": "misclassification",
         "detectionId": f"test-detection-{uuid4()}",
         "trackingId": 1,
-        "detectedClass": "plasticCan",
+        "detectedClass": "recyclables",
         "binId": "BIN-PAPER",
         "binType": "paper",
         "isMisclassified": True,

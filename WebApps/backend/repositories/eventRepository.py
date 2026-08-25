@@ -16,6 +16,15 @@ from schemas.event import (
 
 logger = logging.getLogger(__name__)
 
+_legacyDetectedClassValues = {
+    "general": DetectedClass.NORMAL,
+    "plasticCan": DetectedClass.RECYCLABLES,
+}
+_legacyBinTypeValues = {
+    "general": BinType.NORMAL,
+    "plasticCan": BinType.RECYCLABLES,
+}
+
 
 class EventRepository:
     def __init__(self):
@@ -50,12 +59,12 @@ class EventRepository:
             detectionId=document["detectionId"],
             trackingId=document.get("trackingId"),
             detectedClass=(
-                DetectedClass(document["detectedClass"])
+                _parseDetectedClass(document["detectedClass"])
                 if document.get("detectedClass") is not None
                 else None
             ),
             binId=document["binId"],
-            binType=BinType(document["binType"]),
+            binType=_parseBinType(document["binType"]),
             isMisclassified=document.get("isMisclassified"),
             confidenceScore=document.get("confidenceScore"),
             actionTaken=ActionTaken(document["actionTaken"]),
@@ -208,7 +217,7 @@ class EventRepository:
 
             if groupId is not None:
                 try:
-                    detectedClass = DetectedClass(groupId)
+                    detectedClass = _parseDetectedClass(groupId)
                 except ValueError:
                     logger.warning(
                         "Skipping unknown detectedClass %r",
@@ -216,7 +225,7 @@ class EventRepository:
                     )
                     continue
 
-                counts[detectedClass] = result["count"]
+                counts[detectedClass] += result["count"]
 
         return counts
 
@@ -319,7 +328,7 @@ class EventRepository:
                 continue
 
             try:
-                detectedClass = DetectedClass(groupId)
+                detectedClass = _parseDetectedClass(groupId)
             except ValueError:
                 logger.warning(
                     "Skipping unknown detectedClass %r",
@@ -327,7 +336,7 @@ class EventRepository:
                 )
                 continue
 
-            countsByClass[detectedClass] = result["count"]
+            countsByClass[detectedClass] += result["count"]
 
         countsByCategory = {
             eventCategory: 0
@@ -375,11 +384,15 @@ class EventRepository:
                 "$in": [
                     None,
                     *[item.value for item in DetectedClass],
+                    *_legacyDetectedClassValues,
                 ]
             },
             "binId": {"$type": "string", "$ne": ""},
             "binType": {
-                "$in": [item.value for item in BinType]
+                "$in": [
+                    *[item.value for item in BinType],
+                    *_legacyBinTypeValues,
+                ]
             },
             "actionTaken": {
                 "$in": [item.value for item in ActionTaken]
@@ -508,3 +521,15 @@ class EventRepository:
 
 
 eventRepository = EventRepository()
+
+
+def _parseDetectedClass(value: str) -> DetectedClass:
+    if value in _legacyDetectedClassValues:
+        return _legacyDetectedClassValues[value]
+    return DetectedClass(value)
+
+
+def _parseBinType(value: str) -> BinType:
+    if value in _legacyBinTypeValues:
+        return _legacyBinTypeValues[value]
+    return BinType(value)

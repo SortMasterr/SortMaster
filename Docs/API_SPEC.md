@@ -1,7 +1,7 @@
 # API 명세서 — CCTV 기반 분리수거 오분류 탐지·자동 경고 시스템
 
-> **버전**: v0.1 MVP / MongoDB(motor) 연동
-> **기준일**: 2026-08-19
+> **버전**: v0.2 MVP / 클래스 명명 계약 변경(CTO 검토 필요)
+> **기준일**: 2026-08-25
 > **Base URL**: `http://localhost:8047`
 > **배포 환경**: 로컬 배포 서버 `<LOCAL_BACKEND_IP>:8047`(실제 IP는 Notion 참고)로 대체 예정(백엔드는 GPU 서버가 아니라
 > 로컬에서 구동 — `.agentfiles/architecture.md` 참고)
@@ -9,6 +9,7 @@
 > **OpenAPI JSON**: `http://localhost:8047/openapi.json`
 >
 > 엔드포인트 경로와 응답 구조를 변경하거나 새로운 엔드포인트를 추가할 경우 CTO 검토 후 이 문서와 `.agentfiles/apiSpec.md`를 함께 수정한다. 두 문서는 동일한 EP-ID를 사용한다.
+> v0.2에서는 `DetectedClass`/`BinType`의 `general`→`normal`, `plasticCan`→`recyclables` 변경을 코드와 문서에 반영했다. 새로 저장되는 값과 API 응답은 새 이름만 사용하며, 기존 MongoDB 문서는 읽을 때 새 값으로 변환한다.
 
 ---
 
@@ -140,8 +141,8 @@
 | --------------- | ------------------------------------------------------------------------- |
 | `CameraId`      | `ELEV-TOP` | `ELEV-SIDE` | `REST-4F-01` — 설치 위치가 12층 엘리베이터 앞 1곳뿐이라 번호 불필요(`.agentfiles/architecture.md` 참고). `ELEV-TOP`=YOLO26(쓰레기 4종 분류+추적)+룰 베이스(통 위치, 고정 ROI) 조합, `ELEV-SIDE`=MobileNet_V3_Small(쓰레기통 넘침 여부, 로컬 백엔드 CPU 추론) |
 | `EventCategory` | `misclassification` | `overflow`                                       |
-| `DetectedClass` | `general` \| `paper` \| `plasticCan` \| `coffeeCup` — `BinType`과 값 체계 1:1(과거 `plastic`/`can` 별도였으나 통합, `decisionLog.md` 참고) |
-| `BinType`       | `general` \| `plasticCan` \| `coffeeCup` \| `paper` |
+| `DetectedClass` | `normal` \| `paper` \| `recyclables` \| `coffeeCup` — `BinType`과 값 체계 1:1 |
+| `BinType`       | `normal` \| `recyclables` \| `coffeeCup` \| `paper` |
 | `ActionTaken`   | `lightAndSound` | `soundOnly` | `lightOnly` | `notificationOnly` | `none` |
 | `Mode`          | `MANAGE` | `COLLECT`                                                      |
 
@@ -262,7 +263,7 @@ multipart/x-mixed-replace; boundary=frame
   "eventCategory": "misclassification",
   "detectionId": "a6339b38-a4a0-46a2-90b1-55cd73ba85be",
   "trackingId": 17,
-  "detectedClass": "plasticCan",
+  "detectedClass": "recyclables",
   "binId": "BIN-PAPER",
   "binType": "paper",
   "isMisclassified": true,
@@ -280,7 +281,7 @@ multipart/x-mixed-replace; boundary=frame
   "eventCategory": "overflow",
   "detectionId": "5e67c365-c44b-4a13-b55f-a814a520fa5e",
   "binId": "BIN-GENERAL",
-  "binType": "general",
+  "binType": "normal",
   "overflowDuration": 5.2,
   "overflowThreshold": 5.0,
   "imageFileId": "68f2c1a4b9d3e2f1a0c5d6e8",
@@ -293,7 +294,7 @@ multipart/x-mixed-replace; boundary=frame
 ```bash
 curl -X POST "http://localhost:8047/api/events" \
   -H "Content-Type: application/json" \
-  -d "{\"cameraId\":\"ELEV-TOP\",\"eventCategory\":\"misclassification\",\"detectionId\":\"a6339b38-a4a0-46a2-90b1-55cd73ba85be\",\"trackingId\":17,\"detectedClass\":\"plasticCan\",\"binId\":\"BIN-PAPER\",\"binType\":\"paper\",\"isMisclassified\":true,\"confidenceScore\":0.85,\"modelVersion\":\"yolo26-mvp-1\"}"
+  -d "{\"cameraId\":\"ELEV-TOP\",\"eventCategory\":\"misclassification\",\"detectionId\":\"a6339b38-a4a0-46a2-90b1-55cd73ba85be\",\"trackingId\":17,\"detectedClass\":\"recyclables\",\"binId\":\"BIN-PAPER\",\"binType\":\"paper\",\"isMisclassified\":true,\"confidenceScore\":0.85,\"modelVersion\":\"yolo26-mvp-1\"}"
 ```
 
 ### 이벤트가 생성되는 경우
@@ -324,7 +325,7 @@ WebSocket 알림도 다시 보내지 않는다.
   "eventCategory": "misclassification",
   "detectionId": "a6339b38-a4a0-46a2-90b1-55cd73ba85be",
   "trackingId": 17,
-  "detectedClass": "plasticCan",
+  "detectedClass": "recyclables",
   "binId": "BIN-PAPER",
   "binType": "paper",
   "isMisclassified": true,
@@ -505,7 +506,7 @@ GET /api/events/a3b70dae-3a1b-48b6-a8d1-a06afcb934d1
   "eventCategory": "misclassification",
   "detectionId": "a6339b38-a4a0-46a2-90b1-55cd73ba85be",
   "trackingId": 17,
-  "detectedClass": "plasticCan",
+  "detectedClass": "recyclables",
   "binId": "BIN-PAPER",
   "binType": "paper",
   "isMisclassified": true,
@@ -565,9 +566,9 @@ GET /api/statistics?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
 ```json
 {
   "labels": [
-    "general",
+    "normal",
     "paper",
-    "plasticCan",
+    "recyclables",
     "coffeeCup"
   ],
   "counts": [
@@ -596,9 +597,9 @@ GET /api/statistics?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
 
 | `labels` 값   | 화면 표시   |
 | ------------ | -------- |
-| `general`    | 일반 쓰레기   |
+| `normal`    | 일반 쓰레기   |
 | `paper`      | 종이       |
-| `plasticCan` | 플라스틱·캔   |
+| `recyclables` | 플라스틱·캔   |
 | `coffeeCup`  | 커피 컵     |
 
 ### 동작
@@ -766,7 +767,7 @@ GET /api/statistics?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
   "eventCategory": "overflow",
   "detectionId": "5e67c365-c44b-4a13-b55f-a814a520fa5e",
   "binId": "BIN-GENERAL",
-  "binType": "general",
+  "binType": "normal",
   "overflowDuration": 5.2,
   "overflowThreshold": 5.0,
   "modelVersion": "overflow-mvp-1"
@@ -905,7 +906,7 @@ GET /api/binStates
   {
     "binId": "BIN-GENERAL",
     "cameraId": "ELEV-SIDE",
-    "binType": "general",
+    "binType": "normal",
     "sessionId": "8f2e...",
     "currentState": "FULL",
     "confidenceScore": 0.97,
@@ -952,7 +953,7 @@ GET /api/binStates
 {
   "binId": "BIN-GENERAL",
   "cameraId": "ELEV-SIDE",
-  "binType": "general",
+  "binType": "normal",
   "sessionId": "8f2e...",
   "currentState": "FULL",
   "confidenceScore": 0.97,

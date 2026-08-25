@@ -1,16 +1,16 @@
 document.addEventListener("DOMContentLoaded", async () => {
     const typeInfoByClass = {
-        general: {
+        normal: {
             name: "일반쓰레기",
-            className: "generalWaste",
+            className: "normalWaste",
         },
         paper: {
             name: "종이",
             className: "tagPaper",
         },
-        plasticCan: {
+        recyclables: {
             name: "플라스틱·캔",
-            className: "tagPlastic",
+            className: "tagRecyclables",
         },
         coffeeCup: {
             name: "커피 컵",
@@ -83,7 +83,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             }
             : typeInfoByClass[eventData.detectedClass] ?? {
                 name: eventData.detectedClass ?? "미분류",
-                className: "generalWaste",
+                className: "normalWaste",
             };
 
         const alarm =

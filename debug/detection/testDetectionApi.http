@@ -21,9 +21,9 @@ Content-Type: application/json
     "cameraId": "ELEV-TOP",
     "detectionId": "{{$guid}}",
     "binId": "BIN-PLASTIC-CAN",
-    "binType": "plasticCan",
+    "binType": "recyclables",
     "modelVersion": "yolo26-dev",
-    "detectedClass": "plasticCan",
+    "detectedClass": "recyclables",
     "isMisclassified": true,
     "confidenceScore": 0.9
 }
@@ -41,7 +41,7 @@ Content-Type: application/json
 
 {
     "binId": "BIN-GENERAL",
-    "binType": "general",
+    "binType": "normal",
     "sessionId": "{{$guid}}",
     "currentState": "FULL",
     "confidenceScore": 0.97,
@@ -57,7 +57,7 @@ Content-Type: application/json
 
 {
     "binId": "BIN-GENERAL",
-    "binType": "general",
+    "binType": "normal",
     "sessionId": "{{$guid}}",
     "currentState": "FULL",
     "confidenceScore": 0.98,
@@ -73,7 +73,7 @@ Content-Type: application/json
 
 {
     "binId": "BIN-GENERAL",
-    "binType": "general",
+    "binType": "normal",
     "sessionId": "{{$guid}}",
     "currentState": "NORMAL",
     "confidenceScore": 0.95,

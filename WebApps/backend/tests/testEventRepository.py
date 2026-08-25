@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime, timezone
 
 from repositories.eventRepository import EventRepository
-from schemas.event import DetectedClass, EventCategory
+from schemas.event import BinType, DetectedClass, EventCategory
 
 
 class AsyncCursor:
@@ -60,7 +60,7 @@ def currentDocument():
         "eventCategory": "misclassification",
         "detectionId": "detection-current",
         "trackingId": 1,
-        "detectedClass": "plasticCan",
+        "detectedClass": "recyclables",
         "binId": "BIN-PAPER",
         "binType": "paper",
         "isMisclassified": True,
@@ -94,6 +94,16 @@ class EventRepositoryCompatibilityTest(
         self.assertIsNone(
             repository._tryFromDocument(document)
         )
+
+    def testPreviousClassNamesAreReadAsCurrentApiValues(self):
+        document = currentDocument()
+        document["detectedClass"] = "plasticCan"
+        document["binType"] = "general"
+
+        event = EventRepository()._fromDocument(document)
+
+        self.assertEqual(DetectedClass.RECYCLABLES, event.detectedClass)
+        self.assertEqual(BinType.NORMAL, event.binType)
 
     def testCurrentQueryValidatesOptionalFieldTypes(self):
         query = EventRepository()._buildCurrentDocumentQuery()
@@ -140,17 +150,17 @@ class EventRepositoryCompatibilityTest(
         collection = FakeCollection(
             aggregateResults=[
                 {"_id": "legacy-value", "count": 4},
-                # "plastic"는 DetectedClass에 plastic/can이 별도였던 구버전 값 —
-                # plasticCan으로 통합된 뒤에는 이것도 레거시 취급돼야 함
+                # "plastic"은 통합 전 구버전 값이며 집계에서 제외한다.
                 {"_id": "plastic", "count": 4},
-                {"_id": "plasticCan", "count": 2},
+                {"_id": "recyclables", "count": 2},
+                {"_id": "plasticCan", "count": 3},
             ]
         )
         repository = TestEventRepository(collection)
 
         classCounts = await repository.countByDetectedClass()
 
-        self.assertEqual(2, classCounts[DetectedClass.PLASTIC_CAN])
+        self.assertEqual(5, classCounts[DetectedClass.RECYCLABLES])
         self.assertEqual(
             set(DetectedClass),
             set(classCounts),

@@ -22,22 +22,22 @@ except ImportError:
 
 
 detectedClasses = [
-    "general",
+    "normal",
     "paper",
-    "plasticCan",
+    "recyclables",
     "coffeeCup",
 ]
 actionTakens = ["lightAndSound", "none"]
 expectedBinTypeByClass = {
-    "general": "general",
+    "normal": "normal",
     "paper": "paper",
-    "plasticCan": "plasticCan",
+    "recyclables": "recyclables",
     "coffeeCup": "coffeeCup",
 }
 binIdByType = {
-    "general": "BIN-GENERAL",
+    "normal": "BIN-GENERAL",
     "paper": "BIN-PAPER",
-    "plasticCan": "BIN-PLASTIC-CAN",
+    "recyclables": "BIN-PLASTIC-CAN",
     "coffeeCup": "BIN-COFFEE-CUP",
 }
 
@@ -110,7 +110,7 @@ def buildDocuments(
                 "trackingId": None,
                 "detectedClass": None,
                 "binId": "BIN-GENERAL",
-                "binType": "general",
+                "binType": "normal",
                 "isMisclassified": None,
                 "confidenceScore": None,
                 "actionTaken": random.choice(actionTakens),

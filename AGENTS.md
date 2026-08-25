@@ -17,7 +17,7 @@
 
 - Use camelCase for project-defined variable names, function and method names, configuration keys, internal JSON fields, manifest fields, and generated artifact names unless an external contract requires another form.
 - Use PascalCase for class names.
-- Preserve names required by Python special methods, standard-library APIs, third-party libraries, model class labels, database schemas, existing public APIs, protocols, and file formats. Examples include `__init__`, Ultralytics arguments such as `save_txt`, and existing YOLO class names such as `trash_normal`.
+- Preserve names required by Python special methods, standard-library APIs, third-party libraries, model class labels, database schemas, existing public APIs, protocols, and file formats. Examples include `__init__`, Ultralytics arguments such as `save_txt`, and established YOLO class names such as `trashNormal`.
 - Do not rename an established external API or database field solely to satisfy this convention. Follow the relevant specification and update its documentation when an authorized schema change is made.
 - When changing a project-defined name, update all related code comments, configuration examples, manifests, and README documentation in the same change.
 

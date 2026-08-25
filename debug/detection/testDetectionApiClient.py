@@ -56,7 +56,7 @@ class DetectionApiClientTest(unittest.TestCase):
             "eventCategory": "overflow",
             "detectionId": "overflow-1",
             "binId": "BIN-GENERAL",
-            "binType": "general",
+            "binType": "normal",
             "overflowDuration": 5.2,
             "overflowThreshold": 5.0,
             "modelVersion": "overflow-mvp-1",

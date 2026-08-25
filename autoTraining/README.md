@@ -75,15 +75,14 @@ bootstrap 체크포인트와 설정의 클래스명이 일치하지 않고 최�
 
 1. **최신 TOP 클래스 계약과 현재 설정**
    - 최신 기준은 쓰레기 4종만 YOLO가 구분하는 구조입니다. 체크포인트 외부 클래스명과 순서는
-     `trash_normal`, `trash_paper`, `trash_recyclables`, `trash_coffeecup`입니다.
-   - API 의미값은 각각 `general`, `paper`, `plasticCan`, `coffeeCup`으로 매핑됩니다.
-     플라스틱과 캔은 `trash_recyclables`/`plasticCan` 하나로 통합됐습니다.
+     `trashNormal`, `trashPaper`, `trashRecyclables`, `trashCoffeeCup`입니다.
+   - API 의미값은 각각 `normal`, `paper`, `recyclables`, `coffeeCup`으로 매핑됩니다.
+     플라스틱과 캔은 `trashRecyclables`/`recyclables` 하나로 통합됐습니다.
    - 물리 통은 4개지만 YOLO 클래스가 아닙니다. `tracking2.py`의 `RULE_BASED_BIN_ROIS`가
      고정 화면 ROI로 통 위치를 판정하므로 자동 학습 데이터에 통 클래스를 추가하면 안 됩니다.
-   - 현재 `pipelineConfig.yaml`은 camelCase `trashNormal`, `trashPaper`, `trashRecyclables`,
-     `trashCoffeecup`을 사용해 체크포인트 외부 계약과 불일치합니다. 모델 클래스명은 프로젝트
-     내부 이름이 아닌 외부 계약이므로 snake_case 원문을 보존해야 하며, 지금 상태에서 Label은
-     class names 안전장치에 의해 중단됩니다.
+   - `pipelineConfig.yaml`도 같은 camelCase 클래스명과 순서를 사용해야 합니다. 기존 snake_case
+     클래스명의 체크포인트는 새 계약과 불일치하므로 재학습하거나 모델 메타데이터를 명시적으로
+     마이그레이션하기 전에는 운영 모델로 승격하지 않습니다.
 
 2. **체크포인트 신원과 입력 전처리 불일치**
    - 로컬 `models/bootstrap/best.pt`의 SHA-256은
@@ -391,7 +390,7 @@ python autoTraining/trainingPipeline.py all
 
 ## camelCase 변경 후 기존 작업 데이터
 
-설정 키, Python 내부 이름, 매니페스트 필드와 파이프라인이 생성하는 폴더 이름은 camelCase로 통일했습니다. 기존 workspace에 snake_case 필드로 생성된 JSONL은 새 코드와 호환되지 않으므로 `extract` 단계부터 다시 실행해야 합니다. YOLO 함수 인자와 `trash_normal` 같은 기존 모델 클래스명은 외부 규격이므로 그대로 유지합니다.
+설정 키, Python 내부 이름, 매니페스트 필드와 파이프라인이 생성하는 폴더 이름 및 YOLO 클래스명은 camelCase로 통일했습니다. 기존 workspace에 snake_case 필드나 클래스명으로 생성된 JSONL은 새 코드와 호환되지 않으므로 `extract` 단계부터 다시 실행해야 합니다.
 
 Qwen-VL 설정은 `qwenVl`에 있으며, 검수 결과는 `manualReview`, `predictedClass`, `qwenVlModel` 같은 camelCase 필드를 사용합니다. 현재 구현은 `/api/tags`와 `/api/chat`을 요구하지만 프로젝트 Compose의 vLLM OpenAI 호환 API와는 불일치합니다.
 
@@ -419,7 +418,7 @@ Docker는 실행 환경과 의존성을 고정하는 수단이고, GPU는 YOLO �
 
 - `manualReview`와 `rejected` 데이터는 Build에 포함되지 않습니다.
 - Build는 기존 `workspace/datasetCurrent`를 새로 생성하므로 필요한 결과는 먼저 백업합니다.
-- TOP 모델 외부 클래스명은 `trash_normal`, `trash_paper`, `trash_recyclables`, `trash_coffeecup` 순서를 보존해야 합니다.
+- TOP 모델 외부 클래스명은 `trashNormal`, `trashPaper`, `trashRecyclables`, `trashCoffeeCup` 순서를 보존해야 합니다.
 - 통 위치는 모델 학습 클래스가 아니라 `tracking2.py`의 고정 ROI 계약입니다.
 - Promote 전에는 `evaluation.json`의 mAP50과 recall을 확인합니다.
 - 로컬 bootstrap과 문서가 감사한 `bestTop.pt`의 해시가 다르므로 기준 모델 신원을 먼저 확정합니다.

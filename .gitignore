@@ -52,3 +52,7 @@ autoTraining/models/
 autoTraining/promotedModels/
 autoTraining/modelArchive/
 autoTraining/reports/
+
+# Generated RPA reports, delivery state, lock, and logs
+RPAs/reportAutomation/output/
+RPAs/reportAutomation/state/
