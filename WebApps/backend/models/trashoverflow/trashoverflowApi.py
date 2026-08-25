@@ -2,6 +2,12 @@
 Trash Overflow Detection API Server
 ====================================
 
+[참고] 실제 SortMaster 백엔드 파이프라인(BIN_STATES/EVENT/WS 브로드캐스트)에 연결된
+버전은 `services/overflowDetectionService.py`다 — 이 파일의 모델 로드/ROI 크롭/추론/
+overflow 상태 판정 로직을 그대로 가져와 cameraManager(ELEV-SIDE)+binStateService에
+연결했다. 이 파일은 `uvicorn trashoverflow_api:app`으로 단독 실행해 curl로 프레임을
+직접 넣어보는 독립 테스트/디버그용으로 유지된다(수동 검증엔 여전히 유용함).
+
 기존 video 순회 스크립트를 API 서버로 변환한 버전입니다.
 
 [이번 수정 사항 요약]

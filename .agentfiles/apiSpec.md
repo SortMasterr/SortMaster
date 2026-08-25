@@ -8,7 +8,7 @@ v0.1(MVP), 구현 기준일 2026-08-24(EP-12 추가). Base URL `http://localhost
 
 | Enum | 값 |
 |---|---|
-| CameraId | ELEV-TOP / ELEV-SIDE / REST-4F-01 — 설치 위치 1곳뿐이라 번호 없음(`.agentfiles/architecture.md` 참고). ELEV-TOP=YOLO26(쓰레기 4종 분류+추적)+룰 베이스(통 위치, 고정 ROI) 조합, ELEV-SIDE=MobileNet_V3_Small(쓰레기통 넘침 여부, 로컬 백엔드 CPU 추론 — `feature/side-overflow-integration`, 아직 `dev` 미merge) |
+| CameraId | ELEV-TOP / ELEV-SIDE / REST-4F-01 — 설치 위치 1곳뿐이라 번호 없음(`.agentfiles/architecture.md` 참고). ELEV-TOP=YOLO26(쓰레기 4종 분류+추적)+룰 베이스(통 위치, 고정 ROI) 조합, ELEV-SIDE=MobileNet_V3_Small(쓰레기통 넘침 여부, 로컬 백엔드 CPU 추론) |
 | EventCategory | misclassification(투기, 위 카메라 단독 — **GPU 서버(`models/trashdetect/tracking2.py`)가 감지+추적+분류+정상/오분류 판정까지 자체적으로 끝내고 `POST /api/events/aiDisposal`로 결과를 로컬 백엔드에 직접 푸시**, 백엔드는 재판정 없이 저장. 실시간 경로엔 LLM 미사용 — Qwen3-VL-8B는 학습 준비 단계 자동 라벨링 검증에만 사용 중) / overflow(넘침, 옆 카메라 단독 — **MobileNet_V3_Small을 로컬 백엔드가 CPU로 직접 추론(GPU 서버 미사용)**, 물리 통 4개의 상태를 `BIN_STATES`로 지속 추적하다 `NORMAL`→`FULL` 전환 시점에만 생성) |
 | BinType | general / plasticCan / coffeeCup / paper — 물리 쓰레기통 4개 고정. `DetectedClass`와 값 체계 1:1 일치(과거엔 `plastic`/`can`이 별도였으나 통합됨, `decisionLog.md` 참고) |
 | DetectedClass | general / paper / plasticCan / coffeeCup — 총 4종, misclassification 이벤트에서만 사용. `mixed`/`uncertain`은 제외됨. 실제 YOLO26 모델이 plastic/can을 구분 못 해 `plasticCan` 하나로 통합(과거 5종에서 축소, `decisionLog.md` 참고) |

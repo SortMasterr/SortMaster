@@ -54,7 +54,7 @@ CCTV → 프레임분할 → 객체디텍팅 → 오분류 판정
   미사용**): 옆 카메라 라즈베리파이가 보낸 RTSP를 로컬 백엔드가 LAN으로 그대로 받아(관리자
   웹 송출과 같은 스트림) **MobileNet_V3_Small** 경량 분류 모델로 쓰레기통 넘침 상태를 판정
   (`WebApps/backend/models/trashoverflow/` — `feature/side-overflow-integration` 브랜치,
-  아직 `dev`에 merge 전. 한때 룰 베이스로 확정했던 결정을 재전환, `decisionLog.md` 참고).
+  `dev`에 merge 완료. 한때 룰 베이스로 확정했던 결정을 재전환, `decisionLog.md` 참고).
   모델이 가벼워서 **로컬 백엔드에서 CPU로 추론**(GPU 있으면 자동 사용, 없어도 동작) — GPU
   서버는 여전히 전혀 관여하지 않음. ROI로 크롭한 이미지를 모델에 넣어 `normal`/`overflow`
   분류 후, 연속 30초 이상 `overflow`가 유지되면(세션 상태로 추적) 최종 판정 —

@@ -68,8 +68,8 @@
 > TOP은 GPU 서버의 `models/trashdetect/tracking2.py`가 실제로 판정+`POST
 > /api/events/aiDisposal`(EP-12) 푸시까지 구현 완료됐고, 실제 TOP MJPEG 스트림(로컬 백엔드
 > 중계) 기준 end-to-end 연결도 검증됨(2026-08-25) — 상시 서비스화(systemd/Docker)만 아직
-> TBD. SIDE(MobileNet_V3_Small, `feature/side-overflow-integration` 브랜치 — 아직 `dev`
-> 미merge)/EP-08~EP-11은 이미 실사용 경로다.
+> TBD. SIDE(MobileNet_V3_Small, `feature/side-overflow-integration` 브랜치 — `dev`에 merge
+> 완료)/EP-08~EP-11은 이미 실사용 경로다.
 
 * **탐지 모델**
 
@@ -79,7 +79,7 @@
     이관됨(아래 "처리 위치" 참고)
   * SIDE: **MobileNet_V3_Small** 경량 분류 모델 — GPU 서버를 전혀 쓰지 않고 로컬 백엔드가
     CPU로 직접 추론+판정(`WebApps/backend/models/trashoverflow/` —
-    `feature/side-overflow-integration` 브랜치, 아직 `dev` 미merge. 한때 룰 베이스로
+    `feature/side-overflow-integration` 브랜치, `dev`에 merge 완료. 한때 룰 베이스로
     확정했다가 재전환됨, `decisionLog.md` 참고)
   * 손 감지 조건 폐지 — 쓰레기 감지 자체가 트리거
   * 옆 카메라(SIDE, MobileNet_V3_Small)가 넘침 상태와 대상 물리 통(`binId`)을 감지 → 위

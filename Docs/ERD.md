@@ -5,7 +5,7 @@
 > 손 감지 조합 판정은 폐지되고 쓰레기 감지 자체가 트리거로 바뀜 — 옆 카메라(`ELEV-SIDE`)는
 > **MobileNet_V3_Small 경량 분류 모델을 로컬 백엔드가 CPU로 직접 실행**(GPU 서버 미사용,
 > `WebApps/backend/models/trashoverflow/` — `feature/side-overflow-integration` 브랜치,
-> 아직 `dev` 미merge. 과거 룰 베이스로 확정했다가 재전환됨, `decisionLog.md` 참고)해서 물리
+> `dev`에 merge 완료. 과거 룰 베이스로 확정했다가 재전환됨, `decisionLog.md` 참고)해서 물리
 > 쓰레기통 4개(일반/플라스틱·캔/커피컵/종이)의 상태를
 > `BIN_STATES`로 지속 추적하다가 **NORMAL→FULL로 전환되는 순간에만** 넘침
 > 이벤트 생성+알림. 위 카메라(`ELEV-TOP`)는 **GPU 서버의 YOLO26(`models/trashdetect/
