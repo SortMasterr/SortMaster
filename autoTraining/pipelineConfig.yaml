@@ -36,9 +36,8 @@ inference:
   device: 0
 
 qwenVl:
-  # 프로젝트 Compose의 vLLM OpenAI 호환 API를 사용합니다.
-  # GPU 서버 Compose의 vLLM OpenAI 호환 API입니다.
-  apiBaseUrl: http://127.0.0.1:8099
+  # 포트는 .env의 LLM_PORT를 사용하며 여기에는 호스트만 기록합니다.
+  apiHost: http://127.0.0.1
   # auto이면 설치 모델 중 이름에 qwen과 vl이 포함된 첫 모델을 선택합니다.
   model: auto
   timeoutSeconds: 180

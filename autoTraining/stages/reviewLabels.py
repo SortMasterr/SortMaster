@@ -2,6 +2,7 @@
 
 import base64
 import json
+import os
 import shutil
 import time
 import urllib.error
@@ -19,6 +20,32 @@ from common.pipelineUtilities import (
 
 class ReviewLabelsStage:
     """Qwen-VL 요청, 응답 검증, 검수 결과 분류를 담당합니다."""
+    def _resolveQwenVlApiBaseUrl(self) -> str:
+        """``LLM_PORT`` 환경변수로 vLLM OpenAI 호환 API 주소를 구성합니다.
+
+        프로젝트 루트 환경파일을 우선하고 백엔드 환경파일은 누락된 값만 보완합니다.
+        포트는 설정 파일이나 소스에 중복 기록하지 않으며 유효 범위를 호출 전에 검증합니다.
+        """
+        from dotenv import load_dotenv
+
+        load_dotenv(self.projectRoot / ".env", override=False)
+        load_dotenv(self.projectRoot / "WebApps" / "backend" / ".env", override=False)
+        portValue = os.getenv("LLM_PORT")
+        if portValue is None:
+            raise RuntimeError(
+                "LLM_PORT가 없습니다. 프로젝트 루트 또는 WebApps/backend/.env에 설정하세요."
+            )
+        try:
+            port = int(portValue)
+        except ValueError as error:
+            raise ValueError("LLM_PORT는 정수 포트 번호여야 합니다.") from error
+        if not 1 <= port <= 65535:
+            raise ValueError("LLM_PORT는 1~65535 범위여야 합니다.")
+
+        apiHost = str(self.config["qwenVl"].get("apiHost", "127.0.0.1")).rstrip("/")
+        if not apiHost.startswith(("http://", "https://")):
+            raise ValueError("qwenVl.apiHost는 http:// 또는 https://로 시작해야 합니다.")
+        return f"{apiHost}:{port}"
 
     def _requestQwenVl(
         self,
@@ -31,7 +58,7 @@ class ReviewLabelsStage:
         프로젝트 Compose의 vLLM OpenAI 호환 API를 사용합니다.
         모델 목록은 /v1/models, 검수 요청은 /v1/chat/completions로 호출합니다.
         """
-        apiBaseUrl = self.config["qwenVl"]["apiBaseUrl"].rstrip("/")
+        apiBaseUrl = self._resolveQwenVlApiBaseUrl()
         requestData = (
             None
             if payload is None
@@ -52,7 +79,7 @@ class ReviewLabelsStage:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.URLError as error:
             raise RuntimeError(
-                f"Qwen-VL API 연결 실패: {apiBaseUrl} ({error})"
+                f"Qwen-VL API 연결 실패: {error}"
             ) from error
 
     def _resolveQwenVlModel(self) -> str:
