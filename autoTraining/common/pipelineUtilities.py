@@ -14,7 +14,7 @@ import numpy as np
 import yaml
 
 imageExtensions = frozenset({".jpg", ".jpeg", ".png", ".bmp", ".webp"})
-videoExtensions = frozenset({".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"})
+videoExtensions = frozenset({".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v", ".gif"})
 chinesePattern = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 
 
