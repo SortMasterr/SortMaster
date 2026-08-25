@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -11,7 +12,9 @@ from RPAs.reportAutomation.reportAutomation import (
     DataMismatchError,
     DuplicateReportError,
     RecipientSettingsStore,
+    ReportSnapshotStore,
     Settings,
+    SnapshotUnavailableError,
     aggregateData,
     buildCsv,
     buildExecutionKey,
@@ -224,6 +227,18 @@ class ReportAutomationTests(unittest.TestCase):
             )
 
             self.assertEqual("sent", result["status"])
+            snapshotPath = (
+                settings.stateDirectory
+                / "dailyReportSnapshots"
+                / "2026-08-24.json"
+            )
+            self.assertTrue(snapshotPath.exists())
+            self.assertNotIn(
+                "imageFileId",
+                json.loads(
+                    snapshotPath.read_text(encoding="utf-8")
+                )["events"][0],
+            )
             period = calculatePeriod("daily", targetDate=date(2026, 8, 24))
             self.assertEqual("daily:2026-08-24:operations", buildExecutionKey(period, "operations"))
             with self.assertRaises(DuplicateReportError):
@@ -235,17 +250,33 @@ class ReportAutomationTests(unittest.TestCase):
                     emailSender=lambda unusedSettings, unusedMessage, recipients: set(recipients),
                 )
 
-    def testWeeklyFetchesPreviousWeekForComparison(self):
+    def testWeeklyUsesSevenSnapshotsAndSavedAggregateForComparison(self):
         with tempfile.TemporaryDirectory() as temporaryDirectory:
             settings = self.makeSettings(Path(temporaryDirectory))
             currentEvents = [makeEvent("current", "2026-08-17T01:00:00Z")]
             previousEvents = [makeEvent("previous", "2026-08-10T01:00:00Z", "overflow", binType="normal")]
-            client = FakeApiClient(
-                [
-                    (makeStatistics(currentEvents), currentEvents),
-                    (makeStatistics(previousEvents), previousEvents),
-                ]
+            snapshotStore = ReportSnapshotStore(settings.stateDirectory)
+            for offset in range(7):
+                targetDate = date(2026, 8, 17 + offset)
+                dailyEvents = currentEvents if offset == 0 else []
+                snapshotStore.saveDaily(
+                    makeStatistics(dailyEvents),
+                    dailyEvents,
+                    calculatePeriod("daily", targetDate=targetDate),
+                )
+            previousPeriod = calculatePeriod(
+                "weekly",
+                targetDate=date(2026, 8, 10),
             )
+            snapshotStore.saveWeeklyAggregate(
+                aggregateData(
+                    makeStatistics(previousEvents),
+                    previousEvents,
+                    previousPeriod,
+                ),
+                previousPeriod,
+            )
+            client = FakeApiClient([])
 
             result = runReport(
                 "weekly",
@@ -256,8 +287,40 @@ class ReportAutomationTests(unittest.TestCase):
             )
 
             self.assertEqual("dryRun", result["status"])
-            self.assertEqual(date(2026, 8, 10), client.periods[1].startKst.date())
+            self.assertEqual([], client.periods)
             self.assertIn("전주 대비 증감", Path(result["htmlPath"]).read_text(encoding="utf-8"))
+
+    def testWeeklyRejectsMissingDailySnapshot(self):
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            settings = self.makeSettings(Path(temporaryDirectory))
+
+            with self.assertRaisesRegex(
+                SnapshotUnavailableError,
+                "2026-08-17",
+            ):
+                runReport(
+                    "weekly",
+                    settings,
+                    dryRun=True,
+                    targetDate=date(2026, 8, 17),
+                    apiClient=FakeApiClient([]),
+                )
+
+    def testDailySnapshotStoreKeepsOnlyLatestSevenDates(self):
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            store = ReportSnapshotStore(Path(temporaryDirectory))
+            for offset in range(8):
+                targetDate = date(2026, 8, 1 + offset)
+                period = calculatePeriod("daily", targetDate=targetDate)
+                store.saveDaily(makeStatistics([]), [], period)
+
+            snapshotNames = sorted(
+                path.name
+                for path in store.dailyDirectory.glob("*.json")
+            )
+
+            self.assertEqual(7, len(snapshotNames))
+            self.assertEqual("2026-08-02.json", snapshotNames[0])
 
     def testPartialRecipientSuccessRetriesOnlyPendingRecipient(self):
         with tempfile.TemporaryDirectory() as temporaryDirectory:

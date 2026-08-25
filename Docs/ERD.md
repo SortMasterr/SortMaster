@@ -78,6 +78,9 @@ erDiagram
 ## 참고
 
 - **EVENT**: 실제 MongoDB 컬렉션(`repositories/eventRepository.py`, motor 기반으로 완전 전환 — in-memory Mock 제거). 매 프레임이 아니라 판정 시점에만 Insert됨.
+  - 저장소 코드에는 EVENT TTL 인덱스나 자동 삭제 로직이 없다. 운영 환경에서는 외부 DB 정책으로
+    7일만 보존된다는 운영 전제를 사용하며, 주간 메일용 메타데이터는 DB 엔티티를 추가하지 않고
+    RPA의 `report-state` 파일 볼륨에 최근 7일만 별도 임시 저장한다.
   - `misclassification`: 동일 `cameraId`+`detectedClass` 5초 Cooldown(기존과 동일, 유지)
   - `overflow`: 더 이상 시간 기반 Cooldown이 아님 — `BIN_STATES.currentState`가 `NORMAL`→`FULL`로
     전환되는 순간에만 1건 생성. `FULL` 상태가 계속 유지되는 동안은 재알림 없음(현재 상태는
