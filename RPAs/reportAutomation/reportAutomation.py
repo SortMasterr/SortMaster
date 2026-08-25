@@ -825,7 +825,15 @@ def runReport(
                 lastError = error
             if attempt < attempts:
                 delay = settings.retryDelays[attempt - 1]
-                logger.warning("operation=smtp attempt=%d/%d status=RETRY delaySeconds=%s pendingRecipients=%d", attempt, attempts, delay, len(remaining))
+                logger.warning(
+                    "operation=smtp attempt=%d/%d status=RETRY delaySeconds=%s "
+                    "pendingRecipients=%d errorType=%s",
+                    attempt,
+                    attempts,
+                    delay,
+                    len(remaining),
+                    type(lastError).__name__,
+                )
                 time.sleep(delay)
         assert lastError is not None
         raise lastError
