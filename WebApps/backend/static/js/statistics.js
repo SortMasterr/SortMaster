@@ -396,33 +396,24 @@ document.addEventListener(
             }
         }
 
-        function setupReportEmailForm() {
+        function setupReportEmailSettingsForm() {
             const modal = getElement(
-                "reportEmailModal"
+                "reportEmailSettingsModal"
             );
             const openButton = getElement(
-                "openReportEmailButton"
+                "openReportEmailSettingsButton"
             );
             const form = getElement(
-                "reportEmailForm"
+                "reportEmailSettingsForm"
             );
             const recipientInput = getElement(
                 "reportRecipient"
             );
-            const reportTypeInput = getElement(
-                "reportType"
-            );
-            const targetDateInput = getElement(
-                "reportTargetDate"
-            );
-            const dateHelp = getElement(
-                "reportDateHelp"
-            );
             const status = getElement(
-                "reportEmailStatus"
+                "reportEmailSettingsStatus"
             );
-            const sendButton = getElement(
-                "sendReportEmailButton"
+            const confirmButton = getElement(
+                "confirmReportEmailButton"
             );
 
             if (
@@ -430,11 +421,8 @@ document.addEventListener(
                 !openButton ||
                 !form ||
                 !recipientInput ||
-                !reportTypeInput ||
-                !targetDateInput ||
-                !dateHelp ||
                 !status ||
-                !sendButton
+                !confirmButton
             ) {
                 return;
             }
@@ -447,28 +435,45 @@ document.addEventListener(
                 );
             }
 
-            function updateDateHelp() {
-                dateHelp.textContent =
-                    reportTypeInput.value === "weekly"
-                        ? "비워 두면 지난 월요일부터 일요일까지이며, 직접 지정할 때는 월요일을 선택합니다."
-                        : "비워 두면 어제 날짜의 일일 보고서를 발송합니다.";
-            }
-
-            function openModal() {
+            async function openModal() {
                 modal.hidden = false;
-                setStatus("");
-                updateDateHelp();
+                setStatus("저장된 이메일 설정을 불러오는 중입니다.");
+                try {
+                    const response = await fetch(
+                        "/api/reports/email"
+                    );
+                    const result = await response.json();
+                    if (!response.ok) {
+                        throw new Error(
+                            result.detail ||
+                            "이메일 설정을 불러오지 못했습니다."
+                        );
+                    }
+                    recipientInput.value =
+                        result.recipient || "";
+                    setStatus(
+                        result.configured
+                            ? "현재 자동 보고서 수신 이메일입니다."
+                            : "자동 보고서를 받을 이메일을 입력해 주세요.",
+                        result.configured
+                    );
+                } catch (error) {
+                    setStatus(
+                        error.message ||
+                        "이메일 설정을 불러오지 못했습니다."
+                    );
+                }
                 recipientInput.focus();
             }
 
             function closeModal() {
-                if (sendButton.disabled) {
+                if (confirmButton.disabled) {
                     return;
                 }
                 modal.hidden = true;
             }
 
-            async function submitReport(event) {
+            async function saveSettings(event) {
                 event.preventDefault();
                 if (!form.reportValidity()) {
                     return;
@@ -476,15 +481,11 @@ document.addEventListener(
 
                 const body = {
                     recipient: recipientInput.value.trim(),
-                    reportType: reportTypeInput.value,
                 };
-                if (targetDateInput.value) {
-                    body.targetDate = targetDateInput.value;
-                }
 
-                sendButton.disabled = true;
-                sendButton.textContent = "전송 중...";
-                setStatus("보고서를 생성하고 이메일을 발송하는 중입니다.");
+                confirmButton.disabled = true;
+                confirmButton.textContent = "저장 중...";
+                setStatus("자동 보고서 수신 이메일을 저장하는 중입니다.");
 
                 try {
                     const response = await fetch(
@@ -506,21 +507,21 @@ document.addEventListener(
                                 .join(" ")
                             : result.detail;
                         throw new Error(
-                            detail || "이메일 발송에 실패했습니다."
+                            detail || "이메일 설정 저장에 실패했습니다."
                         );
                     }
 
                     setStatus(
-                        `${result.period} 보고서를 ${result.recipient} 주소로 발송했습니다.`,
+                        `${result.recipient} 주소로 설정했습니다. 다음 예약 시각부터 자동 발송됩니다.`,
                         true
                     );
                 } catch (error) {
                     setStatus(
-                        error.message || "이메일 발송에 실패했습니다."
+                        error.message || "이메일 설정 저장에 실패했습니다."
                     );
                 } finally {
-                    sendButton.disabled = false;
-                    sendButton.textContent = "전송";
+                    confirmButton.disabled = false;
+                    confirmButton.textContent = "확인";
                 }
             }
 
@@ -528,13 +529,9 @@ document.addEventListener(
                 "click",
                 openModal
             );
-            reportTypeInput.addEventListener(
-                "change",
-                updateDateHelp
-            );
             form.addEventListener(
                 "submit",
-                submitReport
+                saveSettings
             );
             modal.querySelectorAll(
                 "[data-report-modal-close]"
@@ -590,7 +587,7 @@ document.addEventListener(
             }
         }
 
-        setupReportEmailForm();
+        setupReportEmailSettingsForm();
         await loadDashboard();
     }
 );

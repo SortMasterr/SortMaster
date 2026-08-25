@@ -1,12 +1,13 @@
-import asyncio
-import hashlib
 import sys
-from dataclasses import replace
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-from schemas.report import ReportEmailRequest, ReportEmailResponse
+from schemas.report import (
+    ReportEmailSettingsRequest,
+    ReportEmailSettingsResponse,
+)
+from services.errors import ReportEmailSettingsError
 
 
 def _findRepositoryRoot(servicePath: Path) -> Path:
@@ -30,61 +31,52 @@ if str(repositoryRoot) not in sys.path:
     sys.path.insert(0, str(repositoryRoot))
 
 from RPAs.reportAutomation.reportAutomation import (  # noqa: E402
-    ApiResponseError,
     ConfigurationError,
-    DataMismatchError,
-    DuplicateReportError,
-    LockUnavailableError,
+    RecipientSettingsStore,
     Settings,
-    SmtpAuthenticationError,
-    runReport,
 )
 
 
 class ReportEmailService:
-    async def sendReport(
-        self,
-        request: ReportEmailRequest,
-    ) -> ReportEmailResponse:
-        return await asyncio.to_thread(
-            self._sendReport,
-            request,
+    def getSettings(self) -> ReportEmailSettingsResponse:
+        try:
+            store = self._getStore()
+            recipient = store.loadRecipient()
+        except ConfigurationError as error:
+            raise ReportEmailSettingsError(str(error)) from error
+        return ReportEmailSettingsResponse(
+            configured=recipient is not None,
+            recipient=recipient,
+            message=(
+                "자동 보고서 수신 이메일이 설정되어 있습니다."
+                if recipient
+                else "자동 보고서 수신 이메일을 설정해 주세요."
+            ),
         )
 
-    def _sendReport(
+    def saveSettings(
         self,
-        request: ReportEmailRequest,
-    ) -> ReportEmailResponse:
+        request: ReportEmailSettingsRequest,
+    ) -> ReportEmailSettingsResponse:
+        try:
+            store = self._getStore()
+            recipient = store.saveRecipient(request.recipient)
+        except ConfigurationError as error:
+            raise ReportEmailSettingsError(str(error)) from error
+        return ReportEmailSettingsResponse(
+            configured=True,
+            recipient=recipient,
+            message="자동 보고서 수신 이메일을 저장했습니다.",
+        )
+
+    @staticmethod
+    def _getStore() -> RecipientSettingsStore:
         load_dotenv(repositoryRoot / ".env")
         settings = Settings.fromEnvironment(
-            requireEmail=True,
+            requireEmail=False,
             requireRecipients=False,
         )
-        if not settings.enabled:
-            raise ConfigurationError("이메일 보고서 발송 기능이 비활성화되어 있습니다.")
-
-        recipientKey = hashlib.sha256(
-            request.recipient.encode("utf-8")
-        ).hexdigest()[:16]
-        manualSettings = replace(
-            settings,
-            recipients=(request.recipient,),
-            recipientGroup=f"manual-{recipientKey}",
-            retryDelays=(1.0, 5.0),
-        )
-        result = runReport(
-            request.reportType.value,
-            manualSettings,
-            targetDate=request.targetDate,
-        )
-        period = result["period"]
-        return ReportEmailResponse(
-            status=result["status"],
-            reportType=request.reportType,
-            period=period.dateLabel,
-            recipient=request.recipient,
-            message="보고서 이메일을 발송했습니다.",
-        )
+        return RecipientSettingsStore(settings.stateDirectory)
 
 
 reportEmailService = ReportEmailService()

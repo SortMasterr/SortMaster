@@ -288,11 +288,11 @@
                             </h4>
 
                             <button
-                                id="openReportEmailButton"
-                                class="reportEmailButton"
+                                id="openReportEmailSettingsButton"
+                                class="reportEmailSettingsButton"
                                 type="button"
                             >
-                                ✉ 이메일 발송
+                                ✉ 이메일 설정
                             </button>
                         </div>
 
@@ -693,7 +693,7 @@
     </div>
 
     <div
-        id="reportEmailModal"
+        id="reportEmailSettingsModal"
         class="reportModal"
         role="dialog"
         aria-modal="true"
@@ -704,8 +704,8 @@
         <div class="reportModalPanel">
             <div class="reportModalHeader">
                 <div>
-                    <h2 id="reportModalTitle">통계 보고서 이메일 발송</h2>
-                    <p>수신 이메일과 보고 기간을 입력해 주세요.</p>
+                    <h2 id="reportModalTitle">통계 보고서 이메일 설정</h2>
+                    <p>자동 보고서를 받을 이메일을 설정해 주세요.</p>
                 </div>
                 <button
                     class="reportModalClose"
@@ -715,7 +715,7 @@
                 >×</button>
             </div>
 
-            <form id="reportEmailForm" class="reportEmailForm">
+            <form id="reportEmailSettingsForm" class="reportEmailSettingsForm">
                 <label for="reportRecipient">받는 사람 이메일</label>
                 <input
                     id="reportRecipient"
@@ -727,31 +727,17 @@
                     required
                 >
 
-                <div class="reportFormRow">
-                    <div>
-                        <label for="reportType">보고서 종류</label>
-                        <select id="reportType" name="reportType">
-                            <option value="daily">일일 보고서</option>
-                            <option value="weekly">주간 보고서</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="reportTargetDate">기준일</label>
-                        <input id="reportTargetDate" name="targetDate" type="date">
-                    </div>
-                </div>
-
-                <p id="reportDateHelp" class="reportDateHelp">
-                    비워 두면 어제 날짜의 일일 보고서를 발송합니다.
+                <p class="reportScheduleHelp">
+                    일일 보고서는 매일 09:00, 주간 보고서는 매주 월요일 09:10에 자동 발송됩니다.
                 </p>
-                <p id="reportEmailStatus" class="reportEmailStatus" aria-live="polite"></p>
+                <p id="reportEmailSettingsStatus" class="reportEmailStatus" aria-live="polite"></p>
 
                 <div class="reportModalActions">
                     <button type="button" class="reportCancelButton" data-report-modal-close>
                         취소
                     </button>
-                    <button id="sendReportEmailButton" type="submit" class="reportSendButton">
-                        전송
+                    <button id="confirmReportEmailButton" type="submit" class="reportConfirmButton">
+                        확인
                     </button>
                 </div>
             </form>
@@ -760,7 +746,7 @@
 
     <!-- sidebar.js를 statistics.js보다 먼저 불러옵니다. -->
     <script src="/static/js/sidebar.js?v=9"></script>
-    <script src="/static/js/statistics.js?v=12"></script>
+    <script src="/static/js/statistics.js?v=13"></script>
 </body>
 
 </html>

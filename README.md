@@ -65,9 +65,9 @@ API 상세 스펙은 `.agentfiles/apiSpec.md` 참고.
 docker compose --profile local up --build
 ```
 
-- `backend`(포트 8047) + `mongo`(호스트 포트 27020) 상시 기동. 로컬 웹캠을 백엔드가 직접 여는 코드는 아직 없어서 지금은 컨테이너에 카메라 디바이스 패스스루 불필요
-- `backend`/`mongo`는 `local` profile로 묶여 있음(GPU 서버의 `inference`/`side-overflow`와 같은 파일을 공유하므로, 이름 없이 `docker compose up`을 치면 아무것도 안 뜨게 해서 잘못된 환경에서 잘못된 서비스가 뜨는 걸 방지) — 반드시 `--profile local`을 붙일 것
-- 여기서 뜨는 `mongo`는 로컬 전용 별도 인스턴스 — 팀 배포 서버(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)와는 다른 DB. 팀 배포 서버를 쓰려면 `.env`의 `MONGO_HOST`를 그쪽으로 두고 compose의 `mongo` 서비스는 안 띄워도 됨(`docker compose --profile local up backend`)
+- `backend`(포트 8047) + `mongo`(호스트 포트 27020) + `report-scheduler` 상시 기동. `report-scheduler`는 대시보드에서 저장한 수신 이메일로 매일 09:00 일일 보고서와 매주 월요일 09:10 주간 보고서를 자동 발송
+- `backend`/`mongo`/`report-scheduler`는 `local` profile로 묶여 있음(GPU 서버의 `inference`/`side-overflow`와 같은 파일을 공유하므로, 이름 없이 `docker compose up`을 치면 아무것도 안 뜨게 해서 잘못된 환경에서 잘못된 서비스가 뜨는 걸 방지) — 반드시 `--profile local`을 붙일 것
+- 여기서 뜨는 `mongo`는 로컬 전용 별도 인스턴스 — 팀 배포 서버(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)와는 다른 DB. 팀 배포 서버를 쓰려면 `.env`의 `MONGO_HOST`를 그쪽으로 두고 compose의 `mongo` 서비스는 안 띄워도 됨(`docker compose --profile local up backend report-scheduler`)
 - 라벨링/학습(YOLO26 재학습 + Qwen3-VL-8B LoRA·QLoRA)은 평소엔 내려두고 필요할 때만:
   ```bash
   docker compose --profile training up --build training
@@ -130,6 +130,10 @@ docker compose --profile local up --build
   (`GET /api/statistics`), 모드 전환(`POST /api/mode`, MANAGE/COLLECT) 구현됨.
   `repositories/eventRepository.py`는 motor 기반 MongoDB 연동으로 전환 완료(In-memory
   Mock 제거) — `.env`의 `MONGO_HOST`/`DB_PORT`/`DB_USER`/`DB_PASSWORD`/`DB_NAME` 사용.
+- **자동 통계 보고서**: 구현됨. `/statistics`의 **이메일 설정**에서 수신 주소 한 개를 저장하면
+  별도 `report-scheduler` 프로세스가 일일(매일 09:00)·주간(월요일 09:10) 보고서를 자동 생성해
+  HTML 이메일+CSV로 발송. FastAPI 내부 스케줄러를 사용하지 않으며, Docker의 `report-state`
+  볼륨에 수신 설정과 중복 발송 이력을 보존
 - **RPA(전구/경고음)**: 아직 미착수. 모드 전환 API(`/api/mode`)는 있지만 실제
   RPA 트리거·Mute로 이어지는 코드는 없음.
 - **DB**: MongoDB Docker(호스트 포트 `27020`, 컨테이너 내부는 `27017`)에 백엔드가
@@ -149,8 +153,8 @@ docker compose --profile local up --build
 > (라즈베리파이는 추론 성능 부족). 상세는 `.agentfiles/architecture.md` 참고.
 
 - **개발**: Windows 노트북에서 Docker로 진행(로컬 웹캠 테스트)
-- **배포**: `backend`+`mongo`는 로컬 `<LOCAL_BACKEND_IP>`(실제 값은 Notion 참고)에서
-  `docker compose --profile local up -d backend mongo`로 구동. `training`/`llm`을 학원
+- **배포**: `backend`+`mongo`+`report-scheduler`는 로컬 `<LOCAL_BACKEND_IP>`(실제 값은 Notion 참고)에서
+  `docker compose --profile local up -d backend mongo report-scheduler`로 구동. `training`/`llm`을 학원
   GPU 서버(Linux, **NVIDIA L40S 4장 중 할당받은 1장**)로 이전해서 `docker compose
   --profile training up`/`--profile llm up`(자동 라벨링 검증 파이프라인 돌 때만 같이
   기동). **TOP(`inference` 서비스, `models/trashdetect/tracking2.py`)/SIDE

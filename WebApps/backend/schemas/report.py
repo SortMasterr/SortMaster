@@ -1,19 +1,10 @@
 import re
-from datetime import date
-from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator
 
 
-class ReportType(str, Enum):
-    DAILY = "daily"
-    WEEKLY = "weekly"
-
-
-class ReportEmailRequest(BaseModel):
+class ReportEmailSettingsRequest(BaseModel):
     recipient: str = Field(min_length=3, max_length=254)
-    reportType: ReportType = ReportType.DAILY
-    targetDate: date | None = None
 
     @field_validator("recipient")
     @classmethod
@@ -24,9 +15,7 @@ class ReportEmailRequest(BaseModel):
         return normalized
 
 
-class ReportEmailResponse(BaseModel):
-    status: str
-    reportType: ReportType
-    period: str
-    recipient: str
+class ReportEmailSettingsResponse(BaseModel):
+    configured: bool
+    recipient: str | None
     message: str

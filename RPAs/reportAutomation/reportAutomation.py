@@ -1,7 +1,7 @@
 """SortMaster daily/weekly report automation.
 
-This process reads the public REST API only.  It never connects to MongoDB and is
-intended to be launched by Windows Task Scheduler or cron.
+This process reads the public REST API only. It never connects to MongoDB and is
+launched by the dedicated Docker scheduler, Windows Task Scheduler, or cron.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import io
 import json
 import logging
 import os
+import re
 import smtplib
 import socket
 import ssl
@@ -107,6 +108,61 @@ REQUIRED_EVENT_FIELDS = (
 )
 
 
+def normalizeEmailAddress(value: str) -> str:
+    normalized = value.strip().lower()
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", normalized):
+        raise ConfigurationError("올바른 수신 이메일 주소가 설정되지 않았습니다.")
+    return normalized
+
+
+class RecipientSettingsStore:
+    def __init__(self, directory: Path):
+        self.directory = directory
+        self.settingsPath = directory / "recipientSettings.json"
+
+    def loadRecipient(self) -> str | None:
+        if not self.settingsPath.exists():
+            return None
+        try:
+            data = json.loads(self.settingsPath.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise ConfigurationError(
+                "수신 이메일 설정을 읽을 수 없습니다."
+            ) from error
+        if not isinstance(data, dict) or not isinstance(
+            data.get("recipient"),
+            str,
+        ):
+            raise ConfigurationError(
+                "수신 이메일 설정 파일 형식이 잘못되었습니다."
+            )
+        return normalizeEmailAddress(data["recipient"])
+
+    def saveRecipient(self, recipient: str) -> str:
+        normalized = normalizeEmailAddress(recipient)
+        self.directory.mkdir(parents=True, exist_ok=True)
+        temporary = self.settingsPath.with_suffix(".tmp")
+        payload = {
+            "recipient": normalized,
+            "updatedAt": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            temporary.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            os.replace(temporary, self.settingsPath)
+        except OSError as error:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+            raise ConfigurationError(
+                "수신 이메일 설정을 저장할 수 없습니다."
+            ) from error
+        return normalized
+
+
 @dataclass(frozen=True)
 class ReportPeriod:
     reportType: str
@@ -153,10 +209,25 @@ class Settings:
         requireEmail: bool = True,
         requireRecipients: bool = True,
     ) -> "Settings":
-        recipients = tuple(
+        baseDirectory = Path(__file__).resolve().parent
+        stateDirectory = Path(
+            os.getenv(
+                "RPA_STATE_DIRECTORY",
+                str(baseDirectory / "state"),
+            )
+        )
+        environmentRecipients = tuple(
             item.strip()
             for item in os.getenv("RPA_REPORT_RECIPIENTS", "").split(",")
             if item.strip()
+        )
+        storedRecipient = RecipientSettingsStore(
+            stateDirectory
+        ).loadRecipient()
+        recipients = (
+            (storedRecipient,)
+            if storedRecipient
+            else environmentRecipients
         )
         sender = os.getenv("RPA_REPORT_FROM", "").strip()
         smtpHost = os.getenv("SMTP_HOST", "").strip()
@@ -167,6 +238,8 @@ class Settings:
             requiredEmailSettings = [
                 ("RPA_REPORT_FROM", sender),
                 ("SMTP_HOST", smtpHost),
+                ("SMTP_USER", smtpUser),
+                ("SMTP_PASSWORD", smtpPassword),
             ]
             if requireRecipients:
                 requiredEmailSettings.insert(
@@ -178,6 +251,13 @@ class Settings:
                     missing.append(name)
         if missing:
             raise ConfigurationError(f"필수 환경변수 누락: {', '.join(missing)}")
+        if requireEmail and smtpHost.lower() == "smtp.gmail.com":
+            normalizedSender = normalizeEmailAddress(sender)
+            normalizedUser = normalizeEmailAddress(smtpUser)
+            if normalizedSender != normalizedUser:
+                raise ConfigurationError(
+                    "Gmail SMTP_USER는 RPA_REPORT_FROM과 같은 전체 이메일 주소여야 합니다."
+                )
 
         timezoneName = os.getenv("RPA_REPORT_TIMEZONE", "Asia/Seoul").strip()
         try:
@@ -195,7 +275,6 @@ class Settings:
         if any(delay < 0 for delay in retryDelays) or timeout <= 0:
             raise ConfigurationError("재시도 간격은 0 이상, 요청 제한 시간은 0보다 커야 합니다.")
 
-        baseDirectory = Path(__file__).resolve().parent
         return cls(
             enabled=_parseBool(os.getenv("RPA_REPORT_ENABLED", "true")),
             timezoneName=timezoneName,
@@ -211,7 +290,7 @@ class Settings:
             webBaseUrl=os.getenv("SORTMASTER_WEB_BASE_URL", "http://localhost:8047").rstrip("/"),
             retryDelays=retryDelays,
             requestTimeoutSeconds=timeout,
-            stateDirectory=Path(os.getenv("RPA_STATE_DIRECTORY", str(baseDirectory / "state"))),
+            stateDirectory=stateDirectory,
             outputDirectory=Path(os.getenv("RPA_OUTPUT_DIRECTORY", str(baseDirectory / "output"))),
         )
 

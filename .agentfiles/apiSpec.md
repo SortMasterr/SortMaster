@@ -17,9 +17,9 @@ v0.2(MVP), 구현 기준일 2026-08-25. `DetectedClass`/`BinType`의 `general`�
 | CameraStatus | ONLINE / OFFLINE |
 | WSEventType | MISCLASSIFICATION_DETECTED / BIN_OVERFLOW_DETECTED / MODE_CHANGED / CAMERA_DISCONNECTED / SYSTEM_ERROR |
 
-상태 코드: 200 정상 / 400 요청·서버 메일 설정 오류 / 404 이벤트·녹화 세션 없음 /
-409 보고서 중복 발송 / 423 보고서 발송 작업 중 / 422 스키마 불일치 / 500 서버 오류 /
-502 통계 API·SMTP 실패 / 503 카메라 미설정·연결 실패
+상태 코드: 200 정상 / 400 요청 오류 / 404 이벤트·녹화 세션 없음 /
+409 녹화 충돌 / 422 스키마 불일치 / 500 서버·이메일 설정 파일 오류 /
+503 카메라 미설정·연결 실패
 
 ## JSON API
 
@@ -35,7 +35,7 @@ v0.2(MVP), 구현 기준일 2026-08-25. `DetectedClass`/`BinType`의 `general`�
 | EP-10 | GET /api/binStates | BIN_STATES 전체 조회(binId당 최신 1행, 대시보드용) | 없음 | 200 | 없음 |
 | EP-11 | POST /api/binStates | BIN_STATES 갱신(GPU 서버의 SIDE MobileNet_V3_Small 로직 `sideOverflow.py`가 주기 호출, TOP의 EP-12와 동일 방향) | Body: binId, cameraId(기본 ELEV-SIDE), binType, sessionId, currentState(NORMAL/FULL), confidenceScore, overflowDuration, overflowThreshold?, detectionId, modelVersion | 200/422 | `currentState`가 이전 저장값과 다를 때만 전환 처리. NORMAL→FULL: EP-02와 동일한 `eventService`로 overflow EVENT 생성(detectionId 중복 방지 포함)+`activeOverflowEventId` 기록+MANAGE 모드 시 WS 브로드캐스트. FULL→NORMAL: EVENT 생성 없이 `activeOverflowEventId`만 null로 리셋. 상태 유지 시 값만 갱신 |
 | EP-12 | POST /api/events/aiDisposal | GPU 서버(`models/trashdetect/tracking2.py`)가 투척 완료 판정 시 직접 푸시하는 전용 엔드포인트 | Body: eventId, trackId, timestamp, cameraId("CAM-01" 등 GPU 쪽 값 그대로), detectedClass("normal"/"paper"/"recyclables"/"coffeecup"), binId(detectedClass와 동일 값 체계), result("correct"/"incorrect"/"unknown"), imagePath? | 200/422 | `eventService.createEventFromAiDisposal`이 GPU 쪽 값 체계(cameraId/detectedClass/binId/result)를 내부 `EventCreate`로 매핑 후 EP-02와 동일한 `createEventWithStatus`(쿨다운/멱등성) 재사용. 매핑 실패(값 미지정) 또는 `result: unknown`이면 이벤트 미생성(로그만, 에러 아님). `imagePath`는 GPU 서버 로컬 경로라 아직 GridFS 연동 안 됨(TBD) |
-| EP-13 | POST /api/reports/email | 통계 대시보드에서 입력한 수신자에게 일일/주간 보고서 수동 발송 | Body: recipient, reportType(daily/weekly), targetDate? | 200/400/409/423/422/502 | 기존 보고서 RPA의 API 조회·검증·HTML/CSV·SMTP 로직 재사용. 수신자는 요청 Body에서만 받고 SMTP 발신 계정 비밀은 서버 설정에 유지. 수신자+기간별 중복 발송 방지 |
+| EP-13 | GET/POST /api/reports/email | 자동 일일·주간 보고서 수신 이메일 조회/저장(즉시 발송 없음) | GET: 없음 / POST Body: recipient | 200/422/500 | `state/recipientSettings.json`에 주소 1개 저장. Docker에서는 backend와 별도 report-scheduler가 report-state 볼륨 공유. 스케줄러가 매일 09:00 일일, 월요일 09:10 주간 보고서를 기존 RPA 검증·HTML/CSV·재시도·중복 방지 로직으로 자동 발송. SMTP 비밀은 서버 설정에만 유지 |
 
 ### EP-02. POST /api/events — 이벤트 생성
 

@@ -7,8 +7,10 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from RPAs.reportAutomation.reportAutomation import (
+    ConfigurationError,
     DataMismatchError,
     DuplicateReportError,
+    RecipientSettingsStore,
     Settings,
     aggregateData,
     buildCsv,
@@ -78,21 +80,56 @@ class FakeApiClient:
 
 
 class ReportAutomationTests(unittest.TestCase):
-    def testDashboardModeDoesNotRequireEnvironmentRecipient(self):
-        with patch.dict(
-            "os.environ",
-            {
-                "RPA_REPORT_FROM": "sender@example.com",
-                "SMTP_HOST": "smtp.example.com",
-            },
-            clear=True,
-        ):
-            settings = Settings.fromEnvironment(
-                requireEmail=True,
-                requireRecipients=False,
+    def testSavedRecipientOverridesEnvironmentRecipient(self):
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            stateDirectory = Path(temporaryDirectory)
+            RecipientSettingsStore(stateDirectory).saveRecipient(
+                "saved@example.com"
             )
+            with patch.dict(
+                "os.environ",
+                {
+                    "RPA_STATE_DIRECTORY": temporaryDirectory,
+                    "RPA_REPORT_RECIPIENTS": "old@example.com",
+                    "RPA_REPORT_FROM": "sender@example.com",
+                    "SMTP_HOST": "smtp.example.com",
+                    "SMTP_USER": "sender@example.com",
+                    "SMTP_PASSWORD": "app-password",
+                },
+                clear=True,
+            ):
+                settings = Settings.fromEnvironment()
 
-        self.assertEqual((), settings.recipients)
+        self.assertEqual(("saved@example.com",), settings.recipients)
+
+    def testRecipientSettingsStoreNormalizesAddress(self):
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            store = RecipientSettingsStore(Path(temporaryDirectory))
+
+            saved = store.saveRecipient(" Manager@Example.com ")
+
+            self.assertEqual("manager@example.com", saved)
+            self.assertEqual(saved, store.loadRecipient())
+
+    def testGmailSenderAndSmtpUserMustMatch(self):
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            with patch.dict(
+                "os.environ",
+                {
+                    "RPA_STATE_DIRECTORY": temporaryDirectory,
+                    "RPA_REPORT_RECIPIENTS": "manager@example.com",
+                    "RPA_REPORT_FROM": "sender@gmail.com",
+                    "SMTP_HOST": "smtp.gmail.com",
+                    "SMTP_USER": "different@gmail.com",
+                    "SMTP_PASSWORD": "app-password",
+                },
+                clear=True,
+            ):
+                with self.assertRaisesRegex(
+                    ConfigurationError,
+                    "SMTP_USER",
+                ):
+                    Settings.fromEnvironment()
 
     def testDailyPeriodUsesPreviousKstCalendarDayAndUtcBoundary(self):
         now = datetime(2026, 8, 25, 9, 0, tzinfo=ZoneInfo("Asia/Seoul"))

@@ -15,13 +15,16 @@ from schemas.event import (
     EventCategory,
     EventCreate,
 )
-from schemas.report import ReportEmailRequest, ReportEmailResponse, ReportType
-from services.reportEmailService import DuplicateReportError
+from schemas.report import (
+    ReportEmailSettingsRequest,
+    ReportEmailSettingsResponse,
+)
 from services.eventService import EventCreationResult
 from services.errors import (
     CameraUnavailableError,
     RecordingCameraMismatchError,
     RecordingNotFoundError,
+    ReportEmailSettingsError,
 )
 
 
@@ -203,49 +206,60 @@ class ApiControllerBroadcastTest(
             ):
                 await api.startDetection(request)
 
-    async def testReportEmailUsesDashboardRecipient(self):
-        request = ReportEmailRequest(
+    async def testReportEmailSettingsSavesDashboardRecipient(self):
+        request = ReportEmailSettingsRequest(
             recipient="Manager@Example.com",
-            reportType=ReportType.DAILY,
         )
-        expected = ReportEmailResponse(
-            status="sent",
-            reportType=ReportType.DAILY,
-            period="2026-08-24",
+        expected = ReportEmailSettingsResponse(
+            configured=True,
             recipient="manager@example.com",
-            message="보고서 이메일을 발송했습니다.",
+            message="자동 보고서 수신 이메일을 저장했습니다.",
         )
 
         with patch(
-            "controllers.api.reportEmailService.sendReport",
-            AsyncMock(return_value=expected),
-        ) as sendReport:
-            response = await api.sendReportEmail(request)
+            "controllers.api.reportEmailService.saveSettings",
+            return_value=expected,
+        ) as saveSettings:
+            response = api.saveReportEmailSettings(request)
 
         self.assertEqual(expected, response)
-        sendReport.assert_awaited_once_with(request)
+        saveSettings.assert_called_once_with(request)
 
-    async def testDuplicateReportEmailReturnsHttp409(self):
-        request = ReportEmailRequest(
+    async def testReportEmailSettingsFailureReturnsHttp500(self):
+        request = ReportEmailSettingsRequest(
             recipient="manager@example.com",
         )
 
         with patch(
-            "controllers.api.reportEmailService.sendReport",
-            AsyncMock(
-                side_effect=DuplicateReportError(
-                    "이미 발송된 보고서입니다."
-                )
+            "controllers.api.reportEmailService.saveSettings",
+            side_effect=ReportEmailSettingsError(
+                "settings unavailable"
             ),
         ):
             with self.assertRaises(HTTPException) as context:
-                await api.sendReportEmail(request)
+                api.saveReportEmailSettings(request)
 
-        self.assertEqual(409, context.exception.status_code)
+        self.assertEqual(500, context.exception.status_code)
         self.assertEqual(
-            "이미 발송된 보고서입니다.",
+            "자동 보고서 수신 이메일을 저장할 수 없습니다.",
             context.exception.detail,
         )
+
+    async def testReportEmailSettingsReturnsSavedRecipient(self):
+        expected = ReportEmailSettingsResponse(
+            configured=True,
+            recipient="manager@example.com",
+            message="자동 보고서 수신 이메일이 설정되어 있습니다.",
+        )
+
+        with patch(
+            "controllers.api.reportEmailService.getSettings",
+            return_value=expected,
+        ) as getSettings:
+            response = api.getReportEmailSettings()
+
+        self.assertEqual(expected, response)
+        getSettings.assert_called_once_with()
 
 
 if __name__ == "__main__":

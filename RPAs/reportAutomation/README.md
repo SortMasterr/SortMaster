@@ -25,21 +25,25 @@ MongoDB에 직접 접근하지 않고 현재 구현된 `GET /api/statistics`와 
 `--dry-run`은 `output/`에 HTML과 CSV를 생성하며 발송 이력은 남기지 않습니다. `--force`는
 이미 성공한 실행 키도 다시 보내고 제목 앞에 `[재발송]`을 붙입니다.
 
-## 대시보드에서 수동 발송
+## 대시보드에서 수신 이메일 설정
 
-`/statistics`의 **이메일 발송** 버튼을 누르면 수신 이메일, 보고서 종류, 기준일을 입력해
-바로 발송할 수 있습니다. 이 경로에서는 수신 이메일을 요청 Body로 전달하므로
-`RPA_REPORT_RECIPIENTS`가 없어도 됩니다. 다만 SMTP 발신 계정과 비밀번호를 브라우저에
-노출하면 안 되므로 `RPA_REPORT_FROM`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
-`SMTP_PASSWORD`, `SMTP_USE_TLS`는 백엔드 서버 환경 설정에 있어야 합니다.
-
-예약 실행 CLI는 화면 입력이 없으므로 기존처럼 `RPA_REPORT_RECIPIENTS`와
-`RPA_REPORT_RECIPIENT_GROUP`을 사용합니다.
+`/statistics`의 **이메일 설정** 버튼에서 자동 보고서를 받을 이메일 한 개를 저장합니다.
+확인 버튼은 메일을 즉시 발송하지 않습니다. 저장 주소는
+`state/recipientSettings.json`에 기록되며 이후 일일·주간 자동 발송이 공통으로 사용합니다.
+새 설정은 다음 예약 시각부터 적용되며 지난 예약 작업을 즉시 소급 발송하지 않습니다.
+아직 화면에서 설정하지 않은 경우에만 `.env`의 `RPA_REPORT_RECIPIENTS`를 CLI 호환 폴백으로
+사용합니다. SMTP 발신 계정과 앱 비밀번호는 브라우저에 노출하지 않고 서버 `.env`에만 둡니다.
 
 ## 예약 실행
 
-프로그램 내부에 스케줄러를 두지 않습니다. Windows 작업 스케줄러에서 프로젝트 루트를
-시작 위치로 설정하고 다음 두 작업을 등록합니다.
+FastAPI 프로세스 내부에는 스케줄러를 두지 않습니다. Docker Compose의 별도
+`report-scheduler` 서비스가 다음 작업을 실행하며, `backend`와 `report-state` 볼륨을 공유합니다.
+
+- 매일 09:00: 전날 일일 보고서
+- 매주 월요일 09:10: 이전 월~일 주간 보고서
+
+Docker를 사용하지 않을 때는 Windows 작업 스케줄러에서 프로젝트 루트를 시작 위치로
+설정하고 다음 두 작업을 등록할 수 있습니다.
 
 - 매일 09:00: `python -m RPAs.reportAutomation.reportAutomation daily`
 - 매주 월요일 09:10: `python -m RPAs.reportAutomation.reportAutomation weekly`
