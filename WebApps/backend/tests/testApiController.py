@@ -15,6 +15,8 @@ from schemas.event import (
     EventCategory,
     EventCreate,
 )
+from schemas.report import ReportEmailRequest, ReportEmailResponse, ReportType
+from services.reportEmailService import DuplicateReportError
 from services.eventService import EventCreationResult
 from services.errors import (
     CameraUnavailableError,
@@ -200,6 +202,50 @@ class ApiControllerBroadcastTest(
                 "internal start bug",
             ):
                 await api.startDetection(request)
+
+    async def testReportEmailUsesDashboardRecipient(self):
+        request = ReportEmailRequest(
+            recipient="Manager@Example.com",
+            reportType=ReportType.DAILY,
+        )
+        expected = ReportEmailResponse(
+            status="sent",
+            reportType=ReportType.DAILY,
+            period="2026-08-24",
+            recipient="manager@example.com",
+            message="보고서 이메일을 발송했습니다.",
+        )
+
+        with patch(
+            "controllers.api.reportEmailService.sendReport",
+            AsyncMock(return_value=expected),
+        ) as sendReport:
+            response = await api.sendReportEmail(request)
+
+        self.assertEqual(expected, response)
+        sendReport.assert_awaited_once_with(request)
+
+    async def testDuplicateReportEmailReturnsHttp409(self):
+        request = ReportEmailRequest(
+            recipient="manager@example.com",
+        )
+
+        with patch(
+            "controllers.api.reportEmailService.sendReport",
+            AsyncMock(
+                side_effect=DuplicateReportError(
+                    "이미 발송된 보고서입니다."
+                )
+            ),
+        ):
+            with self.assertRaises(HTTPException) as context:
+                await api.sendReportEmail(request)
+
+        self.assertEqual(409, context.exception.status_code)
+        self.assertEqual(
+            "이미 발송된 보고서입니다.",
+            context.exception.detail,
+        )
 
 
 if __name__ == "__main__":

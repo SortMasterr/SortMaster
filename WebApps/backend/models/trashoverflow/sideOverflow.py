@@ -17,6 +17,7 @@ CPU로도 충분히 빠름) 판정 위치를 TOP과 통일하기 위한 결정 �
 둘 것.
 """
 import json
+import os
 import time
 import uuid
 
@@ -35,9 +36,14 @@ MODEL_PATH = "bestSide.pt"
 ROI_PATH = "roi.json"
 DEFAULT_IMAGE_SIZE = 224
 
+# SSH 역터널이 열어주는 주소 — 호스트에서 직접 돌릴 땐 127.0.0.1, Docker 컨테이너 안에서
+# 돌릴 땐 host.docker.internal이어야 함(tracking2.py와 동일 이유). docker-compose.yml이
+# BACKEND_HOST 환경변수로 넘겨준다.
+BACKEND_HOST = os.getenv("BACKEND_HOST", "127.0.0.1")
+
 # 로컬 백엔드가 상시 서빙 중인 SIDE MJPEG 스트림 — TOP(tracking2.py)과 같은 SSH 역터널
 # (-R 8299:localhost:8047, gpuServerOps.md 참고)로 그대로 구독. 별도 포트/터널 불필요.
-SOURCE = "http://127.0.0.1:8299/api/stream/ELEV-SIDE"
+SOURCE = f"http://{BACKEND_HOST}:8299/api/stream/ELEV-SIDE"
 
 # 실시간 네트워크 스트림이라 끊길 수 있음 — 끊기면 재연결 시도(tracking2.py와 동일 패턴)
 IS_LIVE_STREAM_SOURCE = (
@@ -55,7 +61,7 @@ BIN_TYPE = "general"
 
 # 로컬 백엔드 주소 — GPU 서버 포트는 팀 공유 규칙상 99로 끝나야 해서 8047을 그대로 못 씀.
 # SSH 역터널(-R 8299:localhost:8047)로 도커 PC의 8047을 GPU 서버의 8299로 매핑해서 접속
-BACKEND_URL = "http://127.0.0.1:8299/api/binStates"
+BACKEND_URL = f"http://{BACKEND_HOST}:8299/api/binStates"
 
 OVERFLOW_SECONDS = 30.0
 NORMAL_RESET_SECONDS = 1.0

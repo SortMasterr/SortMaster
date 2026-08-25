@@ -108,6 +108,62 @@ services:
               device_ids: ["${GPU_DEVICE_ID:-0}"]
               capabilities: [gpu]
 
+  # TOP(ELEV-TOP) YOLO26 상시 추론 — 로컬 백엔드 MJPEG를 SSH 역터널로 구독해서 자체
+  # 판정 후 POST /api/events/aiDisposal로 푸시하는 워커(요청을 받지 않으므로 ports 없음).
+  # training/llm과 달리 상시 기동이 목적이라 profile로 안 뺌 — rootless Docker가 이미
+  # loginctl enable-linger로 재부팅 시 자동 기동되도록 설정돼 있어서(gpuServerOps.md),
+  # restart: unless-stopped만으로 GPU 서버 재부팅 후 자동 복구됨(단, 로컬 배포 서버 쪽
+  # SSH 역터널이 살아있어야 실제로 연결됨 — 그건 이 컨테이너와 별개 문제).
+  inference:
+    build:
+      context: ./WebApps/backend/models/trashdetect
+    container_name: sortmaster-inference
+    restart: unless-stopped
+    environment:
+      # training과 동일한 이유(베이스 이미지가 NVIDIA_VISIBLE_DEVICES=all을 박아둠) —
+      # 명시적으로 덮어써야 실제로 카드 격리됨.
+      - NVIDIA_VISIBLE_DEVICES=${GPU_DEVICE_ID:-0}
+      # 컨테이너 안에서는 127.0.0.1이 컨테이너 자신을 가리켜서 SSH 터널에 못 닿음 —
+      # host.docker.internal로 호스트를 가리키게 함(tracking2.py의 BACKEND_HOST 참고).
+      - BACKEND_HOST=host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # 소스+가중치(bestTop.pt, .gitignore 대상)+트래커 설정을 통째로 마운트 —
+      # 이미지에 안 구우므로 가중치 갱신 시 재빌드 불필요, 컨테이너 재시작만 하면 됨.
+      - ./WebApps/backend/models/trashdetect:/app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${GPU_DEVICE_ID:-0}"]
+              capabilities: [gpu]
+
+  # SIDE(ELEV-SIDE) MobileNet_V3_Small 상시 추론 — inference(TOP)와 완전히 동일한 패턴
+  # (기술적으로 GPU가 꼭 필요하진 않지만 TOP과 아키텍처를 통일하려고 재전환됨,
+  # decisionLog.md 참고). POST /api/binStates로 푸시.
+  sideOverflow:
+    build:
+      context: ./WebApps/backend/models/trashoverflow
+    container_name: sortmaster-side-overflow
+    restart: unless-stopped
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${GPU_DEVICE_ID:-0}
+      - BACKEND_HOST=host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # 소스+가중치(bestSide.pt, .gitignore 대상)+roi.json을 통째로 마운트
+      - ./WebApps/backend/models/trashoverflow:/app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${GPU_DEVICE_ID:-0}"]
+              capabilities: [gpu]
+
 volumes:
   mongo-data:
   llm-model-cache:

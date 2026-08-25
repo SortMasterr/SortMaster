@@ -25,6 +25,17 @@ MongoDB에 직접 접근하지 않고 현재 구현된 `GET /api/statistics`와 
 `--dry-run`은 `output/`에 HTML과 CSV를 생성하며 발송 이력은 남기지 않습니다. `--force`는
 이미 성공한 실행 키도 다시 보내고 제목 앞에 `[재발송]`을 붙입니다.
 
+## 대시보드에서 수동 발송
+
+`/statistics`의 **이메일 발송** 버튼을 누르면 수신 이메일, 보고서 종류, 기준일을 입력해
+바로 발송할 수 있습니다. 이 경로에서는 수신 이메일을 요청 Body로 전달하므로
+`RPA_REPORT_RECIPIENTS`가 없어도 됩니다. 다만 SMTP 발신 계정과 비밀번호를 브라우저에
+노출하면 안 되므로 `RPA_REPORT_FROM`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
+`SMTP_PASSWORD`, `SMTP_USE_TLS`는 백엔드 서버 환경 설정에 있어야 합니다.
+
+예약 실행 CLI는 화면 입력이 없으므로 기존처럼 `RPA_REPORT_RECIPIENTS`와
+`RPA_REPORT_RECIPIENT_GROUP`을 사용합니다.
+
 ## 예약 실행
 
 프로그램 내부에 스케줄러를 두지 않습니다. Windows 작업 스케줄러에서 프로젝트 루트를

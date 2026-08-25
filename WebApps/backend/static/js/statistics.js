@@ -396,6 +396,167 @@ document.addEventListener(
             }
         }
 
+        function setupReportEmailForm() {
+            const modal = getElement(
+                "reportEmailModal"
+            );
+            const openButton = getElement(
+                "openReportEmailButton"
+            );
+            const form = getElement(
+                "reportEmailForm"
+            );
+            const recipientInput = getElement(
+                "reportRecipient"
+            );
+            const reportTypeInput = getElement(
+                "reportType"
+            );
+            const targetDateInput = getElement(
+                "reportTargetDate"
+            );
+            const dateHelp = getElement(
+                "reportDateHelp"
+            );
+            const status = getElement(
+                "reportEmailStatus"
+            );
+            const sendButton = getElement(
+                "sendReportEmailButton"
+            );
+
+            if (
+                !modal ||
+                !openButton ||
+                !form ||
+                !recipientInput ||
+                !reportTypeInput ||
+                !targetDateInput ||
+                !dateHelp ||
+                !status ||
+                !sendButton
+            ) {
+                return;
+            }
+
+            function setStatus(message, isSuccess = false) {
+                status.textContent = message;
+                status.classList.toggle(
+                    "isSuccess",
+                    isSuccess
+                );
+            }
+
+            function updateDateHelp() {
+                dateHelp.textContent =
+                    reportTypeInput.value === "weekly"
+                        ? "비워 두면 지난 월요일부터 일요일까지이며, 직접 지정할 때는 월요일을 선택합니다."
+                        : "비워 두면 어제 날짜의 일일 보고서를 발송합니다.";
+            }
+
+            function openModal() {
+                modal.hidden = false;
+                setStatus("");
+                updateDateHelp();
+                recipientInput.focus();
+            }
+
+            function closeModal() {
+                if (sendButton.disabled) {
+                    return;
+                }
+                modal.hidden = true;
+            }
+
+            async function submitReport(event) {
+                event.preventDefault();
+                if (!form.reportValidity()) {
+                    return;
+                }
+
+                const body = {
+                    recipient: recipientInput.value.trim(),
+                    reportType: reportTypeInput.value,
+                };
+                if (targetDateInput.value) {
+                    body.targetDate = targetDateInput.value;
+                }
+
+                sendButton.disabled = true;
+                sendButton.textContent = "전송 중...";
+                setStatus("보고서를 생성하고 이메일을 발송하는 중입니다.");
+
+                try {
+                    const response = await fetch(
+                        "/api/reports/email",
+                        {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                            },
+                            body: JSON.stringify(body),
+                        }
+                    );
+                    const result = await response.json();
+
+                    if (!response.ok) {
+                        const detail = Array.isArray(result.detail)
+                            ? result.detail
+                                .map((item) => item.msg)
+                                .join(" ")
+                            : result.detail;
+                        throw new Error(
+                            detail || "이메일 발송에 실패했습니다."
+                        );
+                    }
+
+                    setStatus(
+                        `${result.period} 보고서를 ${result.recipient} 주소로 발송했습니다.`,
+                        true
+                    );
+                } catch (error) {
+                    setStatus(
+                        error.message || "이메일 발송에 실패했습니다."
+                    );
+                } finally {
+                    sendButton.disabled = false;
+                    sendButton.textContent = "전송";
+                }
+            }
+
+            openButton.addEventListener(
+                "click",
+                openModal
+            );
+            reportTypeInput.addEventListener(
+                "change",
+                updateDateHelp
+            );
+            form.addEventListener(
+                "submit",
+                submitReport
+            );
+            modal.querySelectorAll(
+                "[data-report-modal-close]"
+            ).forEach((element) => {
+                element.addEventListener(
+                    "click",
+                    closeModal
+                );
+            });
+            document.addEventListener(
+                "keydown",
+                (event) => {
+                    if (
+                        event.key === "Escape" &&
+                        !modal.hidden
+                    ) {
+                        closeModal();
+                    }
+                }
+            );
+        }
+
         async function loadDashboard() {
             try {
                 const [
@@ -429,6 +590,7 @@ document.addEventListener(
             }
         }
 
+        setupReportEmailForm();
         await loadDashboard();
     }
 );

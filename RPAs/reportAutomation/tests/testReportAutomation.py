@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -77,6 +78,22 @@ class FakeApiClient:
 
 
 class ReportAutomationTests(unittest.TestCase):
+    def testDashboardModeDoesNotRequireEnvironmentRecipient(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "RPA_REPORT_FROM": "sender@example.com",
+                "SMTP_HOST": "smtp.example.com",
+            },
+            clear=True,
+        ):
+            settings = Settings.fromEnvironment(
+                requireEmail=True,
+                requireRecipients=False,
+            )
+
+        self.assertEqual((), settings.recipients)
+
     def testDailyPeriodUsesPreviousKstCalendarDayAndUtcBoundary(self):
         now = datetime(2026, 8, 25, 9, 0, tzinfo=ZoneInfo("Asia/Seoul"))
 
