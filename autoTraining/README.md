@@ -44,31 +44,37 @@ tracking2.py 재시작 + smoke test, 실패 시 rollback
 
 ### 현재 판정
 
-2026-08-25 기준으로 Conda `env_py311` 환경에서 CLI import와 bootstrap 모델 로드까지
-확인했습니다. 일일 배치 준비부터 운영 모델 파일 배포까지의 단계별 로직은 구현되어 있지만 입력 영상과 기존 데이터셋이 없고,
-bootstrap 체크포인트와 설정의 클래스 및 입력 전처리 계약을 확정하지 않았고 실제 GridFS·Qwen·GPU를
-연결한 검증이 없어 현재는 전체 E2E를 실행할 수 없습니다.
+2026-08-25 기준으로 파이프라인 11개 단계(`Collect`부터 `Deploy`까지)와 사람 검수 전·후
+실행 구간은 코드로 구현되어 있습니다. Conda `env_py311`의 실제 패키지 버전을
+`requirements.txt`에 반영했고 Python 구문, CLI import, 의존성 충돌, GridFS GIF 프레임 추출
+smoke test까지 통과했습니다.
 
-| 항목 | 상태 | 설명 |
+다만 현재 저장소에는 기존 학습 데이터셋과 Golden Test가 없고 일일 입력도 0개입니다. 로컬에서
+설정된 Qwen `/v1/models` 주소에도 연결되지 않았습니다. bootstrap 체크포인트의 snake_case
+클래스명은 설정의 camelCase 계약과 다르므로 현재 상태로 Label부터 전체 E2E를 실행할 수 없습니다.
+
+| 항목 | 상태 | 확인 결과 |
 |---|---|---|
-| 일일 2구간 CLI | 구현됨 | `prepareDailyBatch`와 `continueAfterHumanReview`가 사람 검수 지점에서 분리됨 |
-| Python 구문·설정 | 확인됨 | Python 파일 17개 AST, YAML, CLI import 검사 통과 |
-| Python 환경 | 실행 가능 | Conda `env_py311`, Python 3.11.15 확인 |
-| 필수 import | 실행 가능 | OpenCV 4.14.0, NumPy 2.4.4, PyYAML 6.0.3, Ultralytics 8.4.117 import 성공 |
-| requirements 일치 | 불일치 | 현재 NumPy·OpenCV 버전이 `requirements.txt` 고정 버전과 다르므로 재현 환경으로는 추가 정리가 필요함 |
-| CLI | 실행 가능 | `trainingPipeline.py --help` 정상 실행 |
-| 입력 영상 | 준비 안 됨 | GridFS 운영 데이터는 아직 연결하지 않았으며 localDirectory 입력도 없음 |
-| 기존 데이터셋 | 준비 안 됨 | `autoTraining/baseDataset`이 존재하지 않음 |
-| bootstrap 모델 | 로드 가능, 설정 불일치 | 5,393,150바이트 `.pt` 로드 성공. 4개 클래스는 최신 의미 계약과 맞지만 설정의 표기법이 다름 |
-| 활성 모델 포인터 | 초기 상태 | 아직 `models/current.json`이 없어 최초 사이클은 bootstrap 모델을 선택함 |
-| Qwen-VL 검수 | 환경 연결됨, 실서버 요청 확인 필요 | `.env`의 `LLM_PORT`와 `qwenVl.apiHost`로 vLLM `/v1/models`, `/v1/chat/completions`를 호출 |
-| 모델 레지스트리 | 테스트 통과 | bootstrap 선택, 사이클 고정, SHA-256 검증, registry 승격과 active 포인터 해석 확인 |
-| 감사 체크포인트 해시 | 불일치 | 로컬 bootstrap은 `757F...B7F2`, 문서의 `bestTop.pt`는 `2AF2...DFFC`이므로 동일 파일로 간주할 수 없음 |
-| 운영 입력 호환성 | 불일치 | 자동화 기본값은 causal/416, `tracking2.py`는 단일 BGR 프레임/416, 데이터셋 문서는 640×640 letterbox를 명시함 |
-| 학습 원본 수집 | 구현됨, 실DB 검증 필요 | `events`에서 날짜·카메라·이벤트 종류를 조회하고 `topMedia` GridFS GIF를 배치 입력으로 수집 |
-| 운영 모델 파일 반영 | 구현됨, 재시작은 수동 | Deploy가 `tracking2.py`용 `bestTop.pt`를 해시 검증 후 원자적으로 교체하며 재시작·smoke test는 별도임 |
-| 전체 E2E | 미검증 | 실제 영상, 기존 데이터셋, Qwen-VL 서버와 GPU 학습을 연결한 실행 기록이 없음 |
-
+| 전체 단계 코드 | 구현됨 | `Collect → Extract → Select → Label → Review → HumanReview → Build → Train → Evaluate → Promote → Deploy` |
+| 일일 2구간 CLI | 구현됨 | `prepareDailyBatch`는 사람 검수 큐까지, `continueAfterHumanReview`는 평가까지 실행 |
+| Python 코드 | 통과 | `autoTraining` Python 파일 17개 `compileall` 및 CLI import 성공 |
+| 실행 환경 | 일치 | Conda `env_py311`, Python 3.11.15, `pip check` 충돌 없음 |
+| requirements | 최신화됨 | 실제 환경의 Ultralytics 8.4.117, PyTorch 2.7.1+cu118, OpenCV 4.14.0.94, NumPy 2.4.4 등을 고정 |
+| GPU | 사용 가능 | 현재 환경에서 CUDA 사용 가능, PyTorch CUDA 빌드는 11.8 |
+| Collect 저장소 연동 | 구현됨, 실DB 미검증 | MongoDB `events`를 읽고 `ELEV-TOP`/`misclassification`의 `topMedia` GridFS GIF를 수집하도록 구현 |
+| GIF 프레임 추출 | 테스트 통과 | 생성한 다중 프레임 GIF를 Collect 매니페스트 기준으로 Extract하는 smoke test 통과 |
+| Qwen-VL 주소 구성 | 구현됨 | `.env`의 `LLM_PORT`와 `qwenVl.apiHost`를 조합하고 포트 범위를 검증 |
+| Qwen-VL 실제 연결 | 현재 PC에서 실패 | `/v1/models` 단기 연결 검사에서 `URLError`; GPU 서버의 vLLM 기동·포트 공개 상태 확인 필요 |
+| bootstrap 모델 파일 | 로드 가능 | `models/bootstrap/best.pt`, 5,393,150바이트, SHA-256 `757F...B7F2` |
+| 모델 클래스 계약 | 불일치 | 체크포인트는 `trash_normal`, `trash_paper`, `trash_recyclables`, `trash_coffeecup`; 설정은 camelCase 4종 |
+| 활성 모델 포인터 | 초기 상태 | `models/current.json`이 없어 최초 사이클은 bootstrap 모델을 선택 |
+| 일일 입력 | 없음 | `autoTraining/inputVideos` 파일 0개이며 실제 GridFS 수집 실행 기록 없음 |
+| 기존 데이터셋 | 없음 | `autoTraining/baseDataset` 디렉터리가 없음 |
+| Golden Test | 없음 | `autoTraining/goldenTest` 디렉터리가 없어 비교평가 불가 |
+| 버전형 학습 데이터셋 | 미생성 | `autoTraining/datasets/<batchId>`는 Build 성공 후 생성됨 |
+| 모델 레지스트리·배포 | 구현됨 | 해시 검증, 후보/registry/current 관리, `bestTop.pt` 원자적 교체 및 수동 rollback 지원 |
+| 운영 재시작·smoke test | 미구현 | Deploy 후 `tracking2.py` 재시작과 실패 시 자동 rollback은 수동 |
+| 전체 E2E | 실행 불가·미검증 | 데이터, 클래스가 맞는 모델, 실행 중인 Qwen 및 실제 GridFS 연결이 필요 |
 ### 구현된 기능
 
 - MongoDB `events`와 `topMedia` GridFS에서 일일 TOP 투기 이벤트 GIF 수집
@@ -257,19 +263,24 @@ Conda 활성화 없이 직접 실행할 수도 있습니다.
 
 2026-08-25 실제 확인 버전:
 
-| 패키지 | 현재 환경 | `requirements.txt` |
-|---|---:|---:|
-| Python | 3.11.15 | 프로젝트 지침 3.11 |
-| OpenCV | 4.14.0 | 4.10.0.84 |
-| NumPy | 2.4.4 | 1.26.4 |
-| PyYAML | 6.0.3 | 6.0 이상 |
-| Ultralytics | 8.4.117 | 8.0 이상 |
+| 패키지 | 현재 환경 및 `requirements.txt` |
+|---|---:|
+| Python | 3.11.15 (`requirements.txt` 밖에서 3.11 사용) |
+| Ultralytics | 8.4.117 |
+| PyTorch | 2.7.1+cu118 |
+| Torchvision | 0.22.1+cu118 |
+| OpenCV | 4.14.0.94 |
+| NumPy | 2.4.4 |
+| PyYAML | 6.0.3 |
+| Pillow | 11.1.0 |
+| Motor | 3.7.1 |
+| PyMongo | 4.17.0 |
+| python-dotenv | 1.2.2 |
 
-CLI 실행에는 성공했지만 OpenCV와 NumPy는 고정 버전과 다릅니다. 팀 공용/GPU 환경의 재현성을
-위해서는 별도 환경에서 `requirements.txt`에 맞춰 설치하거나, 현재 조합을 공식 버전으로 채택한
-뒤 requirements를 함께 갱신해야 합니다. GPU 서버에서는 설치된 CUDA 버전에 맞는 PyTorch도
-필요합니다.
-
+`requirements.txt`를 위 `env_py311` 실제 버전과 일치시켰습니다. CUDA 11.8 빌드의 PyTorch와
+Torchvision을 재현할 수 있도록 PyTorch 공식 cu118 추가 인덱스도 파일에 명시했습니다. 다른 CUDA
+버전의 GPU 서버에서는 무조건 이 파일을 설치하지 말고 서버 드라이버·CUDA 계약에 맞춰 PyTorch
+빌드를 먼저 확정해야 합니다.
 ## 입력 준비
 
 ### 이벤트 영상 저장소 입력
