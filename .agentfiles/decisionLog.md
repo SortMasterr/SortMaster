@@ -209,3 +209,20 @@
   동일하게 검증됨). 아직 안 된 것: 상시 서비스화(TOP과 같은 TBD), `RULE_BASED_BIN_ROIS`처럼
   `roi.json` 좌표도 데모 기준값 그대로라 재보정 필요(지금 판정 결과 자체는 무의미 — 통
   없이 테스트해서 confidence만 높게 나오는 상태)
+- **`tracking2.py`/`sideOverflow.py` 상시 서비스화: systemd 대신 Docker화로 확정** → GPU
+  서버가 재부팅돼도 알아서 다시 뜨게 만드는 방법으로 라즈베리파이 RTSP 송신에 쓴 systemd
+  패턴을 검토했으나, GPU 서버는 이미 rootless Docker + `sudo loginctl enable-linger soma`
+  설정이 돼 있어서(`gpuServerOps.md`, 원래 `training`/`llm` 컨테이너 유지 목적으로 구성)
+  Docker 데몬 자체가 재부팅 시 자동 기동됨 — 그러면 `restart: unless-stopped`만으로 새
+  systemd 유닛 없이 같은 효과를 냄. `WebApps/backend/models/trashdetect/Dockerfile`/
+  `WebApps/backend/models/trashoverflow/Dockerfile`(둘 다 `training/Dockerfile`과 같은
+  `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime` 베이스, GPU 드라이버 호환 검증된 태그
+  재사용) + `docker-compose.yml`의 `inference`/`sideOverflow` 서비스(`training`/`llm`과
+  달리 profile 없이 상시 기동)로 구현. 가중치 파일(`bestTop.pt`/`bestSide.pt`, 둘 다
+  `.gitignore` 대상)은 이미지에 안 굽고 `training`처럼 디렉터리 전체를 볼륨 마운트 —
+  재빌드 없이 가중치만 교체 가능. 컨테이너 안에서는 `127.0.0.1`이 컨테이너 자신을
+  가리켜서 SSH 터널에 못 닿으므로, `tracking2.py`/`sideOverflow.py`에 `BACKEND_HOST`
+  환경변수(기본값 `127.0.0.1`, compose에서 `host.docker.internal`로 오버라이드)를
+  추가해서 호스트 직접 실행/Docker 실행 둘 다 코드 수정 없이 지원. **이걸로도 SSH 역터널
+  자체가 살아있는지는 안 풀림** — 그건 로컬 배포 서버 쪽 `autossh` 문제로 별개(TBD). 실제
+  GPU 서버에서 이 이미지를 빌드+기동해본 적은 아직 없음(코드/설정만 작성, 검증은 다음 단계)
