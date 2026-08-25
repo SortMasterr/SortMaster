@@ -64,22 +64,27 @@ ID를 하드코딩하지 않는다.
 ### SIDE(옆 카메라) — MobileNet_V3_Small
 
 `bestSide2.pt`(YOLO 체크포인트, `normal`/`overflow` 2클래스)로 판정하려던 초기 계획은
-폐기됐고, 한때 룰 베이스(GPU/모델 완전 미사용)로 확정했던 결정도 다시 뒤집혀 **경량 분류
-모델(MobileNet_V3_Small)로 최종 확정**됨(`WebApps/backend/models/trashoverflow/` —
-`feature/side-overflow-integration` 브랜치, `dev`에 merge 완료. `.agentfiles/decisionLog.md`
-참고). ROI로 크롭한 이미지를 모델에 넣어 `normal`/`overflow` 2클래스로 분류 — 모델이 가벼워서
-GPU 서버 없이 **로컬 백엔드에서 CPU로 추론**(GPU 있으면 자동 사용). YOLO26(TOP)과 달리 통
-위치 추적/추적 판정은 없고, 연속 30초 이상 `overflow`로 유지되면 최종 판정(세션 상태 기반).
+폐기됐고, **경량 분류 모델(MobileNet_V3_Small)로 최종 확정**됨(`WebApps/backend/models/
+trashoverflow/`, `.agentfiles/decisionLog.md` 참고). 추론 위치는 두 번 뒤집힘 — 룰
+베이스(GPU/모델 완전 미사용) → 로컬 백엔드 CPU 추론(모델은 도입했지만 GPU는 여전히
+미사용) → **지금은 GPU 서버**(`models/trashoverflow/sideOverflow.py`, TOP과 완전히 동일한
+구조로 통일 — SIDE 자체는 GPU가 꼭 필요하진 않지만 아키텍처 일관성 때문에 재전환,
+`.agentfiles/decisionLog.md` 참고). ROI로 크롭한 이미지를 모델에 넣어 `normal`/`overflow`
+2클래스로 분류. YOLO26(TOP)과 달리 통 위치 추적/추적 판정은 없고, 연속 30초 이상
+`overflow`로 유지되면 최종 판정(세션 상태 기반). 실제 GPU 서버 배포/실행 검증은 아직 안 됨
+(코드만 작성된 상태).
 
 ## 3. 전처리·실행 위치
 
 - 실촬영: 640×480
 - YOLO 입력: 640×640 letterbox(비율 유지)
-- **추론 위치: GPU 서버**(`models/trashdetect/tracking2.py`) — Jetson Orin Nano Super는
-  발주 취소되고 라즈베리파이로 대체됨(라즈베리파이는 캡처+RTSP 송신+GPIO/스피커만 담당,
-  추론 없음). `.agentfiles/architecture.md`의 "탐지 파이프라인"/"배포 전략" 참고
-- 백엔드 Python 3.11 환경에는 PyTorch/Ultralytics를 넣지 않는다(그대로 유효 — GPU 서버 쪽
-  별도 venv에서 관리, `.agentfiles/gpuServerOps.md` 참고)
+- **추론 위치: GPU 서버**(TOP=`models/trashdetect/tracking2.py`, SIDE=`models/trashoverflow/
+  sideOverflow.py` — 둘 다 동일 패턴) — Jetson Orin Nano Super는 발주 취소되고
+  라즈베리파이로 대체됨(라즈베리파이는 캡처+RTSP 송신+GPIO/스피커만 담당, 추론 없음).
+  `.agentfiles/architecture.md`의 "탐지 파이프라인"/"배포 전략" 참고
+- 백엔드 Python 3.11 환경에는 PyTorch/Ultralytics를 넣지 않는다(SIDE가 GPU 서버로 이관되며
+  로컬 백엔드에서 torch/torchvision도 제거됨 — GPU 서버 쪽 별도 venv에서만 관리,
+  `.agentfiles/gpuServerOps.md` 참고)
 - 모델 파일은 Git 제외 대상이므로 해시·버전과 별도의 배포 절차가 필요하다(단, `training`→
   `tracking2.py` 둘 다 GPU 서버 안에 있어 원격 배포는 불필요 — 로컬 파일/볼륨 공유로 충분,
   `.agentfiles/architecture.md`의 "추론 인프라" 참고)
