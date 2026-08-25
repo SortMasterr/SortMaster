@@ -36,9 +36,9 @@ MODEL_PATH = "bestSide.pt"
 ROI_PATH = "roi.json"
 DEFAULT_IMAGE_SIZE = 224
 
-# SSH 역터널이 열어주는 주소 — 호스트에서 직접 돌릴 땐 127.0.0.1, Docker 컨테이너 안에서
-# 돌릴 땐 host.docker.internal이어야 함(tracking2.py와 동일 이유). docker-compose.yml이
-# BACKEND_HOST 환경변수로 넘겨준다.
+# SSH 역터널이 GPU 서버 루프백에 열어주는 주소 — docker-compose.yml이 network_mode: host로
+# 호스트 네트워크를 공유하므로 컨테이너 안 127.0.0.1도 그대로 유효함(tracking2.py와 동일
+# 이유, host.docker.internal은 SSH -R이 루프백에만 리스닝해서 "Connection refused" 남).
 BACKEND_HOST = os.getenv("BACKEND_HOST", "127.0.0.1")
 
 # 로컬 백엔드가 상시 서빙 중인 SIDE MJPEG 스트림 — TOP(tracking2.py)과 같은 SSH 역터널

@@ -14,11 +14,11 @@ import requests
 # ============================================================
 MODEL_PATH = "bestTop.pt"
 
-# SSH 역터널(-R 8299:localhost:8047, gpuServerOps.md 참고)이 열어주는 주소 — 호스트에서
-# 직접(SSH 세션 안에서 python으로) 돌릴 땐 127.0.0.1, Docker 컨테이너 안에서 돌릴 땐
-# 컨테이너가 호스트를 가리키는 host.docker.internal이어야 함(컨테이너 안의 127.0.0.1은
-# 컨테이너 자기 자신이라 터널에 안 닿음). docker-compose.yml이 BACKEND_HOST 환경변수로
-# host.docker.internal을 넘겨준다 — 코드/실행 방식 둘 다 그대로 두고 이 값만 바뀜.
+# SSH 역터널(-R 8299:localhost:8047, gpuServerOps.md 참고)이 GPU 서버 루프백에 열어주는
+# 주소. docker-compose.yml은 network_mode: host로 호스트 네트워크를 그대로 공유하므로
+# 컨테이너 안 127.0.0.1도 GPU 서버 자신을 가리킴(브리지 네트워크 경유 host.docker.internal은
+# SSH -R이 루프백에만 리스닝해서 "Connection refused"가 남 — sshd GatewayPorts는 root
+# 권한 필요라 회피). BACKEND_HOST는 다른 실행 방식이 필요해질 때를 위한 오버라이드용.
 BACKEND_HOST = os.getenv("BACKEND_HOST", "127.0.0.1")
 
 # 실제 TOP 카메라(ELEV-TOP) 영상 — 라즈베리파이는 GPU 서버와 직접 연결되지 않고

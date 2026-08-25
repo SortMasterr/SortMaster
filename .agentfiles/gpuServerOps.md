@@ -65,9 +65,9 @@ pip install opencv-python-headless ultralytics requests torch torchvision numpy
 참고). `--break-system-packages`는 `--user`라 홈 디렉터리 안에만 설치되는 거라 시스템
 자체엔 영향 없음(PEP 668 externally-managed-environment 보호를 사용자 레벨 설치에서만
 우회). `.venv-inference`라는 이름은 `.gitignore`에 이미 예약돼 있던 패턴 — `tracking2.py`/
-`sideOverflow.py`를 Docker로 컨테이너화할지 systemd+venv로 호스트에서 직접 돌릴지가 아직
-TBD(`architecture.md` 참고)라, 컨테이너화하면 이 venv는 버려도 되고 systemd로 가면 그대로
-운영 환경이 됨.
+`sideOverflow.py`는 **Docker화(`inference`/`side-overflow` 서비스, `gpu` profile)로
+방향 확정**됐으므로(`architecture.md`/`decisionLog.md` 참고) 이 venv는 결국 버려도 되지만,
+컨테이너 빌드+기동이 실제로 검증되기 전까지는 이 venv로 직접 실행해서 계속 테스트할 것.
 
 ## GPU 카드 격리 & 포트
 
