@@ -44,7 +44,7 @@ async def main() -> None:
     binState, eventResult = await binStateService.applyUpdate(
         BinStateUpdate(
             binId=binId,
-            binType=BinType.GENERAL,
+            binType=BinType.NORMAL,
             sessionId=sessionId,
             currentState=BinCurrentState.FULL,
             confidenceScore=0.97,
@@ -75,7 +75,7 @@ async def main() -> None:
     binState, eventResult = await binStateService.applyUpdate(
         BinStateUpdate(
             binId=binId,
-            binType=BinType.GENERAL,
+            binType=BinType.NORMAL,
             sessionId=sessionId,
             currentState=BinCurrentState.FULL,
             confidenceScore=0.98,
@@ -91,7 +91,7 @@ async def main() -> None:
     binState, eventResult = await binStateService.applyUpdate(
         BinStateUpdate(
             binId=binId,
-            binType=BinType.GENERAL,
+            binType=BinType.NORMAL,
             sessionId=sessionId,
             currentState=BinCurrentState.NORMAL,
             confidenceScore=0.95,

@@ -46,7 +46,7 @@ dataset:
     - trashNormal
     - trashPaper
     - trashRecyclables
-    - trashCoffeecup
+    - trashCoffeeCup
 
 training:
   epochs: 100

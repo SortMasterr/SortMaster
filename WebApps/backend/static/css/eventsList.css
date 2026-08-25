@@ -404,12 +404,12 @@ td.time {
     background: #0284c7;
 }
 
-.tagPlastic {
+.tagRecyclables {
     background: #e0e7ff;
     color: #3730a3;
 }
 
-.tagPlastic .tagDot {
+.tagRecyclables .tagDot {
     background: #4f46e5;
 }
 
@@ -422,12 +422,12 @@ td.time {
     background: #9333ea;
 }
 
-.generalWaste {
+.normalWaste {
     background: #9496b3;
     color: #2aff5f;
 }
 
-.generalWaste .tagDot {
+.normalWaste .tagDot {
     background: #41ff71;
 }
 

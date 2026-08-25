@@ -29,7 +29,7 @@ def eventCreate():
         eventCategory=EventCategory.MISCLASSIFICATION,
         detectionId="controller-detection",
         trackingId=8,
-        detectedClass=DetectedClass.PLASTIC_CAN,
+        detectedClass=DetectedClass.RECYCLABLES,
         binId="BIN-PAPER",
         binType=BinType.PAPER,
         isMisclassified=True,

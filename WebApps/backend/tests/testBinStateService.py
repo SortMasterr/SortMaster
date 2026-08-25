@@ -85,7 +85,7 @@ def createUpdate(
 ):
     return BinStateUpdate(
         binId=binId,
-        binType=BinType.GENERAL,
+        binType=BinType.NORMAL,
         sessionId=sessionId,
         currentState=currentState,
         confidenceScore=0.95,
@@ -173,7 +173,7 @@ class BinStateServiceTest(unittest.IsolatedAsyncioTestCase):
             BinStateUpdate(
                 binId="BIN-GENERAL",
                 cameraId=CameraId.ELEVTOP,
-                binType=BinType.GENERAL,
+                binType=BinType.NORMAL,
                 sessionId="session-1",
                 currentState=BinCurrentState.FULL,
                 confidenceScore=0.9,

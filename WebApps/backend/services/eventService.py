@@ -34,28 +34,28 @@ class EventCreationResult:
 
 
 # models/trashdetect/tracking2.py가 실제로 내보내는 값 — 모델이 plastic/can을 구분 못 해서
-# "recyclables" 하나로 합쳐 나옴(DetectedClass.PLASTIC_CAN과 1:1 대응, decisionLog.md 참고).
+# "recyclables" 하나로 합쳐 내며 내부 API 값도 같은 이름을 사용한다.
 # detectedClass/binId 둘 다 이 값 체계를 그대로 씀(스크립트 내 TRASH_TYPE_MAP/BIN_TYPE_MAP과 동일).
 _aiClassToDetectedClass: dict[str, DetectedClass] = {
-    "normal": DetectedClass.GENERAL,
+    "normal": DetectedClass.NORMAL,
     "paper": DetectedClass.PAPER,
-    "recyclables": DetectedClass.PLASTIC_CAN,
+    "recyclables": DetectedClass.RECYCLABLES,
     "coffeecup": DetectedClass.COFFEE_CUP,
 }
 
 _aiClassToBinType: dict[str, BinType] = {
-    "normal": BinType.GENERAL,
+    "normal": BinType.NORMAL,
     "paper": BinType.PAPER,
-    "recyclables": BinType.PLASTIC_CAN,
+    "recyclables": BinType.RECYCLABLES,
     "coffeecup": BinType.COFFEE_CUP,
 }
 
 # 물리 통 ID 문자열 자체는 CTO 승인 불필요(decisionLog.md의 SIDE bin-side-01 선례) —
 # debug/db/seedTestEvents.py와 동일한 명명 재사용
 _binTypeToBinId: dict[BinType, str] = {
-    BinType.GENERAL: "BIN-GENERAL",
+    BinType.NORMAL: "BIN-GENERAL",
     BinType.PAPER: "BIN-PAPER",
-    BinType.PLASTIC_CAN: "BIN-PLASTIC-CAN",
+    BinType.RECYCLABLES: "BIN-PLASTIC-CAN",
     BinType.COFFEE_CUP: "BIN-COFFEE-CUP",
 }
 

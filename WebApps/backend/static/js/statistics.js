@@ -6,9 +6,9 @@ document.addEventListener(
     "DOMContentLoaded",
     async () => {
         const typeNameByClass = {
-            general: "일반 쓰레기",
+            normal: "일반 쓰레기",
             paper: "종이",
-            plasticCan: "플라스틱·캔",
+            recyclables: "플라스틱·캔",
             coffeeCup: "커피 컵",
         };
 
@@ -146,11 +146,11 @@ document.addEventListener(
         function renderClassStatistics(
             countByClass
         ) {
-            const generalCount =
-                countByClass.general ?? 0;
+            const normalCount =
+                countByClass.normal ?? 0;
 
-            const plasticCount =
-                countByClass.plasticCan ?? 0;
+            const recyclablesCount =
+                countByClass.recyclables ?? 0;
 
             const paperCount =
                 countByClass.paper ?? 0;
@@ -159,8 +159,8 @@ document.addEventListener(
                 countByClass.coffeeCup ?? 0;
 
             const displayedCounts = [
-                generalCount,
-                plasticCount,
+                normalCount,
+                recyclablesCount,
                 paperCount,
                 coffeeCupCount,
             ];
@@ -172,13 +172,13 @@ document.addEventListener(
                 );
 
             updateText(
-                "generalCount",
-                generalCount
+                "normalCount",
+                normalCount
             );
 
             updateText(
-                "plasticCount",
-                plasticCount
+                "recyclablesCount",
+                recyclablesCount
             );
 
             updateText(
@@ -192,14 +192,14 @@ document.addEventListener(
             );
 
             updateBar(
-                "generalBar",
-                generalCount,
+                "normalBar",
+                normalCount,
                 maximumCount
             );
 
             updateBar(
-                "plasticBar",
-                plasticCount,
+                "recyclablesBar",
+                recyclablesCount,
                 maximumCount
             );
 

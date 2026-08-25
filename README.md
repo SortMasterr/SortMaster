@@ -103,19 +103,19 @@ docker compose up --build
 - **탐지**: **TOP은 GPU 서버 → 로컬 백엔드 end-to-end 연결성 검증 완료**(2026-08-25, 실제
   TOP MJPEG 스트림을 GPU가 SSH 역터널로 구독 → YOLO26 판정 → `POST
   /api/events/aiDisposal`까지 확인 — 단, 상시 서비스화(systemd/Docker)와 실제 통 위치 기준
-  ROI 재보정은 아직 TBD). **SIDE는 MobileNet_V3_Small**(경량 분류 모델)로 역할이 나뉨(상세는
-  `.agentfiles/architecture.md`, `.agentfiles/apiSpec.md` 참고 — SIDE는 원래 룰 베이스로
-  확정했다가 재전환, 이유는 `.agentfiles/decisionLog.md` 참고). 메인보드를 Jetson Orin
-  Nano Super→**라즈베리파이**로 전환하면서 **TOP의 YOLO26 추론 위치도 엣지→GPU 서버
+  ROI 재보정은 아직 TBD). **SIDE도 이제 TOP과 완전히 동일한 구조**(GPU 서버가
+  `models/trashoverflow/sideOverflow.py`로 MobileNet_V3_Small 판정 — 코드는 작성됐지만
+  실제 GPU 배포/실행 검증은 아직 안 됨). SIDE는 원래 룰 베이스 → 로컬 백엔드 CPU 추론(GPU
+  미사용) → 지금의 GPU 서버 방식까지 두 번 재전환됐음(이유는 `.agentfiles/decisionLog.md`
+  참고 — 기술적 필요보다는 TOP과의 아키텍처 일관성이 마지막 전환의 이유). 메인보드를 Jetson
+  Orin Nano Super→**라즈베리파이**로 전환하면서 **TOP의 YOLO26 추론 위치도 엣지→GPU 서버
   (`models/trashdetect/tracking2.py`)로 이관**(라즈베리파이는 캡처+RTSP 송신+GPIO/스피커만
-  담당, 추론 없음). **SIDE는 GPU 서버에 아예 관여하지 않고 로컬 백엔드가 CPU로 직접
-  MobileNet 추론**. Qwen3-VL-8B(LLM)는 실시간 경로엔 안 쓰고 학습 준비 단계의 자동 라벨링
+  담당, 추론 없음). Qwen3-VL-8B(LLM)는 실시간 경로엔 안 쓰고 학습 준비 단계의 자동 라벨링
   검증에 **이미 사용 중**(베이스 모델+프롬프트, 파인튜닝은 필요성 확인되면 착수 — 통 모양
   인식 데이터 생성은 아직 미착수). 트리거 조건은 손 감지 조합이 아니라 **쓰레기 감지
-  자체**로 변경됨 — SIDE는 로컬 백엔드가 넘침 감지 시 위치 특정 없이 바로 `overflow` 판정,
-  TOP은 GPU(`tracking2.py`)가 감지+추적+분류+정상·오분류 판정까지 자체적으로 끝내서 결과를
-  로컬 백엔드로 푸시하면, 백엔드는 통 상태/쿨다운과 종합해 `EVENT`로 저장(재계산 안 함,
-  상세는 `.agentfiles/architecture.md`의 "탐지 파이프라인"
+  자체**로 변경됨 — TOP(`tracking2.py`)/SIDE(`sideOverflow.py`) 둘 다 GPU 서버가 감지+판정을
+  자체적으로 끝내서 결과를 로컬 백엔드로 푸시하면, 백엔드는 통 상태/쿨다운과 종합해
+  `EVENT`로 저장(재계산 안 함, 상세는 `.agentfiles/architecture.md`의 "탐지 파이프라인"
   참고). 이벤트는
   `misclassification`(투기)/`overflow`(넘침) 두 카테고리로 나뉨(스키마에 반영 완료,
   `schemas/event.py`의 `EventCategory`).
@@ -140,22 +140,23 @@ docker compose up --build
 
 > **배포 위치(확정)** — 과거 "백엔드+DB+LLM 추론+학습을 GPU 서버에 전부 통합 배포" 결정을
 > 뒤집음. **백엔드+DB는 로컬(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)**에서 구동하고,
-> **GPU 서버는 YOLO26 학습+추론(TOP)+LLM 자동 라벨링 검증** 담당(GPU 서버는 타 팀과 공유하는
-> 자원이라 부담 경감 목적). LLM은 실시간 탐지 경로엔 여전히 안 씀 — 학습 준비 단계 검증용으로만
-> 이미 사용 중. **메인보드를 Jetson Orin Nano Super→라즈베리파이로 전환하며 TOP의 YOLO26
-> 추론도 엣지→GPU 서버로 이관**(라즈베리파이는 추론 성능 부족). **SIDE는 MobileNet_V3_Small을
-> 로컬 백엔드가 CPU로 직접 실행**(GPU 서버 미사용). 상세는 `.agentfiles/architecture.md` 참고.
+> **GPU 서버는 YOLO26(TOP)+MobileNet_V3_Small(SIDE) 추론+학습+LLM 자동 라벨링 검증** 담당
+> (GPU 서버는 타 팀과 공유하는 자원이라 부담 경감 목적 — 단, SIDE를 GPU로 올린 건 자원
+> 필요보다는 TOP과의 아키텍처 일관성 때문, `.agentfiles/decisionLog.md` 참고). LLM은 실시간
+> 탐지 경로엔 여전히 안 씀 — 학습 준비 단계 검증용으로만 이미 사용 중. **메인보드를 Jetson
+> Orin Nano Super→라즈베리파이로 전환하며 TOP의 YOLO26 추론도 엣지→GPU 서버로 이관**
+> (라즈베리파이는 추론 성능 부족). 상세는 `.agentfiles/architecture.md` 참고.
 
 - **개발**: Windows 노트북에서 Docker로 진행(로컬 웹캠 테스트)
 - **배포**: `backend`+`mongo`는 로컬 `<LOCAL_BACKEND_IP>`(실제 값은 Notion 참고)에서 `docker compose up backend mongo`로
   구동. `training`/`llm`을 학원 GPU 서버(Linux, **NVIDIA L40S 4장 중 할당받은 1장**)로
   이전해서 `docker compose --profile training up`/`--profile llm up`(자동 라벨링 검증
-  파이프라인 돌 때만 같이 기동). **TOP 카메라 YOLO26 상시 추론(`models/trashdetect/
-  tracking2.py`)은 아직 Docker 컨테이너가 아니라 GPU 서버에서 사람이 직접 실행하는 독립
-  스크립트** — 상시 서비스화(systemd/Docker화)는 TBD(`.agentfiles/architecture.md` 참고)
-- 다른 팀들과 서버를 공유하기 때문에 4장 중 **1장만 할당**받아 사용. **TOP 카메라 YOLO26
-  상시 추론은 GPU 서버의 `tracking2.py`가 담당**(라즈베리파이는 추론 없이 캡처+RTSP+
-  GPIO만, SIDE는 로컬 백엔드가 MobileNet_V3_Small을 CPU로 직접 실행해서 GPU 자체를 안 씀,
+  파이프라인 돌 때만 같이 기동). **TOP(`models/trashdetect/tracking2.py`)/SIDE
+  (`models/trashoverflow/sideOverflow.py`) 상시 추론 둘 다 아직 Docker 컨테이너가 아니라
+  GPU 서버에서 사람이 직접 실행하는 독립 스크립트** — 상시 서비스화(systemd/Docker화)는
+  TBD(`.agentfiles/architecture.md` 참고)
+- 다른 팀들과 서버를 공유하기 때문에 4장 중 **1장만 할당**받아 사용. **TOP/SIDE 상시 추론
+  둘 다 GPU 서버가 담당**(라즈베리파이는 추론 없이 캡처+RTSP+GPIO만,
   `.agentfiles/architecture.md` 참고). GPU 패스스루는 `nvidia-docker`(NVIDIA Container
   Toolkit) 필요.
 - 로컬(웹캠)과 GPU 서버 배포(RTSP 수신/샘플 영상) 간 영상 소스는 `.env`의
@@ -193,14 +194,17 @@ GPU 서버로 이관하면서 메인보드엔 고성능 추론이 더 이상 필
    `models/trashdetect/tracking2.py`(YOLO26, 아직 Docker 컨테이너 아닌 독립 스크립트)가
    자체적으로 감지+추적+분류+정상/오분류 판정까지 끝내고 `POST /api/events/aiDisposal`로
    보내는 결과를 받아 통 상태/쿨다운과 종합해 저장(2026-08-25 실제 스트림 기준 end-to-end
-   검증됨, `.agentfiles/architecture.md` 참고). **SIDE는 MobileNet_V3_Small**(로컬
-   백엔드가 CPU로 직접 추론)로 `overflow` 판정(Qwen3-VL-8B는 실시간 경로엔 안 들어감,
-   학습 준비 단계 자동 라벨링 검증에만 사용). 지금 스텁도 이벤트 시작/종료 시점마다 아래
-   3~5번 파이프라인(`recordingService.start`/`stop` → `mediaService.saveClipAsGif` →
-   `eventService.createEvent`)을 그대로 호출함(수동 검증은
+   검증됨, `.agentfiles/architecture.md` 참고). **SIDE도 이제 완전히 같은 패턴** —
+   `models/trashoverflow/sideOverflow.py`(GPU 서버, 독립 스크립트)가 MobileNet_V3_Small로
+   자체 판정 후 `POST /api/binStates`로 결과를 푸시(로컬 백엔드가 SIDE를 호출하지 않음).
+   단, TOP과 달리 실제 GPU 서버 배포/실행은 아직 검증 안 됨(코드만 작성된 상태,
+   `decisionLog.md` 참고). Qwen3-VL-8B(LLM)는 실시간 경로엔 안 들어감, 학습 준비 단계
+   자동 라벨링 검증에만 사용. 지금 스텁(`services/detectionService.py`)도 이벤트 시작/종료
+   시점마다 아래 3~5번 파이프라인(`recordingService.start`/`stop` →
+   `mediaService.saveClipAsGif` → `eventService.createEvent`)을 그대로 호출함(수동 검증은
    `debug/detection/simulateEventPipeline.py` 또는 `testDetectionApi.http` 참고). SIDE
    모델 가중치(`bestSide.pt`)는 `.gitignore` 대상이라 레포에 없음 — 실제 추론 테스트는
-   가중치 파일을 팀원에게 받아 `models/trashoverflow/`에 둬야 가능
+   가중치 파일을 팀원에게 받아 GPU 서버의 `models/trashoverflow/`에 둬야 가능
 3. ~~**이벤트 트리거 녹화**~~ **완료** — `services/recordingService.py`. 탐지 서비스가
    아직 없어서 고정 10초 대신, 시작/종료 두 신호(향후 탐지 파이프라인이 전달) 사이의
    실제 구간을 캡처하는 구조로 미리 구현. 2번이 없는 지금은 디버그 스크립트로 신호를

@@ -12,6 +12,11 @@ from schemas.event import BinType, CameraId
 
 logger = logging.getLogger(__name__)
 
+_legacyBinTypeValues = {
+    "general": BinType.NORMAL,
+    "plasticCan": BinType.RECYCLABLES,
+}
+
 
 class BinStateRepository:
     def __init__(self):
@@ -33,7 +38,7 @@ class BinStateRepository:
         return BinState(
             binId=document["binId"],
             cameraId=CameraId(document["cameraId"]),
-            binType=BinType(document["binType"]),
+            binType=_parseBinType(document["binType"]),
             sessionId=document["sessionId"],
             currentState=BinCurrentState(document["currentState"]),
             confidenceScore=document["confidenceScore"],
@@ -106,3 +111,9 @@ class BinStateRepository:
 
 
 binStateRepository = BinStateRepository()
+
+
+def _parseBinType(value: str) -> BinType:
+    if value in _legacyBinTypeValues:
+        return _legacyBinTypeValues[value]
+    return BinType(value)
