@@ -48,15 +48,18 @@ dataset:
   trainRatio: 0.80
   valRatio: 0.10
   testRatio: 0.10
-  # TOP 모델(bestTop.pt) 클래스명은 snake_case로 영구 고정(2026-08-25 팀 결정) —
-  # WebApps/backend/models/trashdetect/tracking2.py의 model.names 매칭 값과 항상
-  # 동일해야 하며, 코드 컨벤션(camelCase)과 무관한 naming.md의 예외 항목. 재학습해도
-  # 이 표기는 그대로 유지 — camelCase로 바꾸지 말 것(.agentfiles/decisionLog.md 참고).
+  # 다음 재학습부터의 목표 클래스명(camelCase, 2026-08-25 재회의 최종 결정 — 전체
+  # camelCase 통일, 다음 TOP 모델도 포함). 단, 지금 운영 중인 bestTop.pt는 여전히
+  # snake_case(trash_normal 등)를 내놓는 기존 체크포인트라, 새 camelCase 모델이 실제로
+  # 재학습·Promote·Deploy될 때까지 WebApps/backend/models/trashdetect/tracking2.py의
+  # EXPECTED_CLASS_NAMES/TRASH_CLASSES/TRASH_TYPE_MAP은 snake_case 그대로 둬야 함(먼저
+  # 바꾸면 현재 모델 기준 감지가 전부 무시됨) — 새 모델 배포 시 tracking2.py도 그 시점에
+  # 함께 camelCase로 전환할 것(.agentfiles/decisionLog.md 참고).
   classes:
-    - trash_normal
-    - trash_paper
-    - trash_recyclables
-    - trash_coffeecup
+    - trashNormal
+    - trashPaper
+    - trashRecyclables
+    - trashCoffeeCup
 
 training:
   epochs: 100

@@ -251,3 +251,14 @@
   `naming.md`의 영구 예외로 확정**하는 쪽으로 단순화함. `pipelineConfig.yaml`의
   `dataset.classes`도 camelCase 목표값에서 다시 snake_case로 되돌림 — 앞으로 재학습을
   하더라도 이 표기는 그대로 유지(camelCase 전환 계획 자체를 폐기)
+- **위 "TOP 클래스명 영구 snake_case 예외" 결정을 팀 재회의로 다시 뒤집음 — 전체
+  camelCase 통일 재확정, 다음 TOP 모델도 포함** → 팀에서 다시 논의한 결과 "TOP만 예외로
+  영구 snake_case"보다 "전체 다 camelCase로 통일, 다음 재학습되는 TOP 모델도 camelCase로
+  만든다"는 `ukjin`의 원래 계획(`10aff38`) 쪽으로 최종 확정. `autoTraining/pipelineConfig.yaml`의
+  `dataset.classes`를 다시 camelCase(`trashNormal` 등)로 되돌림. **단, 지금 운영 중인
+  `bestTop.pt`가 여전히 snake_case를 내놓는다는 사실 자체는 안 바뀌므로**,
+  `tracking2.py`의 `EXPECTED_CLASS_NAMES`/`TRASH_CLASSES`/`TRASH_TYPE_MAP`은 새
+  camelCase 모델이 실제로 재학습·Promote·Deploy되기 전까지는 계속 snake_case를 유지 —
+  코드는 안 건드리고 문서(`naming.md`/`autoTraining/README.md`)만 "영구 예외"에서 "과도기
+  상태, 새 모델 배포 시 함께 전환"으로 다시 정정. 새 모델이 실제로 나오면 그 시점에
+  `tracking2.py` 세 값도 camelCase로 바꿀 것 — 이번엔 되돌리지 않고 유지

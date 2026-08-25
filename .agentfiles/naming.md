@@ -19,13 +19,18 @@
 - Docker 이미지/컨테이너 이름은 케밥케이스(`sortmaster-backend`) — Docker 이미지 이름은 대문자 자체가 불가능(소문자+`.`/`_`/`-`만 허용)하고, Docker 생태계 관례와도 일치
 - GPU 서버 스크립트 및 학습 파이프라인과 연동되는 모델 가중치·산출물 파일명은 Python·학습 도구 관례와 기존 연동을 우선해 snake_case 허용
   (`best_side.pt` 등). 이름을 바꾸려면 GPU 서버 스크립트와 모든 참조 위치를 함께 변경
-- **TOP 모델(`bestTop.pt`)이 내놓는 클래스명 문자열**(`tracking2.py`의 `model.names` — 예:
-  `trash_normal`)은 **snake_case로 영구 고정**(2026-08-25 팀 결정) — camelCase 변환
-  대상이 아님(프레임워크 강제 이름과 같은 성격). 재학습해도 이 표기는 바꾸지 않기로
-  확정했으므로, `tracking2.py`의 `EXPECTED_CLASS_NAMES`/`TRASH_CLASSES`/`TRASH_TYPE_MAP`과
-  `autoTraining/pipelineConfig.yaml`의 `dataset.classes` 전부 이 문자열을 그대로 써야 함
-  — 과거에 이 값들을 camelCase로 "정리"했다가 `model.names`와 안 맞아서 모든 감지가
-  조용히 무시되는 회귀가 있었음(`.agentfiles/decisionLog.md` 참고)
+- **학습된 모델 파일이 실제로 내놓는 클래스명 문자열**(`tracking2.py`의 `model.names`)은
+  코드 컨벤션(camelCase)과 무관하게, **그 시점에 로드하는 체크포인트가 실제로 내놓는
+  문자열과 정확히 일치**해야 함(프레임워크 강제 이름과 같은 성격 — 값을 바꾸려면 실제
+  모델을 재로드해서 `model.names` 대조 후 바꿀 것, 코드만 보고 "일관성 있게" 리네임하면
+  안 됨). **지금 운영 중인 `bestTop.pt`는 snake_case**(`trash_normal` 등)를 내놓으므로
+  `tracking2.py`의 `EXPECTED_CLASS_NAMES`/`TRASH_CLASSES`/`TRASH_TYPE_MAP`도 snake_case를
+  써야 함 — 과거에 이 값들을 camelCase로 "정리"했다가 회귀가 있었음(`.agentfiles/decisionLog.md`
+  참고). **전체 camelCase 통일이 팀 목표**(2026-08-25 재확정, `autoTraining/pipelineConfig.yaml`의
+  `dataset.classes`가 이미 이 목표를 반영)라 다음 재학습되는 새 TOP 모델은 camelCase
+  클래스명으로 만들 예정 — 그 모델이 실제로 `bestTop.pt`를 교체하는 시점에 `tracking2.py`의
+  위 세 값도 함께 camelCase로 전환할 것(전환 전까지는 설정 파일=목표(camelCase),
+  `tracking2.py`=현재 운영 모델 값(snake_case)이 서로 다른 게 정상)
 
 ## 폴더 구조 (`WebApps/backend`)
 
