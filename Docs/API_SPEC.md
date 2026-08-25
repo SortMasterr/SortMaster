@@ -27,6 +27,7 @@
 * 관리 모드에서 오분류 이벤트 WebSocket 알림
 * Jinja2 기반 모니터링, 이전기록, 통계 페이지
 * 프론트엔드와 실제 API 연동
+* 통계 대시보드 수신 이메일 입력 및 일일·주간 보고서 수동 발송 API
 * 5초 중복 이벤트 방지 Cooldown
 * 요청 스키마 및 Enum 검증
 * 이벤트 미존재 시 HTTP 404 처리
@@ -1035,6 +1036,59 @@ EP-02와 동일한 `Event` 형태. `result: correct`이거나 값 매핑에 실�
 
 ---
 
+## EP-13. `POST /api/reports/email`
+
+통계 대시보드에서 사용자가 입력한 이메일 주소로 일일 또는 주간 통계 보고서를 발송한다.
+수신 주소는 `.env`가 아니라 요청 Body에서 받으며, SMTP 발신 계정과 비밀번호는 브라우저에
+노출하지 않고 서버 환경 설정에만 둔다. 기존 `RPAs/reportAutomation/reportAutomation.py`의
+기간 조회, 통계·이벤트 교차 검증, HTML 본문, CSV 첨부, SMTP 발송 및 중복 방지 로직을
+재사용한다.
+
+### Request Body — `ReportEmailRequest`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `recipient` | string | ✅ | 화면에서 입력한 수신 이메일 한 개(최대 254자) |
+| `reportType` | string | 선택 | `daily`(기본값) 또는 `weekly` |
+| `targetDate` | string | 선택 | `YYYY-MM-DD`. daily는 대상일, weekly는 시작 월요일. 생략하면 직전 완료 일/주 |
+
+### 요청 예시
+
+```json
+{
+  "recipient": "manager@example.com",
+  "reportType": "daily",
+  "targetDate": "2026-08-24"
+}
+```
+
+### 정상 응답 — `ReportEmailResponse`(HTTP 200)
+
+```json
+{
+  "status": "sent",
+  "reportType": "daily",
+  "period": "2026-08-24",
+  "recipient": "manager@example.com",
+  "message": "보고서 이메일을 발송했습니다."
+}
+```
+
+### 에러 응답
+
+| 상태 코드 | 발생 조건 |
+| --- | --- |
+| 400 | 보고서 기준일 또는 서버 SMTP 설정 오류 |
+| 409 | 같은 수신자에게 같은 기간 보고서를 이미 발송함 |
+| 423 | 다른 보고서 프로세스가 실행 중임 |
+| 422 | 이메일 형식 또는 요청 스키마 불일치 |
+| 502 | 통계 API 검증, SMTP 인증·연결·발송 실패 |
+
+현재 인증·권한은 구현되지 않았으므로 내부망 대시보드 사용을 전제로 한다. 외부 공개 전에는
+이 엔드포인트에 관리자 인증과 발송 제한을 추가해야 한다.
+
+---
+
 # 2. 페이지 라우트 (`controllers/views.py`)
 
 페이지 라우트는 JSON이 아닌 Jinja2 `TemplateResponse`를 반환한다.
@@ -1081,6 +1135,8 @@ WS /ws/events
 * 오늘 이벤트 개수
 * 평균 신뢰도
 * 날짜, 클래스, 결과 및 알림 상태 필터
+* 최초 진입 시 시작일·종료일을 브라우저 현지 기준 당일로 자동 설정하고, 첫 조회부터 해당
+  날짜의 `from`/`to`만 API에 전달(필터 초기화도 당일 범위로 복귀)
 * 테이블 정렬
 * 페이지네이션
 * 행 선택 시 상세 모달
@@ -1378,6 +1434,7 @@ camelCase를 유지한다.
 | EP-10   | BIN_STATES 조회           | 구현됨             |
 | EP-11   | BIN_STATES 갱신(전환 시 overflow 이벤트 생성) | 구현됨 |
 | EP-12   | GPU 서버(`tracking2.py`) 투척 판정 결과 수신 | 구현됨(`tracking2.py`의 RTSP 연결·상시 서비스화는 TBD) |
+| EP-13   | 통계 보고서 이메일 수동 발송 | 구현됨(대시보드 수신자 입력, SMTP 발신 비밀은 서버 설정) |
 | PG-01   | 모니터링 페이지              | 구현됨             |
 | PG-02   | 이전기록 페이지              | 구현됨             |
 | PG-03   | 통계 대시보드               | 구현됨             |
