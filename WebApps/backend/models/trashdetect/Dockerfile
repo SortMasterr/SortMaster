@@ -14,7 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir \
         ultralytics \
         opencv-python-headless \
-        requests
+        requests \
+        lap==0.5.13
 
 # 소스/가중치(bestTop.pt)/트래커 설정은 이미지에 굽지 않고 볼륨으로 마운트
 # (training/Dockerfile과 같은 패턴 — bestTop.pt는 .gitignore 대상이라 이미지에
