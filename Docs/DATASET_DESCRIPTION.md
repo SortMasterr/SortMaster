@@ -115,3 +115,16 @@ trashoverflow/`, `.agentfiles/decisionLog.md` 참고). 추론 위치는 두 번 
 - `RULE_BASED_BIN_ROIS`(통 위치 고정 ROI) 실측 재보정 — 지금은 데모/임시 좌표, 실제 카메라
   설치 후 필요(`.agentfiles/architecture.md` 참고)
 - BoT-SORT/ReID 파라미터의 실제 영상 기준값
+
+## 6. MongoDB 학습 데이터 원본 저장소
+
+자동 재학습용 기존·신규 데이터의 원본은 같은 MongoDB 안의 `trainingSamples` 컬렉션과
+`trainingImages` GridFS 버킷으로 관리한다. 이벤트 클립용 `events`/`topMedia`와 섞지 않는다.
+사람의 최종 승인 데이터만 Publish하며, 문서는 `_id`(sample ID), `imageFileId`,
+`imageSha256`, `labelSha256`, `yoloLabels`, `classNames`, `inputMode`, `status`,
+`sourceEventId`, `sourceGroup`, `batchId`, `createdAt`을 기록한다.
+
+재학습 전 SyncDataset은 현재 `classNames`/`inputMode` 계약과 일치하고 `status: active`인
+전체 샘플을 로컬 배치 스냅샷으로 내려받아 이미지·라벨 해시를 검증한다. Build와 Train은 학습
+도중 DB 변경의 영향을 받지 않도록 이 스냅샷만 사용한다. 구현은 완료됐으나 실제 운영 DB에서의
+초기 데이터 등록과 E2E 검증은 아직 수행하지 않았다.

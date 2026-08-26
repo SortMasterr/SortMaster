@@ -41,6 +41,20 @@ python debug/db/testCrud.py
 python debug/db/seedTestEvents.py
 ```
 
+## 5. visitClips 적재 확인 (읽기 전용)
+
+`presenceGateService`가 사람 방문마다 무조건 저장하는 `visitClips` 컬렉션이 실제로
+쌓이는지 확인하는 스크립트. `testDbConnection.py`와 동일하게 `.env` 접속 대상을
+조회만 하고 아무것도 쓰지 않는다 — 로컬/팀 배포 서버 어느 쪽 `.env`로도 실행 가능.
+
+```bash
+python debug/db/checkVisitClips.py
+```
+
+전체 문서 수, `matchedEventIds`가 비어있는(재학습 후보) 문서 수, 최근 5개를 출력한다.
+`trackIds`는 GPU `tracking2.py`가 `trackStarted`를 아직 안 보내서 지금은 항상 0이
+정상(`.agentfiles/architecture.md`의 "재학습용 미확정 방문 캡처" 참고).
+
 ## 참고
 - 로컬 Docker MongoDB 사용 (Atlas 아님 — GPU 서버(L40S)에도 동일하게 Docker로 배포 예정)
 - 실제 백엔드는 Motor Repository 계층으로 MongoDB에 연동되어 있다. 이 스크립트들은

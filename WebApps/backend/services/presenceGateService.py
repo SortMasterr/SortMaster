@@ -17,20 +17,25 @@ import asyncio
 import logging
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 import cv2
 import numpy as np
 
 from detection.presenceDetector import PersonPresenceDetector
+from repositories.eventRepository import eventRepository
 from schemas.event import CameraId
 from services.detectionService import detectionService
 from services.errors import (
     CameraUnavailableError,
+    EmptyRecordingError,
     RecordingCameraMismatchError,
     RecordingNotFoundError,
 )
+from services.mediaService import mediaService
 from services.recordingService import recordingService
+from services.visitClipService import visitClipService
 from streaming.cameraManager import cameraManagers
 
 logger = logging.getLogger(__name__)
@@ -221,7 +226,7 @@ class PresenceGateService:
             return
 
         try:
-            _frames, durationSeconds = await recordingService.stop(
+            frames, durationSeconds = await recordingService.stop(
                 recordingId,
                 expectedCameraId=self.cameraId,
             )
@@ -245,6 +250,40 @@ class PresenceGateService:
             recordingId,
             durationSeconds,
         )
+
+        await self._saveVisitClip(frames, durationSeconds)
+
+    async def _saveVisitClip(
+        self,
+        frames: list,
+        durationSeconds: float,
+    ) -> None:
+        """오분류 판정(GPU)과 완전히 무관하게, 방문 자체를 무조건 GridFS+visitClips에 남긴다.
+
+        YOLO가 트랙조차 인지 못 한 실패 사례까지 재학습 후보로 잡으려면 판정 결과와
+        상관없이 저장해야 한다 — architecture.md의 "재학습용 미확정 방문 캡처" 참고.
+        """
+        endedAt = datetime.now(timezone.utc)
+        startedAt = endedAt - timedelta(seconds=durationSeconds)
+
+        try:
+            imageFileId = await mediaService.saveClipAsGif(
+                frames, self.cameraId, endedAt
+            )
+        except EmptyRecordingError:
+            logger.warning(
+                "[presenceGateService] '%s' 방문 구간에 캡처된 프레임이 없어 "
+                "visitClip 저장 생략",
+                self.cameraId.value,
+            )
+            return
+
+        eventIdsNeedingImage = await visitClipService.createClipForVisit(
+            self.cameraId, startedAt, endedAt, imageFileId
+        )
+
+        for eventId in eventIdsNeedingImage:
+            await eventRepository.updateImageFileId(eventId, imageFileId)
 
 
 presenceGateService = PresenceGateService(CameraId.ELEVTOP, cameraManagers)

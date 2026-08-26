@@ -25,6 +25,7 @@ from schemas.event import (
 from schemas.mode import Mode
 from schemas.statistics import Statistics
 from services.modeService import modeService
+from services.visitClipService import visitClipService
 
 
 @dataclass(frozen=True)
@@ -177,6 +178,10 @@ class EventService:
                 "[eventService] AI 투기 이벤트 무시(판정 결과 unknown): "
                 f"eventId={aiEvent.eventId}"
             )
+            # GPU가 스스로 판정을 못 내렸다고 알려온 것 — trackEnded(확정 실패)와
+            # 성격이 같아서 재학습 후보 분류에도 동일하게 반영한다(architecture.md의
+            # "재학습용 미확정 방문 캡처" 참고).
+            await visitClipService.registerTrackEnded(aiEvent.trackId)
             return EventCreationResult(event=None, created=False)
 
         eventCreate = EventCreate(
@@ -195,7 +200,30 @@ class EventService:
             modelVersion="yolo26-tracking2",
         )
 
-        return await self.createEventWithStatus(eventCreate)
+        result = await self.createEventWithStatus(eventCreate)
+
+        # correct 판정은 EVENT를 저장하지 않지만(위 _createEventWithStatus 참고), 그래도
+        # 방문 자체는 "정상적으로 해결됨"으로 표시해야 재학습 후보(미확정 방문)로 잘못
+        # 잡히지 않는다 — eventId=None으로 호출해도 resolved 표시는 그대로 된다.
+        resolvedEventId = result.event.eventId if result.event is not None else None
+        immediateImageFileId = await visitClipService.registerAiDisposalResolution(
+            aiEvent.trackId, resolvedEventId
+        )
+
+        # clip이 이미 만들어진 뒤에 이 결과가 늦게 도착한 드문 경우에만 값이 옴 — 보통은
+        # presenceGateService가 방문 종료 시점에 한꺼번에 채운다.
+        if immediateImageFileId is not None and result.event is not None:
+            await self.repository.updateImageFileId(
+                result.event.eventId, immediateImageFileId
+            )
+            result = EventCreationResult(
+                event=result.event.model_copy(
+                    update={"imageFileId": immediateImageFileId}
+                ),
+                created=result.created,
+            )
+
+        return result
 
     async def _createEventWithStatus(
         self,
