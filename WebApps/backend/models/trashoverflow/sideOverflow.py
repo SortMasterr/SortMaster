@@ -53,8 +53,8 @@ STREAM_RECONNECT_DELAY_SECONDS = 2.0
 
 CAMERA_ID = "ELEV-SIDE"
 
-# 현재 물리 통 3개(binId) 중 이 모델/roi.json이 실제로 보고 있는 통 하나 — roi.json이 현재
-# 단일 ROI만 지원해서 우선 통 1개로 매핑(decisionLog.md 참고, 통 3개 각각 독립 판정하려면
+# 물리 통 4개(binId) 중 이 모델/roi.json이 실제로 보고 있는 통 하나 — roi.json이 현재
+# 단일 ROI만 지원해서 우선 통 1개로 매핑(decisionLog.md 참고, 통 4개 각각 독립 판정하려면
 # ROI를 나누고 모델을 통별로 돌려야 함 — TBD). 실제 설치 후 카메라 구도에 맞게 조정 필요.
 BIN_ID = "bin-side-01"
 BIN_TYPE = "general"

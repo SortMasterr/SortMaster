@@ -876,7 +876,7 @@ wss://서버주소/ws/events
 
 ## EP-10. `GET /api/binStates`
 
-현재 설치된 물리 쓰레기통 3개의 현재 상태(`BIN_STATES`)를 조회한다. 통계·이전기록과 달리 이력이 아니라
+물리 쓰레기통 4개의 현재 상태(`BIN_STATES`)를 조회한다. 통계·이전기록과 달리 이력이 아니라
 `binId`당 최신 상태 1행만 반환한다(대시보드에서 "지금 어느 통이 가득 찼는지" 표시용).
 
 ### 요청
@@ -1450,7 +1450,6 @@ camelCase를 유지한다.
 | EP-12   | GPU 서버(`tracking2.py`) 투척 판정 결과 수신 | 구현됨(`tracking2.py`의 RTSP 연결·상시 서비스화는 TBD) |
 | EP-13   | 자동 통계 보고서 수신 이메일 설정 | 구현됨(대시보드에서 1개 주소 저장, 별도 스케줄러가 일일·주간 자동 발송) |
 | EP-14   | FULL 감지 수거 작업 및 자동 알림 | 구현됨(배포 전 CTO 검토 필요) |
-| EP-16   | 3개 쓰레기통 위치 감지 상태·원위치 등록 | 구현됨(배포 전 CTO 검토 필요) |
 | PG-01   | 모니터링 페이지              | 구현됨             |
 | PG-02   | 이전기록 페이지              | 구현됨             |
 | PG-03   | 통계 대시보드               | 구현됨             |
@@ -1493,37 +1492,6 @@ camelCase를 유지한다.
 자동화 활성 여부, 담당자·관리자 주소 설정 여부, 워커 heartbeat와 상태, 미처리·확인·에스컬레이션·
 당일 완료 건수, 평균 처리시간, 최근 알림 실행 이력을 반환한다. SMTP 비밀번호와 전체 수신 주소는
 응답하지 않는다.
-
----
-
-## EP-16. 3개 쓰레기통 위치 기반 모드 자동 전환
-
-`RPA_BIN_POSITION_ENABLED=true`이면 백엔드가 `ELEV-SIDE` 프레임에서 ArUco
-`DICT_4X4_50` 마커 0, 1, 2의 정규화 좌표를 주기적으로 확인한다. 하나 이상의 마커가
-원위치에서 허용 거리 이상 벗어나거나 보이지 않는 상태가 `RPA_BIN_AWAY_CONFIRM_SECONDS`
-동안 지속되면 `COLLECT`로 전환한다. 이후 세 마커가 모두 원위치 범위에
-`RPA_BIN_RETURN_CONFIRM_SECONDS` 동안 유지되면 `MANAGE`로 복귀한다.
-
-자동 전환도 기존 `MODE_CHANGED` WebSocket 이벤트를 전송한다. 자동 전환 뒤 관리자가 화면에서
-모드를 직접 선택하면 수동 선택이 우선하며 RPA가 덮어쓰지 않는다. 카메라나 프레임을 사용할 수
-없는 동안에는 안전을 위해 현재 모드를 유지한다. 기준 위치는 파일로 저장되며 Docker에서는
-`report-state` 영속 볼륨의 `binMarkerBaseline.json`을 사용한다.
-
-### `GET /api/binPositionMonitor/status`
-
-설정 활성 여부, 감지 상태, 설정·현재 보이는 마커 ID, 기준 위치 등록 여부, 자동 모드 소유 여부,
-현재 모드, 최근 프레임 시각과 상태 메시지를 반환한다. 응답 필드는 `enabled`, `state`,
-`configuredMarkerIds`, `visibleMarkerIds`, `baselineConfigured`, `automaticallyChangedMode`,
-`currentMode`, `lastFrameAt`, `message`다.
-
-### `POST /api/binPositionMonitor/calibrate`
-
-쓰레기통 3개가 정상 위치에 있고 SIDE 카메라에 마커 0, 1, 2가 모두 보일 때 호출한다. 현재
-정규화 좌표를 원위치 기준으로 저장하고 위 상태 응답을 반환한다. 기능이 비활성화되어 있거나
-마커 하나라도 확인할 수 없으면 400을 반환한다.
-
-이 엔드포인트와 자동 카메라 감시는 신규 API·모니터링 영역 변경이므로 실제 배포 전 CTO 검토가
-필요하다.
 
 ---
 
