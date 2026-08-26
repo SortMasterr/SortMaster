@@ -203,7 +203,7 @@ body {
 /* 카드 현황판 */
 .stats {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
     margin-bottom: 24px;
 }
@@ -235,10 +235,6 @@ body {
     color: #64748b;
     font-size: 0.9rem;
     font-weight: 400;
-}
-
-.statCard.cGreen .statValue {
-    color: #16a34a;
 }
 
 .statCard.cRed .statValue {

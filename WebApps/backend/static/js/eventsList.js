@@ -599,10 +599,6 @@ document.addEventListener("DOMContentLoaded", async () => {
             (row) => row.result === "넘침 감지"
         ).length;
 
-        const normalCount = data.filter(
-            (row) => row.result === "정상"
-        ).length;
-
         const statTotal =
             getElement("statTotal");
 
@@ -614,9 +610,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         const statOverflow =
             getElement("statOverflow");
-
-        const statNormal =
-            getElement("statNormal");
 
         if (statTotal) {
             statTotal.innerHTML =
@@ -639,12 +632,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (statOverflow) {
             statOverflow.innerHTML =
                 `${overflowCount}` +
-                "<span>건</span>";
-        }
-
-        if (statNormal) {
-            statNormal.innerHTML =
-                `${normalCount}` +
                 "<span>건</span>";
         }
 
