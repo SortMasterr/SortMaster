@@ -6,6 +6,76 @@ let isCollectMode =
 let sidebarSocket = null;
 let reconnectTimer = null;
 let sidebarWarningTimer = null;
+let collectionAlertPollTimer = null;
+
+
+function setBinFullAlertVisible(isVisible) {
+    const alertElement =
+        document.getElementById(
+            "binFullAlert"
+        );
+
+    if (!alertElement) {
+        return;
+    }
+
+    alertElement.hidden = !isVisible;
+    alertElement.setAttribute(
+        "aria-hidden",
+        String(!isVisible)
+    );
+}
+
+
+async function refreshBinFullAlert() {
+    const alertElement =
+        document.getElementById(
+            "binFullAlert"
+        );
+
+    if (!alertElement) {
+        return;
+    }
+
+    try {
+        const [openResponse, acknowledgedResponse] =
+            await Promise.all([
+                fetch(
+                    "/api/collectionTasks?" +
+                    "taskStatus=OPEN&limit=1"
+                ),
+                fetch(
+                    "/api/collectionTasks?" +
+                    "taskStatus=ACKNOWLEDGED&limit=1"
+                )
+            ]);
+
+        if (
+            !openResponse.ok ||
+            !acknowledgedResponse.ok
+        ) {
+            throw new Error(
+                "수거 작업 상태 조회 실패"
+            );
+        }
+
+        const [openTasks, acknowledgedTasks] =
+            await Promise.all([
+                openResponse.json(),
+                acknowledgedResponse.json()
+            ]);
+
+        setBinFullAlertVisible(
+            openTasks.total > 0 ||
+            acknowledgedTasks.total > 0
+        );
+    } catch (error) {
+        console.warn(
+            "쓰레기통 가득참 상태를 갱신하지 못했습니다:",
+            error
+        );
+    }
+}
 
 
 function applyMode(mode) {
@@ -217,11 +287,16 @@ function connectSidebarSocket() {
 
         if (
             message.eventType ===
-                "MISCLASSIFICATION_DETECTED" ||
-            message.eventType ===
-                "BIN_OVERFLOW_DETECTED"
+            "MISCLASSIFICATION_DETECTED"
         ) {
             showEventWarning();
+        }
+
+        if (
+            message.eventType ===
+            "BIN_OVERFLOW_DETECTED"
+        ) {
+            refreshBinFullAlert();
         }
     };
 
@@ -315,6 +390,13 @@ function initSidebarEvents() {
     updateActiveMenu();
     updateSidebarUI();
     connectSidebarSocket();
+    refreshBinFullAlert();
+
+    collectionAlertPollTimer =
+        setInterval(
+            refreshBinFullAlert,
+            15000
+        );
 
     const modeToggleBtn =
         document.getElementById(
@@ -330,6 +412,12 @@ function initSidebarEvents() {
         requestModeChange
     );
 }
+
+
+window.addEventListener(
+    "collectionTasksChanged",
+    refreshBinFullAlert
+);
 
 
 document.addEventListener(

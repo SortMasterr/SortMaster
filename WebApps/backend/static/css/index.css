@@ -506,40 +506,6 @@ body {
 }
 
 
-/* 하단 제어 영역 */
-
-.controlPanel {
-    margin-top: 16px;
-
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.testBtn {
-    padding: 10px 18px;
-
-    color: #fff;
-    background-color: #ef4444;
-
-    border: none;
-    border-radius: 6px;
-
-    font-weight: 600;
-
-    cursor: pointer;
-
-    transition:
-        background-color 0.2s ease,
-        transform 0.2s ease;
-}
-
-.testBtn:hover {
-    background-color: #dc2626;
-    transform: translateY(-1px);
-}
-
-
 /* 작은 화면 대응 */
 
 @media (max-width: 900px) {

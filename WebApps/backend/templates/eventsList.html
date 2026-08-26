@@ -89,15 +89,6 @@
                         </div>
                     </div>
 
-                    <div class="statCard cAmber">
-                        <div class="statLabel">
-                            알림 미발생
-                        </div>
-
-                        <div class="statValue" id="statAlarmOff">
-                            0<span>건</span>
-                        </div>
-                    </div>
                 </div>
 
                 <!-- 검색 및 필터 -->
@@ -146,18 +137,6 @@
                         </select>
                     </div>
 
-                    <div class="field">
-                        <label for="fAlarm">
-                            알림 상태
-                        </label>
-
-                        <select id="fAlarm">
-                            <option value="">전체</option>
-                            <option value="on">알림 울림</option>
-                            <option value="off">알림 미작동</option>
-                        </select>
-                    </div>
-
                     <button class="btnReset" id="btnReset" type="button">
                         필터 초기화
                     </button>
@@ -199,10 +178,6 @@
                                     <i class="fa-solid fa-sort"></i>
                                 </th>
 
-                                <th data-key="alarm">
-                                    알림 상태
-                                    <i class="fa-solid fa-sort"></i>
-                                </th>
                             </tr>
                         </thead>
 
@@ -255,17 +230,13 @@
                     <div class="mValue" id="mResult">-</div>
                 </div>
 
-                <div class="mItem full">
-                    <div class="mLabel">알림 상태</div>
-                    <div class="mValue" id="mAlarm">-</div>
-                </div>
             </div>
         </div>
     </div>
 
     <!-- 공통 JavaScript를 먼저 불러옵니다. -->
-    <script src="/static/js/sidebar.js?v=9"></script>
-    <script src="/static/js/eventsList.js?v=11"></script>
+    <script src="/static/js/sidebar.js?v=10"></script>
+    <script src="/static/js/eventsList.js?v=12"></script>
 </body>
 
 </html>

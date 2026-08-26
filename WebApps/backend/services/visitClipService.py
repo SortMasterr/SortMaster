@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from repositories.visitClipRepository import visitClipRepository
 from schemas.event import CameraId
@@ -29,6 +29,18 @@ logger = logging.getLogger(__name__)
 # 지연 등) 클립 구간 매칭에 약간의 여유를 둔다 — 구간 자체가 아니라 매칭 관용치일 뿐이라
 # .env로 노출하지 않음.
 windowBufferSeconds = 5.0
+
+
+def _normalizeToUtc(timestamp: datetime) -> datetime:
+    """GPU(tracking2.py)가 타임존 정보 없는 timestamp를 보내면 UTC로 간주한다.
+
+    createClipForVisit의 구간 비교(startedAt <= ... <= endedAt)는 presenceGateService가
+    만드는 tz-aware(UTC) 값과 비교하는데, naive datetime과 비교하면 TypeError가 난다 —
+    repositories/eventRepository.py의 normalizeDateTime과 동일한 이유·동일한 방어.
+    """
+    if timestamp.tzinfo is None:
+        return timestamp.replace(tzinfo=timezone.utc)
+    return timestamp
 
 
 @dataclass
@@ -61,7 +73,7 @@ class VisitClipService:
 
         self._activeTracks[trackId] = _ActiveTrack(
             cameraId=cameraId,
-            startedAt=timestamp,
+            startedAt=_normalizeToUtc(timestamp),
         )
 
     async def registerAiDisposalResolution(
