@@ -228,3 +228,11 @@ erDiagram
   `cameraId`+`trackingId` 조합안은 `trackingId`가 세션 종속이라 배제
 - **통계에서 `overflow`는 별도 필드로 분리 집계 확정** → `detectedClass`별 집계와 안 섞음
   (`overflow`엔 애초에 `detectedClass`가 없어서)
+
+## 자동 재학습 데이터 저장소
+
+`autoTraining`은 이벤트 저장 구조와 분리된 `trainingSamples` 컬렉션과 `trainingImages`
+GridFS 버킷을 사용한다. `trainingSamples.imageFileId`가 GridFS 객체를 참조하며
+`imageSha256`은 unique index, `status`+`createdAt`은 동기화 조회 index를 사용한다.
+Publish는 사람 승인 샘플만 추가하고 메타데이터 저장 실패 시 먼저 올린 GridFS 파일을 보상
+삭제한다. 코드 구현은 완료됐으나 운영 DB 적용·검증은 아직 수행하지 않았다.
