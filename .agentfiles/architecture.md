@@ -171,10 +171,12 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
   `inference`/`side-overflow` 둘 다 `docker-compose.yml`에 정의 완료 — `training`/`llm`처럼
   온디맨드는 아니지만, `backend`/`mongo`(로컬 전용, `local` profile)와 같은 파일을
   공유해서 실수로 같이 뜨는 걸 막기 위해 이쪽은 `gpu` profile로 묶어서 `docker compose
-  --profile gpu up -d`로 한 번에 기동 — **단, 실제 GPU 서버에서 빌드+기동해서 검증한 적은
-  아직 없음**(지금까지는 venv+`python tracking2.py`/`sideOverflow.py`로 직접 실행해서만
-  end-to-end 검증됨, 아래 참고). `backend`/`mongo`는 GPU 서버가 아니라 **로컬에서
-  구동**(아래 "배포 전략" 참고)
+  --profile gpu up -d`로 한 번에 기동 — **2026-08-25에 GPU 서버에서 실제 컨테이너 기동을
+  처음 시도**, `host.docker.internal`이 SSH `-R` 역터널의 루프백 리스닝에 닿지 못해 crash
+  loop가 발생해서 `network_mode: host`로 수정 완료(커밋 `06f3d0d`) — **단, 수정 후 재기동해서
+  정상 연결되는지 최종 재검증은 아직 안 됨**(그 전까지 확실히 검증된 건 venv+
+  `python tracking2.py`/`sideOverflow.py` 직접 실행 기준 end-to-end, 아래 참고).
+  `backend`/`mongo`는 GPU 서버가 아니라 **로컬에서 구동**(아래 "배포 전략" 참고)
 - `tracking2.py`/`sideOverflow.py`는 `training`과 같은 카드(`GPU_DEVICE_ID`)를 공유해서
   상시 돌게 될 예정이라, 학습을 돌리는 시간대엔 세 워크로드가 VRAM/연산을 나눠 써야 함 —
   `llm`처럼 GPU 메모리 사용량을 제한해두는 게 안전(실측 후 조정 필요, 아래 TBD 참고. 단,
@@ -190,8 +192,10 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
   서비스, `gpu` profile + `restart: unless-stopped`). GPU 서버가 이미 rootless Docker에
   `loginctl enable-linger`를 걸어둬서(`gpuServerOps.md` 참고) Docker 데몬 자체가 재부팅
   시 자동 기동되므로, 새 systemd 유닛 없이 있는 인프라(`training`/`llm`과 같은 방식)를
-  재사용. 코드/compose 정의는 완료됐지만 **실제 GPU 서버에서 빌드+기동 자체는 아직
-  안 해봄** — 지금은 사람이 SSH 세션에서 직접 실행 중
+  재사용. 코드/compose 정의는 완료됐고, 2026-08-25에 GPU 서버에서 실제 기동을 처음 시도해
+  `host.docker.internal` crash loop를 발견 → `network_mode: host`로 수정(`06f3d0d`)까지
+  반영됨 — **단, 수정 후 재기동해서 정상 동작하는지 최종 재검증은 아직 안 됨**, 그 전까지는
+  사람이 SSH 세션에서 직접 실행 중
 
 ## 배포 전략
 
@@ -329,6 +333,49 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
   `training`(GPU 서버)이 학습 때마다 로컬(`<LOCAL_BACKEND_IP>`) GridFS에 네트워크로 직접 접속.
   역방향 SSH 터널 필요(아래 "배포 전략" 참고)
 
+## 재학습용 미확정 방문 캡처 (설계 확정, 구현 전)
+
+> **2026-08-26 설계 확정, 코드는 아직 없음** — LLM review 파이프라인 실제 검증 중
+> (`autoTraining/README.md` 참고) "지금 구조로는 YOLO가 못 잡은 실패 사례 영상이 재학습
+> 데이터로 하나도 안 남는다"는 문제가 발견돼서 나온 설계. 이유는 `decisionLog.md` 참고.
+
+**문제**: 사람 존재 감지(`presenceGateService.py`) 기반 녹화는 GPU 판정과 완전히 독립
+동작하고, GPU(`tracking2.py`)의 `POST /api/events/aiDisposal`은 투입이 **확정된 순간에만**
+온다. 이 둘이 지금 코드상 서로 연결이 안 돼 있어서 (1) 확정된 이벤트조차 영상이 안 붙고
+(`imageFileId` 없이 저장되는 기존 TBD와 동일 원인), (2) **YOLO가 아예 인지를 못했거나 확정을
+못 낸 방문은 영상 자체가 저장될 경로가 없어서** 재학습에 제일 필요한 실패 사례가 통째로
+유실된다.
+
+**설계**:
+
+```
+[로컬 백엔드, GPU 신호와 무관하게 항상 동작]
+사람 감지 시작 → 녹화 시작
+사람 이탈 → 녹화 종료 → GIF 인코딩 → GridFS 업로드(무조건, 판정 여부 무관)
+  → visitClips 컬렉션에 문서 생성: {cameraId, startedAt, endedAt, imageFileId,
+    trackIds: [], matchedEventIds: [], unresolvedTrackIds: []}
+
+[GPU: tracking2.py, 신규 신호 2종 추가 필요]
+트랙을 새로 발견하는 즉시 → POST /api/events/trackStarted {trackId, cameraId, timestamp}
+  → 백엔드가 activeTracks에 임시 저장(사람 등장 시점과 거의 동시라 시간 오차 작음)
+트랙 종료 시 둘 중 하나:
+  ├─ 통에 확정 투입됨 → POST /api/events/aiDisposal (기존과 동일, trackId 포함)
+  │     → events 저장 + trackId로 visitClip 찾아 imageFileId 정밀 연결
+  └─ 확정 못하고 사라짐(놓침/이탈) → POST /api/events/trackEnded {trackId, result: unresolved}
+        → 해당 visitClip.unresolvedTrackIds에 trackId 추가
+```
+
+**핵심**: **저장 여부는 presence 감지만으로 결정되고 GPU 신호와 무관**하다 — YOLO가 트랙조차
+시작 안 해도(완전히 못 잡은 케이스) 영상은 이미 저장돼 있다. trackId는 "이미 저장된 영상"을
+확정/미확정으로 **분류(라벨링)**하는 데만 쓰인다. `autoTraining`의 Collect 단계가 가져갈
+재학습 후보 조건은 `matchedEventIds`가 비어있는 모든 `visitClip`(trackIds 유무 무관 — 시도
+후 실패한 것과 아예 인지 못 한 것 둘 다 포함).
+
+**아직 안 된 것**: `tracking2.py`에 `trackStarted`/`trackEnded` 신호 추가(모델팀 코드 수정
+필요), `visitClips` 스키마/저장소/API(`POST /api/events/trackStarted`,
+`POST /api/events/trackEnded`) 구현, `autoTraining` Collect 쿼리 확장. 상세 필드는
+`Docs/ERD.md`의 `VISIT_CLIP`, API 형식은 `.agentfiles/apiSpec.md`의 EP-14/EP-15 참고.
+
 ## Event Flow
 
 ```
@@ -363,6 +410,9 @@ Detect → Create Event → Save Event → Check mode
 
 ## TBD
 
+- **재학습용 미확정 방문 캡처 구현** — 설계는 확정됨(위 "재학습용 미확정 방문 캡처" 절
+  참고), `tracking2.py`의 `trackStarted`/`trackEnded` 신호 추가와 `visitClips` 저장소/API
+  구현은 아직 안 됨
 - **로컬 백엔드와 라즈베리파이의 네트워크 세그먼트 일치 여부** — RTSP 수신(로컬 백엔드↔
   라즈베리파이)은 mDNS(`.local`) 이름 해석에 의존 중인데, 이건 **같은 네트워크 세그먼트
   안에서만** 동작함(멀티캐스트가 세그먼트를 못 넘어감). 실제 설치 위치(12층 엘리베이터
@@ -387,11 +437,12 @@ Detect → Create Event → Save Event → Check mode
   구독(로컬 백엔드 중계)+end-to-end 결과 푸시까지 둘 다 확인됨(위 "탐지 파이프라인" 참고,
   2026-08-25). Docker화(`inference`/`side-overflow` 서비스, `gpu` profile +
   `restart: unless-stopped`)로 방향 확정하고 `docker-compose.yml`/`Dockerfile` 작성
-  완료 — **단, GPU 서버에서 실제
-  빌드+기동은 아직 안 해봄**(지금까지 검증은 전부 venv+수동 `python` 실행 기준). SSH
-  역터널 자체의 상시 유지(`autossh`, 로컬 배포 서버 쪽에 필요 — 아래 "GPU→로컬 백엔드
-  연결 방식" 항목과 동일 이슈)는 별개로 여전히 TBD — Docker화해도 터널이 안 살아있으면
-  둘 다 그냥 재연결 대기 상태로 남음
+  완료 — 같은 날(2026-08-25) GPU 서버에서 실제 기동을 처음 시도해 `host.docker.internal`
+  crash loop를 발견하고 `network_mode: host`로 수정(`06f3d0d`)까지 반영됨. **단, 수정 후
+  재기동해서 정상 연결되는지 최종 재검증은 아직 안 됨**(그 전까지 검증은 전부 venv+수동
+  `python` 실행 기준). SSH 역터널 자체의 상시 유지(`autossh`, 로컬 배포 서버 쪽에 필요 —
+  아래 "GPU→로컬 백엔드 연결 방식" 항목과 동일 이슈)는 별개로 여전히 TBD — Docker화해도
+  터널이 안 살아있으면 둘 다 그냥 재연결 대기 상태로 남음
 - **GPU 쪽 헬스체크/하트비트 부재** — 지금 구조는 GPU가 오분류/넘침을 감지했을 때만
   백엔드로 푸시하는 방식이라, "아무 일도 없어서 조용한 것"과 "GPU 스크립트 크래시/SSH 터널
   끊김으로 아예 판정 자체가 안 되는 것"이 백엔드 입장에서 구분이 안 됨(둘 다 그냥 이벤트가

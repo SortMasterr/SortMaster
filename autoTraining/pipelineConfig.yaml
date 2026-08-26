@@ -43,6 +43,11 @@ qwenVl:
   timeoutSeconds: 180
   retries: 2
   minimumReviewConfidence: 0.70
+  # 검수 스키마 응답은 원래 한 줄짜리 JSON이면 충분한데, 이 한도가 없으면 모델이 멈추지
+  # 못하고 max_model_len까지 계속 생성하다 문자열이 잘려 JSON 파싱이 실패하는 문제가
+  # 실제로 발생했다(2026-08-26 GPU 서버 실제 이미지 검증 중 확인). 짧게 강제로 끊어
+  # 빨리 실패하고 재시도하도록 상한을 둔다.
+  maxResponseTokens: 300
 
 dataset:
   trainRatio: 0.80

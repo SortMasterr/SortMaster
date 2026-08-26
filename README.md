@@ -160,8 +160,10 @@ docker compose --profile local up --build
   치면 로컬/GPU 어느 환경에서든 아무것도 안 뜨게 해서 잘못된 서비스가 실수로 같이
   뜨는 걸 방지). Docker 정의는 완료됐고 GPU 서버 rootless Docker가 이미
   `loginctl enable-linger`로 재부팅 시 자동 기동되게 설정돼 있어서 별도 systemd 없이
-  `restart: unless-stopped`만으로 GPU 재부팅 복구가 됨. 단, 실제 GPU 서버에서
-  빌드+기동 자체는 아직 검증 안 됨(TOP/SIDE 둘 다 지금까지는 컨테이너 없이 venv+
+  `restart: unless-stopped`만으로 GPU 재부팅 복구가 됨. 2026-08-25에 GPU 서버에서 실제
+  컨테이너 기동을 처음 시도했다가 `host.docker.internal` crash loop를 발견하고
+  `network_mode: host`로 수정(커밋 `06f3d0d`)까지 반영됨 — **단, 수정 후 재기동해서 정상
+  연결되는지 최종 재검증은 아직 안 됨**(그 전까지는 TOP/SIDE 둘 다 컨테이너 없이 venv+
   `python tracking2.py`/`sideOverflow.py`로 직접 실행해서만 검증됨). SSH 역터널이 살아있는
   건 여전히 별개 전제조건(로컬 배포 서버 쪽 `autossh` 필요, TBD)
 - 다른 팀들과 서버를 공유하기 때문에 4장 중 **1장만 할당**받아 사용. **TOP/SIDE 상시 추론
@@ -200,8 +202,9 @@ GPU 서버로 이관하면서 메인보드엔 고성능 추론이 더 이상 필
    수동 HTTP 요청을 보내 DB에 이벤트 데이터를 채워 넣는 용도)은 계속 남아있지만, **TOP의
    실제 연동은 이 스텁을 대체하는 게 아니라 별도 경로로 이미 구현·검증됨** —
    `services/eventService.py`의 `createEventFromAiDisposal`이 GPU 서버
-   `models/trashdetect/tracking2.py`(YOLO26, `inference` Docker 서비스로 정의됨 — 실제
-   GPU 서버 기동은 아직 검증 안 됨)가
+   `models/trashdetect/tracking2.py`(YOLO26, `inference` Docker 서비스로 정의됨 — 2026-08-25에
+   GPU 서버 실제 기동을 처음 시도해 `network_mode: host`로 수정까지 반영됐고, 수정 후
+   재기동 최종 재검증은 아직 TBD)가
    자체적으로 감지+추적+분류+정상/오분류 판정까지 끝내고 `POST /api/events/aiDisposal`로
    보내는 결과를 받아 통 상태/쿨다운과 종합해 저장(2026-08-25 실제 스트림 기준 end-to-end
    검증됨, `.agentfiles/architecture.md` 참고). **SIDE도 이제 완전히 같은 패턴** —

@@ -49,8 +49,12 @@ tracking2.py 재시작 + smoke test, 실패 시 rollback
 `requirements.txt`에 반영했고 Python 구문, CLI import, 의존성 충돌, GridFS GIF 프레임 추출
 smoke test까지 통과했습니다.
 
-다만 현재 저장소에는 기존 학습 데이터셋과 Golden Test가 없고 일일 입력도 0개입니다. 로컬에서
-설정된 Qwen `/v1/models` 주소에도 연결되지 않았습니다. bootstrap 체크포인트의 snake_case
+다만 현재 저장소에는 기존 학습 데이터셋과 Golden Test가 없고 일일 입력도 0개입니다.
+GPU 서버에서 `llm` 서비스(vLLM)를 기동해 `/v1/models`와 텍스트 전용 `/v1/chat/completions`
+(JSON Schema 구조화 출력)까지는 연결·응답 형식 확인을 마쳤지만(2026-08-25,
+`gpuServerOps.md`의 "vLLM(llm 서비스) 기동" 참고), `reviewLabels.py`가 실제로 보내는 원본+
+bbox 표시 이미지 2장을 포함한 멀티모달 요청은 실 이벤트 데이터가 없어 아직 미검증입니다.
+bootstrap 체크포인트의 snake_case
 클래스명은 설정의 camelCase 계약과 다르므로 현재 상태로 Label부터 전체 E2E를 실행할 수 없습니다.
 
 | 항목 | 상태 | 확인 결과 |
@@ -64,7 +68,7 @@ smoke test까지 통과했습니다.
 | Collect 저장소 연동 | 구현됨, 실DB 미검증 | MongoDB `events`를 읽고 `ELEV-TOP`/`misclassification`의 `topMedia` GridFS GIF를 수집하도록 구현 |
 | GIF 프레임 추출 | 테스트 통과 | 생성한 다중 프레임 GIF를 Collect 매니페스트 기준으로 Extract하는 smoke test 통과 |
 | Qwen-VL 주소 구성 | 구현됨 | `.env`의 `LLM_PORT`와 `qwenVl.apiHost`를 조합하고 포트 범위를 검증 |
-| Qwen-VL 실제 연결 | 현재 PC에서 실패 | `/v1/models` 단기 연결 검사에서 `URLError`; GPU 서버의 vLLM 기동·포트 공개 상태 확인 필요 |
+| Qwen-VL 실제 연결 | GPU 서버에서 텍스트 기준 검증됨(2026-08-25) | `docker compose --profile llm up -d llm` 기동 후 `/v1/models`, `/v1/chat/completions`(JSON Schema 구조화 출력) 텍스트 요청 응답 확인. 원본+bbox 이미지 2장을 포함한 실제 멀티모달 요청은 실 이벤트 데이터 없어 미검증 |
 | bootstrap 모델 파일 | 로드 가능 | `models/bootstrap/best.pt`, 5,393,150바이트, SHA-256 `757F...B7F2` |
 | 모델 클래스 계약 | 불일치 | 체크포인트는 `trash_normal`, `trash_paper`, `trash_recyclables`, `trash_coffeecup`; 설정은 camelCase 4종 |
 | 활성 모델 포인터 | 초기 상태 | `models/current.json`이 없어 최초 사이클은 bootstrap 모델을 선택 |
