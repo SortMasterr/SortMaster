@@ -31,6 +31,15 @@
   클래스명으로 만들 예정 — 그 모델이 실제로 `bestTop.pt`를 교체하는 시점에 `tracking2.py`의
   위 세 값도 함께 camelCase로 전환할 것(전환 전까지는 설정 파일=목표(camelCase),
   `tracking2.py`=현재 운영 모델 값(snake_case)이 서로 다른 게 정상)
+- **`autoTraining/models/bootstrap/best.pt`(재학습 파이프라인의 Label/Train 두 단계가 같은
+  사이클에 고정해 공용으로 쓰는 기준 모델, `trainingPipeline.py`의 `pinActiveModel`/
+  `getCycleModel`)는 실제로 `TrashNormal`/`TrashPaper`/`TrashRecyclables`/`TrashCoffeecup`을
+  냄**(2026-08-26 `model.names` 직접 대조 확인) — camelCase 목표(`trashNormal` 등)도,
+  운영 `bestTop.pt`의 snake_case도 아닌 PascalCase에 가까운 표기이고 `Coffeecup`은
+  중간 대문자도 하나 빠져 있음. **의도적으로 그대로 승인된 예외**로, 이 모델을 다시
+  받거나 교체하지 않는 한 리네임하지 않는다 — `autoTraining/pipelineConfig.yaml`의
+  `dataset.classes`는 이 목록과 정확히 일치해야 Label 단계가 통과함(위와 동일한 규칙:
+  코드 일관성을 이유로 임의로 고치지 말고 실제 `model.names`를 기준으로 맞출 것)
 
 ## 폴더 구조 (`WebApps/backend`)
 
