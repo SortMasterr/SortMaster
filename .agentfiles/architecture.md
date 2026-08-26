@@ -361,11 +361,14 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
   `training`(GPU 서버)이 학습 때마다 로컬(`<LOCAL_BACKEND_IP>`) GridFS에 네트워크로 직접 접속.
   역방향 SSH 터널 필요(아래 "배포 전략" 참고)
 
-## 재학습용 미확정 방문 캡처 (설계 확정, 구현 전)
+## 재학습용 미확정 방문 캡처 (백엔드 구현 완료, GPU 연동만 남음)
 
-> **2026-08-26 설계 확정, 코드는 아직 없음** — LLM review 파이프라인 실제 검증 중
-> (`autoTraining/README.md` 참고) "지금 구조로는 YOLO가 못 잡은 실패 사례 영상이 재학습
-> 데이터로 하나도 안 남는다"는 문제가 발견돼서 나온 설계. 이유는 `decisionLog.md` 참고.
+> **2026-08-26 설계 확정** — LLM review 파이프라인 실제 검증 중(`autoTraining/README.md`
+> 참고) "지금 구조로는 YOLO가 못 잡은 실패 사례 영상이 재학습 데이터로 하나도 안 남는다"는
+> 문제가 발견돼서 나온 설계. 이유는 `decisionLog.md` 참고. **백엔드 쪽(`visitClips`
+> 스키마/저장소/서비스/API, `autoTraining` Collect 단계 확장)은 구현 완료** — 아래 "아직 안
+> 된 것" 참고, 남은 건 GPU(`tracking2.py`)에 `trackStarted`/`trackEnded` 신호를 추가하는
+> 것 하나뿐.
 
 **문제**: 사람 존재 감지(`presenceGateService.py`) 기반 녹화는 GPU 판정과 완전히 독립
 동작하고, GPU(`tracking2.py`)의 `POST /api/events/aiDisposal`은 투입이 **확정된 순간에만**
@@ -399,10 +402,19 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 재학습 후보 조건은 `matchedEventIds`가 비어있는 모든 `visitClip`(trackIds 유무 무관 — 시도
 후 실패한 것과 아예 인지 못 한 것 둘 다 포함).
 
-**아직 안 된 것**: `tracking2.py`에 `trackStarted`/`trackEnded` 신호 추가(모델팀 코드 수정
-필요), `visitClips` 스키마/저장소/API(`POST /api/events/trackStarted`,
-`POST /api/events/trackEnded`) 구현, `autoTraining` Collect 쿼리 확장. 상세 필드는
-`Docs/ERD.md`의 `VISIT_CLIP`, API 형식은 `.agentfiles/apiSpec.md`의 EP-14/EP-15 참고.
+**구현 완료**: `visitClips` 스키마(`schemas/visitClip.py`)/저장소
+(`repositories/visitClipRepository.py`)/서비스(`services/visitClipService.py`)/API
+(`POST /api/events/trackStarted`, `POST /api/events/trackEnded`, `controllers/api.py`)
+전부 반영됨. `autoTraining/stages/collectEventMedia.py`도 `matchedEventIds`가 비어있는
+`visitClip`을 재학습 후보(`eventCategory: unresolvedVisit`)로 수집하는 경로가 추가됨(진행
+중 — 아래 참고). 상세 필드는 `Docs/ERD.md`의 `VISIT_CLIP`, API 형식은
+`.agentfiles/apiSpec.md`의 EP-14/EP-15 참고.
+
+**아직 안 된 것**: **`tracking2.py`(GPU)가 `trackStarted`/`trackEnded`를 아직 안 보냄**(모델팀
+코드 수정 필요) — 이 신호가 없으면 `visitClip.trackIds`가 항상 비어있어서, 지금
+`collectEventMedia.py`가 수집하는 후보는 전부 "YOLO가 트랙조차 시작 안 한 케이스"로만
+채워진다(트랙 시도 후 실패한 케이스는 신호 연동 전까지 구분 불가). 이 신호가 붙기 전까지는
+`unresolvedTrackIds` 기반 분류도 사실상 동작하지 않는 상태.
 
 ## Event Flow
 

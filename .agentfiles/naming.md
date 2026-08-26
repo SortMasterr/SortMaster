@@ -40,7 +40,7 @@
 |---|---|
 | `controllers/` | HTTP 라우팅(FastAPI `APIRouter`). Jinja2 페이지는 `views.py`, API는 `api.py` |
 | `services/` | 비즈니스 로직(쿨다운 판정, 모드 전환 등) |
-| `repositories/` | 저장소 접근(현재 In-memory, 추후 motor/MongoDB) |
+| `repositories/` | 저장소 접근(motor 기반 MongoDB 연동, In-memory Mock 제거 완료) |
 | `schemas/` | Pydantic 모델(요청/응답 스키마) |
 | `streaming/` | 카메라 캡처·프레임 스트리밍 로직. `cameraManager.py` 구현됨(카메라 1대당 독립 `CameraId`, MJPEG) |
 | `static/`, `templates/` | 정적 파일, Jinja2 템플릿 |
