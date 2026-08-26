@@ -31,6 +31,7 @@ from schemas.report import (
     ReportEmailSettingsResponse,
 )
 from schemas.statistics import Statistics
+from schemas.visitClip import TrackEndedRequest, TrackStartedRequest
 from services.binStateService import binStateService
 from services.detectionService import detectionService
 from services.errors import (
@@ -44,6 +45,7 @@ from services.errors import (
 from services.eventService import eventService
 from services.modeService import modeService
 from services.reportEmailService import reportEmailService
+from services.visitClipService import visitClipService
 from services.webSocketManager import (
     webSocketManager,
 )
@@ -181,6 +183,38 @@ async def createEventFromAiDisposal(
         )
 
     return creationResult.event
+
+
+@router.post(
+    "/events/trackStarted",
+    status_code=200,
+)
+async def trackStarted(
+    request: TrackStartedRequest,
+) -> None:
+    """GPU가 새 트랙을 발견하는 즉시 보내는 경량 신호(EP-14, 설계는 architecture.md
+    "재학습용 미확정 방문 캡처" 참고). presence 기반 방문 녹화(visitClip)와 시간으로
+    1차 연결하기 위한 메모리 저장 — DB 저장이나 이벤트 생성은 하지 않는다.
+    """
+    visitClipService.recordTrackStarted(
+        request.trackId,
+        request.cameraId,
+        request.timestamp,
+    )
+
+
+@router.post(
+    "/events/trackEnded",
+    status_code=200,
+)
+async def trackEnded(
+    request: TrackEndedRequest,
+) -> None:
+    """GPU가 트랙을 확정 못 하고 놓쳤을 때(aiDisposal 대신) 보내는 신호(EP-15).
+
+    해당 트랙이 속한 visitClip을 재학습 후보(미확정 방문)로 표시한다.
+    """
+    await visitClipService.registerTrackEnded(request.trackId)
 
 
 async def _broadcastIfManageMode(

@@ -24,6 +24,7 @@ from repositories.mongoClient import (
     closeMongoClient,
     pingMongo,
 )
+from repositories.visitClipRepository import visitClipRepository
 from services.presenceGateService import presenceGateService
 from services.recordingService import recordingService
 from streaming.cameraManager import cameraManagers
@@ -41,6 +42,7 @@ async def lifespan(_app: FastAPI):
         )
         await eventRepository.ensureIndexes()
         await binStateRepository.ensureIndexes()
+        await visitClipRepository.ensureIndexes()
         await presenceGateService.start()
         yield
     finally:
