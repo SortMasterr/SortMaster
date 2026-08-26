@@ -203,13 +203,14 @@ body {
 /* 카드 현황판 */
 .stats {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 12px;
     margin-bottom: 24px;
 }
 
 .statCard {
-    padding: 20px;
+    min-width: 0;
+    padding: 16px;
     background: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 12px;
@@ -238,6 +239,10 @@ body {
 
 .statCard.cGreen .statValue {
     color: #16a34a;
+}
+
+.statCard.cRed .statValue {
+    color: #dc2626;
 }
 
 .statCard.cAmber .statValue {
@@ -586,7 +591,13 @@ td.time {
 }
 
 /* 반응형 */
-@media (max-width: 860px) {
+@media (max-width: 900px) {
+    .stats {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 600px) {
     .stats {
         grid-template-columns: repeat(2, 1fr);
     }

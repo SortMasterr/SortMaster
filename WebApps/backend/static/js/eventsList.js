@@ -132,8 +132,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                     ? "오분류"
                     : "정상",
 
-            confidenceScore:
-                eventData.confidenceScore,
             eventCategory:
                 eventData.eventCategory,
             notes:
@@ -189,7 +187,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (tableBody) {
             tableBody.innerHTML = `
                 <tr class="emptyRow">
-                    <td colspan="5">
+                    <td colspan="4">
                         기록을 불러오는 중입니다.
                     </td>
                 </tr>
@@ -593,27 +591,17 @@ document.addEventListener("DOMContentLoaded", async () => {
                 );
             }).length;
 
-        const confidenceRows = data.filter(
-            (row) => Number.isFinite(
-                row.confidenceScore
-            )
-        );
+        const misclassificationCount = data.filter(
+            (row) => row.result === "오분류"
+        ).length;
 
-        const confidenceTotal =
-            confidenceRows.reduce(
-                (total, row) =>
-                    total +
-                    row.confidenceScore,
-                0
-            );
+        const overflowCount = data.filter(
+            (row) => row.result === "넘침 감지"
+        ).length;
 
-        const averageAccuracy =
-            confidenceRows.length > 0
-                ? (
-                    confidenceTotal /
-                    confidenceRows.length
-                ) * 100
-                : 0;
+        const normalCount = data.filter(
+            (row) => row.result === "정상"
+        ).length;
 
         const statTotal =
             getElement("statTotal");
@@ -621,8 +609,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         const statToday =
             getElement("statToday");
 
-        const statAccuracy =
-            getElement("statAccuracy");
+        const statMisclassification =
+            getElement("statMisclassification");
+
+        const statOverflow =
+            getElement("statOverflow");
+
+        const statNormal =
+            getElement("statNormal");
 
         if (statTotal) {
             statTotal.innerHTML =
@@ -636,10 +630,22 @@ document.addEventListener("DOMContentLoaded", async () => {
                 "<span>건</span>";
         }
 
-        if (statAccuracy) {
-            statAccuracy.innerHTML =
-                `${averageAccuracy.toFixed(1)}` +
-                "<span>%</span>";
+        if (statMisclassification) {
+            statMisclassification.innerHTML =
+                `${misclassificationCount}` +
+                "<span>건</span>";
+        }
+
+        if (statOverflow) {
+            statOverflow.innerHTML =
+                `${overflowCount}` +
+                "<span>건</span>";
+        }
+
+        if (statNormal) {
+            statNormal.innerHTML =
+                `${normalCount}` +
+                "<span>건</span>";
         }
 
     }
@@ -705,7 +711,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (pageRows.length === 0) {
             tableBody.innerHTML = `
                 <tr class="emptyRow">
-                    <td colspan="5">
+                    <td colspan="4">
                         ${
                             loadErrorMessage ||
                             "조건에 맞는 기록이 없습니다."

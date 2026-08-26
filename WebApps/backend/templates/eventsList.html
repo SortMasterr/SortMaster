@@ -19,7 +19,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
 
     <!-- 이전기록 페이지 CSS -->
-    <link rel="stylesheet" href="/static/css/eventsList.css?v=10">
+    <link rel="stylesheet" href="/static/css/eventsList.css?v=11">
 
     <!-- 공통 사이드바 CSS -->
     <link rel="stylesheet" href="/static/css/sidebar.css?v=9">
@@ -79,13 +79,33 @@
                         </div>
                     </div>
 
-                    <div class="statCard cGreen">
+                    <div class="statCard cRed">
                         <div class="statLabel">
-                            평균 탐지 신뢰도
+                            오분류
                         </div>
 
-                        <div class="statValue" id="statAccuracy">
-                            0<span>%</span>
+                        <div class="statValue" id="statMisclassification">
+                            0<span>건</span>
+                        </div>
+                    </div>
+
+                    <div class="statCard cAmber">
+                        <div class="statLabel">
+                            넘침 감지
+                        </div>
+
+                        <div class="statValue" id="statOverflow">
+                            0<span>건</span>
+                        </div>
+                    </div>
+
+                    <div class="statCard cGreen">
+                        <div class="statLabel">
+                            정상
+                        </div>
+
+                        <div class="statValue" id="statNormal">
+                            0<span>건</span>
                         </div>
                     </div>
 
