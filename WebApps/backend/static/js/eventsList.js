@@ -126,6 +126,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             type: typeInfo.name,
             typeClass: typeInfo.className,
 
+            binId: eventData.binId ?? "-",
+
             result: isOverflow
                 ? "넘침 감지"
                 : eventData.isMisclassified
@@ -454,6 +456,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         const modalType =
             getElement("mType");
 
+        const modalBinId =
+            getElement("mBinId");
+
         const modalResult =
             getElement("mResult");
 
@@ -486,6 +491,11 @@ document.addEventListener("DOMContentLoaded", async () => {
                     ${escapeHtml(row.type)}
                 </span>
             `;
+        }
+
+        if (modalBinId) {
+            modalBinId.textContent =
+                row.binId;
         }
 
         if (modalResult) {
@@ -698,7 +708,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (pageRows.length === 0) {
             tableBody.innerHTML = `
                 <tr class="emptyRow">
-                    <td colspan="4">
+                    <td colspan="5">
                         ${
                             loadErrorMessage ||
                             "조건에 맞는 기록이 없습니다."
@@ -746,6 +756,12 @@ document.addEventListener("DOMContentLoaded", async () => {
                                             row.type
                                         )}
                                     </span>
+                                </td>
+
+                                <td>
+                                    ${escapeHtml(
+                                        row.binId
+                                    )}
                                 </td>
 
                                 <td>
