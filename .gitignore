@@ -58,3 +58,6 @@ autoTraining/reports/
 # Generated RPA reports, delivery state, lock, and logs
 RPAs/reportAutomation/output/
 RPAs/reportAutomation/state/
+
+# debug/db/downloadVisitClipMedia.py 결과물 — 실제 CCTV 영상이라 커밋 대상 아님
+debug/db/downloads/
