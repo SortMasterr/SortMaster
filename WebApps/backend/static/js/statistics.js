@@ -612,13 +612,12 @@ document.addEventListener(
                             : "-";
                         return `<tr>
                             <td>${escapeHtml(formatDateTime(task.detectedAt))}</td>
-                            <td>${escapeHtml(typeNameByClass[task.binType] || task.binId)}</td>
                             <td>${escapeHtml(task.taskStatus)}</td>
                             <td>${task.escalationLevel}단계</td>
                             <td>${acknowledge}${complete}</td>
                         </tr>`;
                     }).join("")
-                    : '<tr><td colspan="5">수거 작업이 없습니다.</td></tr>';
+                    : '<tr><td colspan="4">수거 작업이 없습니다.</td></tr>';
             }
 
             const runsBody = getElement("collectionRunsBody");

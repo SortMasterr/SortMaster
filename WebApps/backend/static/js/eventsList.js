@@ -126,8 +126,6 @@ document.addEventListener("DOMContentLoaded", async () => {
             type: typeInfo.name,
             typeClass: typeInfo.className,
 
-            loc: eventData.binId ?? "-",
-
             result: isOverflow
                 ? "넘침 감지"
                 : eventData.isMisclassified
@@ -458,9 +456,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         const modalType =
             getElement("mType");
 
-        const modalLocation =
-            getElement("mLoc");
-
         const modalResult =
             getElement("mResult");
 
@@ -493,11 +488,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                     ${escapeHtml(row.type)}
                 </span>
             `;
-        }
-
-        if (modalLocation) {
-            modalLocation.textContent =
-                row.loc;
         }
 
         if (modalResult) {
@@ -763,12 +753,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                                             row.type
                                         )}
                                     </span>
-                                </td>
-
-                                <td>
-                                    ${escapeHtml(
-                                        row.loc
-                                    )}
                                 </td>
 
                                 <td>
