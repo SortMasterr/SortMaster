@@ -278,6 +278,15 @@ function connectSidebarSocket() {
         const message =
             JSON.parse(event.data);
 
+        window.dispatchEvent(
+            new CustomEvent(
+                "sortMasterWebSocketMessage",
+                {
+                    detail: message,
+                }
+            )
+        );
+
         if (
             message.eventType ===
             "MODE_CHANGED"
