@@ -60,9 +60,108 @@ class CollectEventMediaStage:
             serverSelectionTimeoutMS=int(self.config["eventStore"].get("serverSelectionTimeoutMs", 5000)),
         )
 
-    async def _collectFromGridFs(self) -> None:
-        """이벤트를 시간순으로 읽고 참조된 GridFS GIF를 안전하게 내려받습니다."""
+    async def _downloadGridFsFile(
+        self,
+        bucket,
+        fileId: str,
+        targetPath: Path,
+    ) -> bool:
+        """GridFS 파일 하나를 임시 파일 경유로 안전하게 내려받는다(중간 실패 시 반쪽 파일 방지)."""
         from bson import ObjectId
+
+        try:
+            objectId = ObjectId(fileId)
+        except Exception:
+            print(f"[WARN] 잘못된 imageFileId 건너뜀: {fileId}")
+            return False
+
+        targetPath.parent.mkdir(parents=True, exist_ok=True)
+        temporaryPath = targetPath.with_suffix(".gif.part")
+        try:
+            with temporaryPath.open("wb") as outputFile:
+                await bucket.download_to_stream(objectId, outputFile)
+            os.replace(temporaryPath, targetPath)
+        except Exception:
+            temporaryPath.unlink(missing_ok=True)
+            raise
+        return True
+
+    async def _collectConfirmedEvents(self, database, bucket, startUtc, endUtc, writer) -> int:
+        """확정된 misclassification 이벤트의 GIF를 수집한다(기존 동작, 변경 없음)."""
+        query = {
+            "timestamp": {"$gte": startUtc, "$lt": endUtc},
+            "cameraId": "ELEV-TOP",
+            "eventCategory": "misclassification",
+            "imageFileId": {"$type": "string", "$ne": ""},
+        }
+        downloadedFileIds: set[str] = set()
+        collectedCount = 0
+        cursor = database["events"].find(query).sort([("timestamp", 1), ("eventId", 1)])
+        async for event in cursor:
+            fileId = str(event["imageFileId"])
+            # 여러 이벤트가 같은 클립을 참조하더라도 GridFS 다운로드는 한 번만 수행한다.
+            if fileId in downloadedFileIds:
+                continue
+
+            targetPath = self.videosDirectory / f"{event['eventId']}.gif"
+            if not await self._downloadGridFsFile(bucket, fileId, targetPath):
+                continue
+
+            timestamp = event.get("timestamp")
+            writer.write({
+                "eventId": event["eventId"],
+                "detectionId": event.get("detectionId"),
+                "cameraId": event["cameraId"],
+                "eventCategory": event["eventCategory"],
+                "imageFileId": fileId,
+                "modelVersion": event.get("modelVersion"),
+                "timestamp": timestamp.isoformat() if timestamp else None,
+                "mediaPath": str(targetPath.resolve()),
+            })
+            downloadedFileIds.add(fileId)
+            collectedCount += 1
+        return collectedCount
+
+    async def _collectUnmatchedVisitClips(self, database, bucket, startUtc, endUtc, writer) -> int:
+        """YOLO가 확정을 못 낸(또는 아예 인지 못 한) 방문 영상을 재학습 후보로 수집한다.
+
+        확정 여부와 무관하게 presence 감지만으로 항상 저장되는 visitClips 중
+        matchedEventIds가 비어있는 것 — 설계는 architecture.md의 "재학습용 미확정
+        방문 캡처" 참고. 아직 tracking2.py가 trackStarted를 안 보내므로 지금은
+        trackIds가 항상 비어있는 clip만 나오지만(=완전히 못 잡은 케이스), 나중에
+        trackStarted/trackEnded가 연동되면 "시도는 했지만 확정 못한" 케이스도 자연히
+        섞여 들어온다.
+        """
+        query = {
+            "cameraId": "ELEV-TOP",
+            "startedAt": {"$gte": startUtc, "$lt": endUtc},
+            "matchedEventIds": [],
+        }
+        collectedCount = 0
+        cursor = database["visitClips"].find(query).sort("startedAt", 1)
+        async for clip in cursor:
+            fileId = str(clip["imageFileId"])
+            visitId = str(clip["_id"])
+            targetPath = self.videosDirectory / f"visit-{visitId}.gif"
+            if not await self._downloadGridFsFile(bucket, fileId, targetPath):
+                continue
+
+            startedAt = clip.get("startedAt")
+            writer.write({
+                "eventId": f"visit-{visitId}",
+                "detectionId": None,
+                "cameraId": clip["cameraId"],
+                "eventCategory": "unresolvedVisit",
+                "imageFileId": fileId,
+                "modelVersion": None,
+                "timestamp": startedAt.isoformat() if startedAt else None,
+                "mediaPath": str(targetPath.resolve()),
+            })
+            collectedCount += 1
+        return collectedCount
+
+    async def _collectFromGridFs(self) -> None:
+        """확정 이벤트 + 미확정 방문(visitClips) GIF를 하루치 학습 입력으로 수집합니다."""
         from motor.motor_asyncio import AsyncIOMotorGridFSBucket
         from pymongo.errors import PyMongoError
 
@@ -74,63 +173,30 @@ class CollectEventMediaStage:
         client = self._newMongoClient(mongoUri)
         database = client[databaseName]
         bucket = AsyncIOMotorGridFSBucket(database, bucket_name="topMedia")
-        query = {
-            "timestamp": {"$gte": startUtc, "$lt": endUtc},
-            "cameraId": "ELEV-TOP",
-            "eventCategory": "misclassification",
-            "imageFileId": {"$type": "string", "$ne": ""},
-        }
-        downloadedFileIds: set[str] = set()
-        collectedCount = 0
         try:
             await database.command("ping")
-            cursor = database["events"].find(query).sort([("timestamp", 1), ("eventId", 1)])
             with ManifestWriter(self.collectedMediaManifest) as writer:
-                async for event in cursor:
-                    fileId = str(event["imageFileId"])
-                    # 여러 이벤트가 같은 클립을 참조하더라도 GridFS 다운로드는 한 번만 수행한다.
-                    if fileId in downloadedFileIds:
-                        continue
-                    try:
-                        objectId = ObjectId(fileId)
-                    except Exception as error:
-                        print(f"[WARN] 잘못된 imageFileId 건너뜀: eventId={event.get('eventId')} fileId={fileId}")
-                        continue
-
-                    targetPath = self.videosDirectory / f"{event['eventId']}.gif"
-                    targetPath.parent.mkdir(parents=True, exist_ok=True)
-                    temporaryPath = targetPath.with_suffix(".gif.part")
-                    try:
-                        with temporaryPath.open("wb") as outputFile:
-                            await bucket.download_to_stream(objectId, outputFile)
-                        os.replace(temporaryPath, targetPath)
-                    except Exception:
-                        temporaryPath.unlink(missing_ok=True)
-                        raise
-
-                    timestamp = event.get("timestamp")
-                    writer.write({
-                        "eventId": event["eventId"],
-                        "detectionId": event.get("detectionId"),
-                        "cameraId": event["cameraId"],
-                        "eventCategory": event["eventCategory"],
-                        "imageFileId": fileId,
-                        "modelVersion": event.get("modelVersion"),
-                        "timestamp": timestamp.isoformat() if timestamp else None,
-                        "mediaPath": str(targetPath.resolve()),
-                    })
-                    downloadedFileIds.add(fileId)
-                    collectedCount += 1
+                confirmedCount = await self._collectConfirmedEvents(
+                    database, bucket, startUtc, endUtc, writer
+                )
+                unresolvedCount = await self._collectUnmatchedVisitClips(
+                    database, bucket, startUtc, endUtc, writer
+                )
         except PyMongoError as error:
             raise RuntimeError(f"이벤트 저장소/GridFS 수집 실패: {error}") from error
         finally:
             client.close()
 
+        collectedCount = confirmedCount + unresolvedCount
         if collectedCount == 0:
             raise RuntimeError(
-                f"{self.batchId}에 imageFileId가 있는 ELEV-TOP 투기 이벤트가 없습니다."
+                f"{self.batchId}에 imageFileId가 있는 ELEV-TOP 투기 이벤트나 "
+                "미확정 방문(visitClip)이 없습니다."
             )
-        print(f"[COLLECT] GridFS 이벤트 클립 {collectedCount}개: {self.videosDirectory}")
+        print(
+            f"[COLLECT] 확정 이벤트 {confirmedCount}개 + 미확정 방문 {unresolvedCount}개 "
+            f"= 총 {collectedCount}개: {self.videosDirectory}"
+        )
 
     def collect(self) -> None:
         """설정된 저장소 유형에 맞게 배치 입력을 준비합니다."""

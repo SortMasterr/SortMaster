@@ -312,7 +312,12 @@
   - `EVENT`(확정 컬렉션)에 미확정 방문까지 섞으면 대시보드 통계/알림이 오염되므로,
     `VISIT_CLIP`이라는 별도 컬렉션으로 분리하기로 확정(재학습 데이터 소스 전용, 대시보드
     미노출)
-  - **2026-08-26 기준 설계만 확정, 코드 없음** — `tracking2.py`의 `trackStarted`/
-    `trackEnded` 신호 추가는 모델팀 작업 필요, 백엔드 `visitClips` 저장소/API/
-    `autoTraining` Collect 확장도 미착수. 상세는 `architecture.md`의 "재학습용 미확정
-    방문 캡처", `Docs/ERD.md`의 `VISIT_CLIP`, `.agentfiles/apiSpec.md`의 EP-14/EP-15 참고
+  - **2026-08-26 설계 확정 후 백엔드 쪽은 구현 완료**(문서 갱신 시점 기준) —
+    `visitClips` 스키마/저장소/서비스/API(`POST /api/events/trackStarted`,
+    `POST /api/events/trackEnded`)와 `autoTraining` Collect 확장(미확정 클립을
+    `unresolvedVisit` 후보로 수집)까지 반영됨. 남은 건 `tracking2.py`(GPU, 모델팀
+    작업 필요)가 `trackStarted`/`trackEnded`를 실제로 보내는 것 하나뿐 — 이게 없으면
+    `visitClip.trackIds`가 항상 비어있어서 "트랙 시도 후 실패"와 "아예 인지 못함"을
+    구분하는 `unresolvedTrackIds` 기반 분류는 아직 사실상 동작하지 않음. 상세는
+    `architecture.md`의 "재학습용 미확정 방문 캡처", `Docs/ERD.md`의 `VISIT_CLIP`,
+    `.agentfiles/apiSpec.md`의 EP-14/EP-15 참고

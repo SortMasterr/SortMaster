@@ -24,7 +24,28 @@ def loadConfig(configPath: Path) -> dict[str, Any]:
         config = yaml.safe_load(configFile)
     if not isinstance(config, dict):
         raise ValueError("pipelineConfig.yaml 최상위 값은 mapping이어야 합니다.")
+    _applyGpuDeviceOverride(config)
     return config
+
+
+def _applyGpuDeviceOverride(config: dict[str, Any]) -> None:
+    """GPU 서버는 팀별로 카드가 분리돼 있어(.env의 GPU_DEVICE_ID) YAML에 고정해둔
+    기본 device 값을 그대로 쓰면 다른 팀 카드를 잡을 수 있다 — docker-compose.yml의
+    ${GPU_DEVICE_ID:-0} 관례와 동일하게 여기서도 설정돼 있으면 우선한다."""
+    try:
+        from dotenv import load_dotenv
+
+        projectRoot = Path(__file__).resolve().parents[2]
+        load_dotenv(projectRoot / ".env", override=False)
+    except ImportError:
+        pass
+    gpuDeviceId = os.environ.get("GPU_DEVICE_ID")
+    if gpuDeviceId is None:
+        return
+    for section in ("inference", "training"):
+        sectionConfig = config.get(section)
+        if isinstance(sectionConfig, dict) and "device" in sectionConfig:
+            sectionConfig["device"] = int(gpuDeviceId)
 
 
 def resolvePath(projectRoot: Path, pathValue: str | Path) -> Path:
