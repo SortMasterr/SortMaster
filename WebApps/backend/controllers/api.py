@@ -9,6 +9,7 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 
 from schemas.aiDisposalEvent import AiDisposalEvent
+from schemas.binPositionMonitor import BinPositionMonitorStatus
 from schemas.binState import BinState, BinStateUpdate
 from schemas.detection import (
     DetectionStart,
@@ -39,6 +40,10 @@ from schemas.collectionTask import (
 )
 from schemas.visitClip import TrackEndedRequest, TrackStartedRequest
 from services.binStateService import binStateService
+from services.binPositionMonitorService import (
+    BinPositionCalibrationError,
+    binPositionMonitorService,
+)
 from services.collectionTaskService import (
     CollectionTaskConflictError,
     CollectionTaskNotFoundError,
@@ -435,6 +440,29 @@ async def completeCollectionTask(
 )
 async def getCollectionAutomationStatus() -> CollectionAutomationStatus:
     return await collectionTaskService.getAutomationStatus()
+
+
+@router.get(
+    "/binPositionMonitor/status",
+    response_model=BinPositionMonitorStatus,
+)
+def getBinPositionMonitorStatus() -> BinPositionMonitorStatus:
+    return binPositionMonitorService.getStatus()
+
+
+@router.post(
+    "/binPositionMonitor/calibrate",
+    response_model=BinPositionMonitorStatus,
+    responses={400: {"description": "3개 마커를 모두 확인할 수 없음"}},
+)
+async def calibrateBinPositions() -> BinPositionMonitorStatus:
+    try:
+        return await binPositionMonitorService.calibrate()
+    except BinPositionCalibrationError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
 
 
 @router.post(

@@ -9,7 +9,7 @@
 > 분류 모델로 넘침 상태를 자체 판정하고 `POST /api/binStates`로 로컬 백엔드에 결과를 직접
 > 푸시한다(위 카메라와 완전히 동일한 구조 — 과거 룰 베이스 → 로컬 백엔드 CPU 추론(GPU
 > 미사용) → 지금의 GPU 서버 방식까지 두 번 재전환됨, `decisionLog.md` 참고)해서 물리
-> 쓰레기통 4개(일반/플라스틱·캔/커피컵/종이)의 상태를
+> 현재 설치된 쓰레기통 3개의 상태를
 > `BIN_STATES`로 지속 추적하다가 **NORMAL→FULL로 전환되는 순간에만** 넘침
 > 이벤트 생성+알림. 위 카메라(`ELEV-TOP`)는 **GPU 서버의 YOLO26(`models/trashdetect/
 > tracking2.py`)**이 투척 추적+쓰레기 종류 분류+정상/오분류 판정까지 자체적으로 끝내고,
@@ -41,7 +41,7 @@ erDiagram
     }
 
     BIN_STATES {
-        string binId PK "물리 쓰레기통 4개 중 하나(신규 확정: 일반/플라스틱·캔/커피컵/종이). ELEV-SIDE 시야 안에 고정 설치"
+        string binId PK "현재 설치된 물리 쓰레기통 3개 중 하나. ELEV-SIDE 시야 안에 고정 설치"
         string cameraId "현재 구조상 항상 ELEV-SIDE(넘침 감지는 옆 카메라 전담이라 다른 값 없음)"
         string binType "normal/recyclables/coffeeCup/paper(플라스틱·캔 통은 캔+플라스틱 둘 다 받으며 DetectedClass도 recyclables 하나로 통합). binId와 사실상 1:1, 조인 없이 필터링하려는 비정규화 필드"
         string sessionId "넘침 감지(로컬 백엔드, MobileNet_V3_Small) 프로세스 시작 시 새 UUID 생성 — 재시작/재연결마다 갱신(확정)"
@@ -60,7 +60,7 @@ erDiagram
         string cameraId FK "CameraId enum(ELEV-TOP/ELEV-SIDE)"
         string eventCategory "misclassification(투기, ELEV-TOP 단독) / overflow(넘침, ELEV-SIDE 단독 — BIN_STATES가 NORMAL→FULL로 전환되는 순간에만 생성)"
         string detectedClass "nullable, misclassification만. YOLO26(GPU 서버 tracking2.py)이 직접 분류. normal/paper/recyclables(모델이 plastic/can을 구분 못 해서 통합)/coffeeCup — 총 4종. mixed/uncertain은 제외 확정"
-        string binId FK "물리 통 4개 중 하나 — misclassification: GPU(tracking2.py)가 추적한 실제 투척 통 / overflow: 어느 통이 가득 찼는지. 과거 초안의 thrownBinId를 대체, 두 카테고리 모두 사용"
+        string binId FK "현재 물리 통 3개 중 하나 — misclassification: GPU(tracking2.py)가 추적한 실제 투척 통 / overflow: 어느 통이 가득 찼는지. 과거 초안의 thrownBinId를 대체, 두 카테고리 모두 사용"
         string binType "normal/recyclables/coffeeCup/paper — BIN_STATES.binType과 동일 값 비정규화 저장, detectedClass와 값 체계 1:1 일치"
         boolean isMisclassified "nullable, misclassification만. GPU(tracking2.py)가 자체적으로 detectedClass vs 투입된 통을 비교해 판정한 결과(result: correct/incorrect)를 로컬 백엔드가 그대로 boolean으로 변환해 저장 — 백엔드가 재계산하지 않음(아래 참고)"
         float confidenceScore "nullable, misclassification만, 0.0~1.0. tracking2.py 응답에 값이 없어 현재는 고정값 저장(TBD, 아래 참고)"
@@ -132,7 +132,7 @@ erDiagram
     `BIN_STATES`로 실시간 조회 가능)
   - `detectionId`(신규, UK)로 DB 레벨 중복 저장 방지 — 시간 기반 Cooldown(스팸성 재감지 방지)과는
     별개 문제(네트워크 재전송 등으로 인한 중복 방지)라 둘 다 유지
-- **BIN_STATES**(신규): 물리 쓰레기통 4개(일반/플라스틱·캔/커피컵/종이) 각각의 현재 상태를
+- **BIN_STATES**(신규): 현재 설치된 물리 쓰레기통 3개 각각의 현재 상태를
   지속 추적하는 컬렉션 — 기존엔 없던 개념. `EVENT`처럼 시점성 로그가 아니라 **각 `binId`당
   최신 상태 1행만 유지**(upsert, 확정 — 이력은 `EVENT`가 담당). `currentState`가
   `NORMAL`→`FULL`로 바뀌는 순간 `EVENT`(overflow)를 생성하고 그 `eventId`를
@@ -172,8 +172,9 @@ erDiagram
 
 - **`GET /api/events`/`/api/events/{id}` 및 이전기록 화면에 `binId` 반영 완료** →
   Event 스키마·MongoDB 문서·`eventsList.js`가 모두 실제 `binId`를 사용
-- **물리 쓰레기통 구성 확정** → 카메라에 4개(일반/플라스틱·캔/커피컵/종이)가 잡힘.
-  `binId`가 이 4개 중 하나를 가리키는 걸로 확정 — 이전에 고민했던 "카메라 위치 특정 폐지"와는
+- **물리 쓰레기통 구성 정정** → 현재 설치 수량은 3개이며 `binId`가 이 3개 중 하나를 가리킨다.
+  논리적 `BinType` 4종은 기존 이벤트/API 호환성을 위해 유지하고 실제 종류 배치 매핑은 설치 설정으로
+  관리한다 — 이전에 고민했던 "카메라 위치 특정 폐지"와는
   다른 층위(카메라 역할 분담 vs 개별 통 식별)라 서로 모순 아님
 - **`EVENT`에 "배출 위치" 필드 추가 확정, 필드명은 `binId`로 정리** → 과거 초안에서
   `thrownBinId`로 불렀던 걸 `binId`로 통일(overflow 이벤트에도 쓰이게 되면서 "투척"이라는

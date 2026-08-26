@@ -27,6 +27,7 @@ from repositories.mongoClient import (
 )
 from repositories.visitClipRepository import visitClipRepository
 from services.presenceGateService import presenceGateService
+from services.binPositionMonitorService import binPositionMonitorService
 from services.recordingService import recordingService
 from streaming.cameraManager import cameraManagers
 
@@ -46,27 +47,31 @@ async def lifespan(_app: FastAPI):
         await visitClipRepository.ensureIndexes()
         await collectionTaskRepository.ensureIndexes()
         await presenceGateService.start()
+        await binPositionMonitorService.start()
         yield
     finally:
         try:
-            await presenceGateService.shutdown()
+            await binPositionMonitorService.shutdown()
         finally:
             try:
-                await recordingService.shutdown()
+                await presenceGateService.shutdown()
             finally:
                 try:
-                    # RTSP 카메라는 백그라운드 ffmpeg 서브프로세스를 물고 있어서, 여기서
-                    # 정리 안 하면 --reload 재시작 등에서 고아 프로세스로 남을 수 있음.
-                    await asyncio.gather(
-                        *(
-                            cameraManager.stop()
-                            for cameraManager
-                            in cameraManagers.values()
-                        ),
-                        return_exceptions=True,
-                    )
+                    await recordingService.shutdown()
                 finally:
-                    closeMongoClient()
+                    try:
+                        # RTSP 카메라는 백그라운드 ffmpeg 서브프로세스를 물고 있어서, 여기서
+                        # 정리 안 하면 --reload 재시작 등에서 고아 프로세스로 남을 수 있음.
+                        await asyncio.gather(
+                            *(
+                                cameraManager.stop()
+                                for cameraManager
+                                in cameraManagers.values()
+                            ),
+                            return_exceptions=True,
+                        )
+                    finally:
+                        closeMongoClient()
 
 
 app = FastAPI(

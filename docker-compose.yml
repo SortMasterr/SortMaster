@@ -15,6 +15,7 @@ services:
       - .env
     environment:
       - RPA_STATE_DIRECTORY=/app/RPAs/reportAutomation/state
+      - RPA_BIN_MARKER_BASELINE_PATH=/app/RPAs/reportAutomation/state/binMarkerBaseline.json
     depends_on:
       - mongo
     volumes:
