@@ -1120,7 +1120,8 @@ JSON API는 `controllers/api.py`, 페이지 라우트는 `controllers/views.py`�
 * 사이드바 메뉴
 * 관리/수거 모드 표시
 * WebSocket 연결
-* 오분류 이벤트 경고 표시
+* 관리 모드에서 실제 오분류 이벤트가 저장되어 `MISCLASSIFICATION_DETECTED` WebSocket 메시지를
+  받으면 카메라 영역에 5초간 빨간 경고 점멸 표시(수동 테스트 버튼 없음)
 
 ### 사용하는 API
 

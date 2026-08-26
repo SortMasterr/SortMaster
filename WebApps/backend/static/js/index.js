@@ -3,9 +3,6 @@
 // 사이드바 로딩, 메뉴 활성화 및 모드 전환은
 // sidebar.js가 담당합니다.
 
-let alertTimer = null;
-
-
 document.addEventListener(
     "DOMContentLoaded",
     initMainEvents
@@ -13,60 +10,8 @@ document.addEventListener(
 
 
 function initMainEvents() {
-    initTestAlertButton();
     initContainerFullscreen();
     initVideoPaneFullscreen();
-}
-
-
-/* 오배출 경고 테스트 */
-function initTestAlertButton() {
-    const testAlertBtn =
-        document.getElementById("testAlertBtn");
-
-    const videoContainer =
-        document.getElementById("videoContainer");
-
-    if (!testAlertBtn || !videoContainer) {
-        return;
-    }
-
-    testAlertBtn.addEventListener(
-        "click",
-        () => {
-            /*
-             * 수거 모드에서는 오배출 알림을
-             * 발생시키지 않습니다.
-             */
-            if (isCollectMode) {
-                alert(
-                    "[안내] 현재 수거 모드이므로 " +
-                    "오배출 알림이 작동하지 않습니다."
-                );
-
-                return;
-            }
-
-            if (alertTimer !== null) {
-                clearTimeout(alertTimer);
-            }
-
-            videoContainer.classList.add(
-                "warningActive"
-            );
-
-            alertTimer = setTimeout(
-                () => {
-                    videoContainer.classList.remove(
-                        "warningActive"
-                    );
-
-                    alertTimer = null;
-                },
-                5000
-            );
-        }
-    );
 }
 
 

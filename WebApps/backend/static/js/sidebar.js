@@ -287,18 +287,16 @@ function connectSidebarSocket() {
 
         if (
             message.eventType ===
-                "MISCLASSIFICATION_DETECTED" ||
-            message.eventType ===
-                "BIN_OVERFLOW_DETECTED"
+            "MISCLASSIFICATION_DETECTED"
         ) {
             showEventWarning();
+        }
 
-            if (
-                message.eventType ===
-                "BIN_OVERFLOW_DETECTED"
-            ) {
-                refreshBinFullAlert();
-            }
+        if (
+            message.eventType ===
+            "BIN_OVERFLOW_DETECTED"
+        ) {
+            refreshBinFullAlert();
         }
     };
 
