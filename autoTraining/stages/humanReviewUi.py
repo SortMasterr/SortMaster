@@ -31,7 +31,7 @@ async function summary(){const s=await (await fetch('/api/summary')).json();tota
 async function load(i){if(!total)await summary();index=Math.max(0,Math.min(i,total-1));current=await (await fetch('/api/item?index='+index)).json();document.getElementById('progress').textContent=`${index+1} / ${total}`;document.getElementById('original').src=`/media?id=${encodeURIComponent(current.id)}&kind=original&t=${Date.now()}`;document.getElementById('annotated').src=`/media?id=${encodeURIComponent(current.id)}&kind=annotated&t=${Date.now()}`;document.getElementById('label').value=current.labelText;document.getElementById('reviewer').value=current.decision?.reviewer||'';document.getElementById('notes').value=current.decision?.notes||'';document.getElementById('meta').textContent=JSON.stringify({id:current.id,video:current.video,qwen:current.review,classes:current.classes,previousDecision:current.decision?.decision||null},null,2)}
 function move(step){load(index+step)}
 async function goUndecided(){const s=await summary();load(s.firstUndecidedIndex<0?0:s.firstUndecidedIndex)}
-async function save(decision){const body={id:current.id,decision,reviewer:document.getElementById('reviewer').value.trim(),notes:document.getElementById('notes').value,labelText:document.getElementById('label').value};const response=await fetch('/api/decision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const result=await response.json();if(!response.ok){alert(result.error||'저장 실패');return}await summary();if(index+1<total)load(index+1)}
+async function save(decision){const body={id:current.id,decision,reviewer:document.getElementById('reviewer').value.trim(),notes:document.getElementById('notes').value,labelText:document.getElementById('label').value};const response=await fetch('/api/decision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const result=await response.json();if(!response.ok){alert(result.error||'저장 실패');return}if(result.complete){document.getElementById('saved').textContent='완료 '+total+'/'+total+' — 파이프라인을 계속 실행합니다.';return}await summary();if(index+1<total)load(index+1)}
 summary().then(()=>goUndecided()).catch(e=>alert(e));
 </script></main></body></html>'''
 
@@ -66,8 +66,9 @@ class HumanReviewUiStage:
         host: str = "127.0.0.1",
         port: int = 8765,
         openBrowser: bool = True,
+        stopWhenComplete: bool = False,
     ) -> None:
-        """검수 큐를 브라우저에 제공하고 Ctrl+C까지 결정 내용을 원자적으로 저장합니다."""
+        """검수 큐를 제공하며 자동 실행에서는 모든 결정 완료 시 서버를 종료합니다."""
         if not manifestHasRows(self.humanReviewQueue):
             raise RuntimeError("먼저 review 단계를 실행해 humanReviewQueue.jsonl을 만드세요.")
         if not 1 <= port <= 65535:
@@ -78,7 +79,11 @@ class HumanReviewUiStage:
         decisions = {
             str(row["id"]): row
             for row in iterateManifest(self.humanDecisionsManifest)
+            if str(row["id"]) in queueById
         }
+        if stopWhenComplete and all(itemId in decisions for itemId in queueById):
+            print("[HUMAN REVIEW UI] 모든 결정이 이미 저장되어 다음 단계를 계속합니다.")
+            return
         correctedRoot = self.humanReviewRoot / "correctedLabels"
         writeLock = threading.Lock()
         stage = self
@@ -138,8 +143,13 @@ class HumanReviewUiStage:
                         if labelText != original:
                             correctedPath=correctedRoot/f"{itemId}.txt"; correctedPath.parent.mkdir(parents=True,exist_ok=True); temporaryPath=correctedPath.with_suffix(".txt.tmp")
                             temporaryPath.write_text(labelText,encoding="utf-8"); os.replace(temporaryPath,correctedPath); output["labelPath"]=str(correctedPath.resolve())
-                    with writeLock: decisions[itemId]=output; persistDecisions()
-                    self._json({"saved":True})
+                    with writeLock:
+                        decisions[itemId] = output
+                        persistDecisions()
+                        complete = all(queueId in decisions for queueId in queueById)
+                    self._json({"saved": True, "complete": complete})
+                    if complete and stopWhenComplete:
+                        threading.Thread(target=server.shutdown, daemon=True).start()
                 except (ValueError,KeyError,json.JSONDecodeError,OSError) as error: self._json({"error":str(error)},HTTPStatus.BAD_REQUEST)
 
             def log_message(self, format: str, *args: Any) -> None:
@@ -147,7 +157,8 @@ class HumanReviewUiStage:
 
         server = ThreadingHTTPServer((host, port), ReviewHandler)
         url = f"http://{host}:{port}"
-        print(f"[HUMAN REVIEW UI] {url} (종료: Ctrl+C)")
+        stopMessage = "모든 검수 완료 시 자동 종료" if stopWhenComplete else "종료: Ctrl+C"
+        print(f"[HUMAN REVIEW UI] {url} ({stopMessage})")
         if openBrowser:
             webbrowser.open(url)
         try:
@@ -156,3 +167,5 @@ class HumanReviewUiStage:
             print("\n[HUMAN REVIEW UI] 종료")
         finally:
             server.server_close()
+        if stopWhenComplete and not all(itemId in decisions for itemId in queueById):
+            raise RuntimeError("사람 검수가 완료되기 전에 검수 UI가 종료됐습니다.")

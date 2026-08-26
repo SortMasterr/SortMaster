@@ -74,6 +74,7 @@ Deploy 후 `tracking2.py` 재시작·smoke test·실패 시 자동 rollback은 �
 | 사람 검수 전 자동 구간 | 구현됨 | `prepareDailyBatch` |
 | 사람 검수 UI | 구현됨 | localhost UI, 결정과 수정 라벨 원자적 저장 |
 | 사람 검수 후 자동 구간 | 구현됨 | `HumanReview → Publish → SyncDataset → Build → Train → Evaluate` |
+| 단일 명령 전체 실행 | 구현됨 | `runDaily`가 검수 완료를 기다린 뒤 평가까지 자동 진행 |
 | MongoDB 이벤트 수집 | 구현됨·실DB 미검증 | `events.imageFileId`와 `topMedia` 사용 |
 | Qwen-VL 실제 연결 | 연결 확인·멀티모달 신뢰성 문제 | GPU 텍스트 요청 정상, 실제 이미지 요청은 스키마 미준수 폭주를 `max_tokens`로 제한했으나 근본 원인 미해결 |
 | MongoDB 학습 데이터 Publish | 구현됨·실DB 미검증 | 승인 데이터만 추가, 이미지 중복·계약 충돌 검사 |
@@ -247,6 +248,32 @@ val이 비면 학습을 시작하지 않습니다. 일일 test split 데이터�
 비교평가는 별도 Golden Test를 사용합니다.
 
 ## 실행 방법
+
+### 한 번에 실행
+
+다음 명령 하나로 사람 검수를 포함해 평가까지 실행합니다.
+
+```powershell
+python autoTraining\trainingPipeline.py runDaily --batchId <YYYY-MM-DD>
+```
+
+`runDaily` 실행 흐름:
+
+```text
+Collect → Extract → Select → Label → Review
+→ 검수 UI 자동 실행 및 사람 결정 대기
+→ 모든 항목 검수 완료 시 UI 자동 종료
+→ HumanReview → Publish → SyncDataset → Build → Train → Evaluate
+```
+
+마지막 검수 결정을 저장하면 다음 단계가 즉시 이어집니다. 검수 도중 UI를 `Ctrl+C`로 종료하면
+Publish로 넘어가지 않고 실패합니다. 브라우저를 자동으로 열 수 없는 서버에서는 `--noBrowser`를
+사용하고 표시된 localhost 포트를 SSH 포워딩합니다.
+
+주의: 검수 완료 후 실제 MongoDB에 승인 데이터를 추가하고 GPU 학습까지 실행합니다. 대상 배치,
+DB 연결, Golden Test, 입력 계약과 GPU 자원을 먼저 확인해야 합니다.
+
+기존의 1차·검수·2차 분리 명령도 진단과 수동 운영을 위해 계속 사용할 수 있습니다.
 
 하루치 작업은 모든 단계에서 같은 `--batchId`를 사용합니다.
 

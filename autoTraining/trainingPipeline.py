@@ -105,7 +105,7 @@ def parseArgs() -> argparse.Namespace:
     parser.add_argument("stage", choices=[
         "collect", "extract", "select", "label", "review", "reviewUi", "humanReview", "build", "train",
         "publish", "syncDataset", "evaluate", "promote", "deploy", "rollback", "prepareDailyBatch",
-        "continueAfterHumanReview",
+        "continueAfterHumanReview", "runDaily",
     ])
     parser.add_argument("--config", type=Path, default=defaultConfig)
     parser.add_argument("--batchId", default=date.today().isoformat())
@@ -138,6 +138,20 @@ def main() -> None:
             port=args.reviewPort,
             openBrowser=not args.noBrowser,
         )
+        return
+    if args.stage == "runDaily":
+        for stageName in groupedStages["prepareDailyBatch"]:
+            print(f"\n===== {stageName.upper()} batchId={args.batchId} =====")
+            stageHandlers[stageName](pipeline)
+        pipeline.launchHumanReviewUi(
+            host=args.reviewHost,
+            port=args.reviewPort,
+            openBrowser=not args.noBrowser,
+            stopWhenComplete=True,
+        )
+        for stageName in groupedStages["continueAfterHumanReview"]:
+            print(f"\n===== {stageName.upper()} batchId={args.batchId} =====")
+            stageHandlers[stageName](pipeline)
         return
     if args.stage == "rollback":
         if not args.version:
