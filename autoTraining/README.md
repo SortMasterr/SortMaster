@@ -170,19 +170,23 @@ MongoDB 원본의 기존 샘플을 자동 삭제하거나 수정하지 않습니
 
 ## 클래스와 입력 계약
 
-다음 재학습 모델의 클래스명과 순서:
+현재 운영 `bestTop.pt`와 재학습 bootstrap 모델의 클래스명과 순서는 다음과 같습니다.
+이 네 문자열만 TOP-view YOLO 체크포인트의 외부 계약 예외이며 `model.names`와 정확히 일치해야 합니다.
 
 ```text
-0 trashNormal
-1 trashPaper
-2 trashRecyclables
-3 trashCoffeeCup
+0 TrashNormal
+1 TrashPaper
+2 TrashRecyclables
+3 TrashCoffeecup
 ```
 
-현재 운영 `bestTop.pt`는 기존 snake_case 클래스명을 출력합니다. 새 camelCase 모델이 실제로
-Promote·Deploy되기 전까지 `tracking2.py`의 현재 snake_case 매칭 값을 먼저 변경하면 안 됩니다.
-새 모델 배포 시점에 `EXPECTED_CLASS_NAMES`, `TRASH_CLASSES`, `TRASH_TYPE_MAP`을 함께 전환해야 합니다.
+TOP-view YOLO 모델 클래스명만 lower camelCase 대신 PascalCase를 사용합니다. 특히 `TrashCoffeecup`은 일반적인
+`TrashCoffeeCup` 표기와 다르지만 모델 체크포인트의 실제 문자열이므로 임의로 고치지 않습니다.
+`pipelineConfig.yaml`의 `dataset.classes`는 이 계약으로 변경됐습니다.
 
+현재 `tracking2.py`의 `EXPECTED_CLASS_NAMES`, `TRASH_CLASSES`, `TRASH_TYPE_MAP`은 아직 이전
+snake_case 값이므로 새 `bestTop.pt`와 일치하지 않습니다. 운영 추론을 다시 실행하기 전에 세 값을
+위 PascalCase 모델에 맞게 전환하고 시작 시 `model.names` 검증을 통과해야 합니다.
 물리 쓰레기통은 YOLO 클래스가 아닙니다. `tracking2.py`의 `RULE_BASED_BIN_ROIS`가 통 위치를
 판정합니다.
 
@@ -510,6 +514,8 @@ Golden Test 기준을 확정한 뒤 승인된 후보에만 release를 허용하�
 9. 스케줄·재시도·알림
 ## 남은 개발 및 검증 작업
 
+- 새 PascalCase `bestTop.pt`에 맞춰 `tracking2.py`의 클래스 매칭 상수 전환 및 실제 추론 검증
+- `tracking2.py`의 `trackStarted`/`trackEnded` 신호 전송 연동
 - 기존 로컬 데이터셋을 MongoDB 계약으로 안전하게 최초 이관하는 관리자 도구
 - MongoDB Publish/Sync의 mock 기반 단위 테스트와 운영 DB 소규모 통합 테스트
 - Qwen 응답 JSON Schema의 객체·필수 타입·추가 필드 완전 검증
@@ -534,7 +540,7 @@ Golden Test 기준을 확정한 뒤 승인된 후보에만 release를 허용하�
 
 ## 코드 변경 원칙
 
-1. Python 내부 이름, 설정 키와 매니페스트 필드는 외부 계약을 제외하고 camelCase를 사용합니다.
+1. Python 내부 이름, 설정 키와 매니페스트 필드는 외부 계약을 제외하고 camelCase를 사용합니다. 예외는 TOP-view YOLO 체크포인트의 `model.names` 4종뿐이며, 다른 모델 클래스명과 프로젝트 내부 이름에는 이 예외를 확대 적용하지 않습니다.
 2. 입력·출력·실패 동작 또는 경로가 바뀌면 이 README와 데이터셋 계약 문서를 함께 수정합니다.
 3. MongoDB 원본을 삭제하거나 기존 sample을 덮어쓰는 기능은 별도 승인 없이 추가하지 않습니다.
 4. `.env`, 서버 주소, 계정, 비밀번호와 토큰을 코드·문서·커밋에 넣지 않습니다.
