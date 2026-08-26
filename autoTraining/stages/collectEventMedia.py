@@ -52,10 +52,18 @@ class CollectEventMediaStage:
         )
         return uri, databaseName
 
+    def _newMongoClient(self, mongoUri: str):
+        """공통 MongoDB URI로 현재 단계에 맞는 비동기 클라이언트를 만듭니다."""
+        from motor.motor_asyncio import AsyncIOMotorClient
+        return AsyncIOMotorClient(
+            mongoUri,
+            serverSelectionTimeoutMS=int(self.config["eventStore"].get("serverSelectionTimeoutMs", 5000)),
+        )
+
     async def _collectFromGridFs(self) -> None:
         """이벤트를 시간순으로 읽고 참조된 GridFS GIF를 안전하게 내려받습니다."""
         from bson import ObjectId
-        from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
+        from motor.motor_asyncio import AsyncIOMotorGridFSBucket
         from pymongo.errors import PyMongoError
 
         sourceConfig = self.config["eventStore"]
@@ -63,10 +71,7 @@ class CollectEventMediaStage:
             self.batchId, float(sourceConfig.get("utcOffsetHours", 9))
         )
         mongoUri, databaseName = self._mongoUri()
-        client = AsyncIOMotorClient(
-            mongoUri,
-            serverSelectionTimeoutMS=int(sourceConfig.get("serverSelectionTimeoutMs", 5000)),
-        )
+        client = self._newMongoClient(mongoUri)
         database = client[databaseName]
         bucket = AsyncIOMotorGridFSBucket(database, bucket_name="topMedia")
         query = {

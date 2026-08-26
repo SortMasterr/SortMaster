@@ -4,13 +4,17 @@ paths:
   workspace: autoTraining/workspace
   # Build가 만든 배치별 학습 데이터셋의 영속 저장소입니다.
   datasetStore: autoTraining/datasets
-  baseDataset: autoTraining/baseDataset
   # 사람 검수로 고정한 평가셋이며 일일 학습 데이터와 자동 병합하지 않습니다.
   goldenTest: autoTraining/goldenTest
   bootstrapModel: autoTraining/models/bootstrap/best.pt
   modelRegistry: autoTraining/models/registry
   candidateModels: autoTraining/models/candidates
   activeModelPointer: autoTraining/models/current.json
+
+trainingDatasetStore:
+  # 이벤트 영상과 분리한 학습 데이터 원본 저장소입니다.
+  samplesCollection: trainingSamples
+  imagesBucket: trainingImages
 
 eventStore:
   # 운영은 gridFs, 로컬 영상으로 개발할 때만 localDirectory를 사용합니다.

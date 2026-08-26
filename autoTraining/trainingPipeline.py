@@ -21,6 +21,11 @@ from stages.promoteModel import PromoteModelStage, promoteModel
 from stages.reviewLabels import ReviewLabelsStage, reviewLabels
 from stages.selectFrames import SelectFramesStage, selectFrames
 from stages.trainModel import TrainModelStage, trainModel
+from stages.trainingDatasetStore import (
+    TrainingDatasetStoreStage,
+    publishTrainingSamples,
+    syncTrainingDataset,
+)
 
 projectRoot = Path(__file__).resolve().parents[1]
 defaultConfig = Path(__file__).with_name("pipelineConfig.yaml")
@@ -29,7 +34,7 @@ batchIdPattern = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 class TrainingPipeline(
     CausalImagesMixin, CollectEventMediaStage, ExtractFramesStage, SelectFramesStage, AutoLabelingStage,
-    ReviewLabelsStage, HumanReviewStage, HumanReviewUiStage, BuildDatasetStage, TrainModelStage,
+    ReviewLabelsStage, HumanReviewStage, HumanReviewUiStage, TrainingDatasetStoreStage, BuildDatasetStage, TrainModelStage,
     EvaluateModelStage, PromoteModelStage, DeployModelStage,
 ):
     """한 batchId의 산출물을 격리하고 같은 기준 모델을 전체 사이클에 고정합니다."""
@@ -49,7 +54,7 @@ class TrainingPipeline(
         self.workspaceRoot = resolvePath(projectRoot, paths["workspace"])
         self.datasetStore = resolvePath(projectRoot, paths["datasetStore"])
         self.workspace = self.workspaceRoot / "batches" / batchId
-        self.baseDataset = resolvePath(projectRoot, paths["baseDataset"])
+        self.datasetSnapshotRoot = self.workspace / "datasetSnapshot"
         self.goldenTest = resolvePath(projectRoot, paths["goldenTest"])
         self.bootstrapModel = resolvePath(projectRoot, paths["bootstrapModel"])
         self.modelRegistry = resolvePath(projectRoot, paths["modelRegistry"])
@@ -78,6 +83,8 @@ class TrainingPipeline(
         self.humanReviewQueue = self.workspace / "humanReviewQueue.jsonl"
         self.humanDecisionsManifest = self.workspace / "humanDecisions.jsonl"
         self.humanReviewsManifest = self.workspace / "humanReviews.jsonl"
+        self.publishedSamplesManifest = self.workspace / "publishedSamples.jsonl"
+        self.datasetSnapshotManifest = self.datasetSnapshotRoot / "samples.jsonl"
         self.trainingResult = self.workspace / "trainingResult.json"
         self.evaluationResult = self.workspace / "evaluation.json"
         self.deploymentResult = self.workspace / "deployment.json"
@@ -97,7 +104,7 @@ def parseArgs() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=[
         "collect", "extract", "select", "label", "review", "reviewUi", "humanReview", "build", "train",
-        "evaluate", "promote", "deploy", "rollback", "prepareDailyBatch",
+        "publish", "syncDataset", "evaluate", "promote", "deploy", "rollback", "prepareDailyBatch",
         "continueAfterHumanReview",
     ])
     parser.add_argument("--config", type=Path, default=defaultConfig)
@@ -115,6 +122,7 @@ def main() -> None:
     stageHandlers = {
         "collect": collectEventMedia, "extract": extractFrames, "select": selectFrames, "label": autoLabel,
         "review": reviewLabels, "humanReview": validateHumanReview,
+        "publish": publishTrainingSamples, "syncDataset": syncTrainingDataset,
         "build": buildDataset, "train": trainModel, "evaluate": evaluateModel,
         "promote": promoteModel, "deploy": deployModel,
     }
@@ -122,7 +130,7 @@ def main() -> None:
         # 사람 검수 전까지만 자동 실행하고 반드시 멈춘다.
         "prepareDailyBatch": ["collect", "extract", "select", "label", "review"],
         # 모든 사람 결정이 검증돼야 데이터셋 생성과 평가로 넘어간다. 승격은 별도 승인이다.
-        "continueAfterHumanReview": ["humanReview", "build", "train", "evaluate"],
+        "continueAfterHumanReview": ["humanReview", "publish", "syncDataset", "build", "train", "evaluate"],
     }
     if args.stage == "reviewUi":
         pipeline.launchHumanReviewUi(
