@@ -65,9 +65,9 @@ API 상세 스펙은 `.agentfiles/apiSpec.md` 참고.
 docker compose --profile local up --build
 ```
 
-- `backend`(포트 8047) + `mongo`(호스트 포트 27020) + `report-scheduler` 상시 기동. `report-scheduler`는 대시보드에서 저장한 수신 이메일로 매일 09:00 일일 보고서와 매주 월요일 09:10 주간 보고서를 자동 발송
-- `backend`/`mongo`/`report-scheduler`는 `local` profile로 묶여 있음(GPU 서버의 `inference`/`side-overflow`와 같은 파일을 공유하므로, 이름 없이 `docker compose up`을 치면 아무것도 안 뜨게 해서 잘못된 환경에서 잘못된 서비스가 뜨는 걸 방지) — 반드시 `--profile local`을 붙일 것
-- 여기서 뜨는 `mongo`는 로컬 전용 별도 인스턴스 — 팀 배포 서버(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)와는 다른 DB. 팀 배포 서버를 쓰려면 `.env`의 `MONGO_HOST`를 그쪽으로 두고 compose의 `mongo` 서비스는 안 띄워도 됨(`docker compose --profile local up backend report-scheduler`)
+- `backend`(포트 8047) + `mongo`(호스트 포트 27020) + `report-scheduler` + `collection-scheduler` 상시 기동. `report-scheduler`는 예약 보고서를, `collection-scheduler`는 FULL 감지 수거 작업의 담당자 알림·재알림·관리자 에스컬레이션을 담당
+- `backend`/`mongo`/`report-scheduler`/`collection-scheduler`는 `local` profile로 묶여 있음(GPU 서버의 `inference`/`side-overflow`와 같은 파일을 공유하므로, 이름 없이 `docker compose up`을 치면 아무것도 안 뜨게 해서 잘못된 환경에서 잘못된 서비스가 뜨는 걸 방지) — 반드시 `--profile local`을 붙일 것
+- 여기서 뜨는 `mongo`는 로컬 전용 별도 인스턴스 — 팀 배포 서버(`<LOCAL_BACKEND_IP>`, 실제 값은 Notion 참고)와는 다른 DB. 팀 배포 서버를 쓰려면 `.env`의 `MONGO_HOST`를 그쪽으로 두고 compose의 `mongo` 서비스는 안 띄워도 됨(`docker compose --profile local up backend report-scheduler collection-scheduler`)
 - 라벨링/학습(YOLO26 재학습 + Qwen3-VL-8B LoRA·QLoRA)은 평소엔 내려두고 필요할 때만:
   ```bash
   docker compose --profile training up --build training
@@ -136,6 +136,11 @@ docker compose --profile local up --build
   볼륨에 수신 설정·중복 발송 이력과 최근 7일의 보고서용 이벤트 메타데이터 스냅샷을 보존.
   주간 보고서는 DB 대신 이 스냅샷을 합산하며, 누락된 날짜가 있으면 발송하지 않음
   (이메일 입력란을 비우고 확인하면 수신 해제되며 환경변수 주소도 다시 활성화되지 않음)
+- **수거 업무 자동화 RPA**: 구현됨. `RPA_COLLECTION_ENABLED=true`일 때 `BIN_STATES`가
+  `NORMAL→FULL`로 전환되면 통별 활성 수거 작업을 한 건 생성하고, 별도
+  `collection-scheduler`가 담당자 최초 알림→재알림→관리자 에스컬레이션을 순서대로 발송.
+  `/statistics`에서 작업 확인·완료, 처리 지표와 최근 실행 이력을 조회할 수 있음. 신규 API·DB
+  스키마 변경이므로 배포 전 CTO 검토 필요
 - **RPA(전구/경고음)**: 아직 미착수. 모드 전환 API(`/api/mode`)는 있지만 실제
   RPA 트리거·Mute로 이어지는 코드는 없음.
 - **DB**: MongoDB Docker(호스트 포트 `27020`, 컨테이너 내부는 `27017`)에 백엔드가
@@ -155,8 +160,8 @@ docker compose --profile local up --build
 > (라즈베리파이는 추론 성능 부족). 상세는 `.agentfiles/architecture.md` 참고.
 
 - **개발**: Windows 노트북에서 Docker로 진행(로컬 웹캠 테스트)
-- **배포**: `backend`+`mongo`+`report-scheduler`는 로컬 `<LOCAL_BACKEND_IP>`(실제 값은 Notion 참고)에서
-  `docker compose --profile local up -d backend mongo report-scheduler`로 구동. `training`/`llm`을 학원
+- **배포**: `backend`+`mongo`+`report-scheduler`+`collection-scheduler`는 로컬 `<LOCAL_BACKEND_IP>`(실제 값은 Notion 참고)에서
+  `docker compose --profile local up -d backend mongo report-scheduler collection-scheduler`로 구동. `training`/`llm`을 학원
   GPU 서버(Linux, **NVIDIA L40S 4장 중 할당받은 1장**)로 이전해서 `docker compose
   --profile training up`/`--profile llm up`(자동 라벨링 검증 파이프라인 돌 때만 같이
   기동). **TOP(`inference` 서비스, `models/trashdetect/tracking2.py`)/SIDE

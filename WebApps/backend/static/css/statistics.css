@@ -331,10 +331,98 @@ body {
     cursor: wait;
 }
 
+.collectionAutomationCard {
+    padding: 20px;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: #ffffff;
+}
+
+.collectionAutomationHeader {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.collectionAutomationHeader h4,
+.collectionTableGrid h5 {
+    margin: 0 0 5px;
+    color: #1e293b;
+}
+
+.collectionAutomationHeader p {
+    color: #64748b;
+    font-size: 12px;
+}
+
+.collectionStatusBadge {
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.collectionStatusBadge.isRunning { background: #dcfce7; color: #166534; }
+.collectionStatusBadge.isFailed { background: #fee2e2; color: #991b1b; }
+
+.collectionMetricGrid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.collectionMetricGrid > div {
+    padding: 12px;
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.collectionMetricGrid span {
+    display: block;
+    margin-bottom: 5px;
+    color: #64748b;
+    font-size: 11px;
+}
+
+.collectionMetricGrid strong { color: #0f172a; font-size: 18px; }
+
+.collectionTableGrid {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 18px;
+}
+
+.collectionTableScroll { overflow-x: auto; }
+.collectionTable { width: 100%; border-collapse: collapse; font-size: 11px; }
+.collectionTable th,
+.collectionTable td { padding: 9px 6px; border-bottom: 1px solid #f1f5f9; text-align: left; }
+.collectionTable th { color: #64748b; }
+.collectionTable td { color: #475569; }
+.collectionActionButton {
+    margin-right: 4px;
+    padding: 5px 7px;
+    border: 0;
+    border-radius: 6px;
+    background: #0284c7;
+    color: white;
+    cursor: pointer;
+    font-size: 10px;
+}
+.collectionActionButton.complete { background: #16a34a; }
+
 @media (max-width: 600px) {
     .statisticsCardHeader {
         align-items: flex-start;
         flex-direction: column;
     }
+
+    .collectionMetricGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .collectionTableGrid { grid-template-columns: 1fr; }
 
 }

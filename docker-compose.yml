@@ -48,6 +48,22 @@ services:
       - -m
       - RPAs.reportAutomation.reportScheduler
 
+  collection-scheduler:
+    build:
+      context: .
+      dockerfile: WebApps/backend/Dockerfile
+    container_name: sortmaster-collection-scheduler
+    profiles: ["local"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - backend
+    command:
+      - python
+      - -m
+      - RPAs.collectionAutomation.collectionScheduler
+
   mongo:
     image: mongo:7.0
     container_name: sortmaster-mongo

@@ -1,7 +1,9 @@
 # ERD — CCTV 기반 분리수거 오분류 탐지·자동 경고 시스템
 
 > 버전: 고도화 진행 중(MVP 데모 완료). `repositories/eventRepository.py`가 motor(비동기 MongoDB 드라이버) 기반으로 구현됨(in-memory Mock 제거 완료) — `WebApps/backend/schemas/event.py`의 Pydantic 모델을 근거로 작성. **`detectionId`/`trackingId`/`binId`/`binType`/`modelVersion`과 카메라별 GridFS 버킷, `BIN_STATES`(`repositories/binStateRepository.py`) 모두 코드 반영 완료.**
-> 실제 영속화되는 것은 MongoDB `events`/`binStates`(신규) 컬렉션 + GridFS뿐. `CAMERA`/`SystemState`는 현재 DB 컬렉션이 아니라 Enum·런타임 상태라 참고용으로만 표시.
+> 실제 영속화되는 것은 MongoDB `events`/`binStates`/`collectionTasks`/
+> `collectionAutomationRuns`/`collectionAutomationState` 컬렉션 + GridFS다.
+> `CAMERA`/`SystemState`는 현재 DB 컬렉션이 아니라 Enum·런타임 상태라 참고용으로만 표시.
 > 손 감지 조합 판정은 폐지되고 쓰레기 감지 자체가 트리거로 바뀜 — 옆 카메라(`ELEV-SIDE`)는
 > **GPU 서버의 `models/trashoverflow/sideOverflow.py`**가 **MobileNet_V3_Small** 경량
 > 분류 모델로 넘침 상태를 자체 판정하고 `POST /api/binStates`로 로컬 백엔드에 결과를 직접
@@ -26,6 +28,8 @@ erDiagram
     CAMERA ||--o{ EVENT : "탐지"
     BIN_STATES ||--o{ EVENT : "binId 기준 이벤트 발생"
     BIN_STATES |o--o| EVENT : "activeOverflowEventId(현재 FULL 유발 이벤트)"
+    EVENT ||--o| COLLECTION_TASK : "FULL 전환 시 수거 작업"
+    COLLECTION_TASK ||--o{ COLLECTION_AUTOMATION_RUN : "알림 실행 이력"
     EVENT |o--|| MEDIA_FILE : "참조(선택)"
 
     CAMERA {
@@ -63,6 +67,34 @@ erDiagram
         string imageFileId FK "nullable, detection start/stop 녹화 사용 시 카메라별 GridFS GIF ID"
         string modelVersion "신규 — YOLO26/Qwen3-VL-8B 등 모델 버전. 재학습 이후 이벤트 비교/추적용"
         string notes "nullable"
+    }
+
+    COLLECTION_TASK {
+        string collectionTaskId PK "uuid"
+        string binId UK "활성 작업에 한해 통별 1건"
+        string binType "normal/recyclables/coffeeCup/paper"
+        string cameraId "현재 ELEV-SIDE"
+        string relatedEventId FK "원인이 된 overflow EVENT"
+        string taskStatus "OPEN/ACKNOWLEDGED/COMPLETED/CANCELLED"
+        datetime detectedAt
+        datetime createdAt
+        datetime acknowledgedAt "nullable"
+        datetime completedAt "nullable"
+        float processingSeconds "nullable"
+        int escalationLevel "0 최초/1 재알림/2 관리자"
+        datetime lastNotificationAt "nullable"
+        int notificationAttemptCount
+        string lastFailureReason "nullable, 오류 타입만 저장"
+    }
+
+    COLLECTION_AUTOMATION_RUN {
+        string runId PK "uuid"
+        string collectionTaskId FK
+        string actionType "TASK_CREATED/ACKNOWLEDGED/COMPLETED/INITIAL/REMINDER/ESCALATION"
+        string status "SUCCESS/FAILED"
+        datetime attemptedAt
+        string recipientRole "assignee/manager"
+        string errorType "nullable"
     }
 
     MEDIA_FILE {

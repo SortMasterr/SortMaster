@@ -1446,6 +1446,7 @@ camelCase를 유지한다.
 | EP-11   | BIN_STATES 갱신(전환 시 overflow 이벤트 생성) | 구현됨 |
 | EP-12   | GPU 서버(`tracking2.py`) 투척 판정 결과 수신 | 구현됨(`tracking2.py`의 RTSP 연결·상시 서비스화는 TBD) |
 | EP-13   | 자동 통계 보고서 수신 이메일 설정 | 구현됨(대시보드에서 1개 주소 저장, 별도 스케줄러가 일일·주간 자동 발송) |
+| EP-14   | FULL 감지 수거 작업 및 자동 알림 | 구현됨(배포 전 CTO 검토 필요) |
 | PG-01   | 모니터링 페이지              | 구현됨             |
 | PG-02   | 이전기록 페이지              | 구현됨             |
 | PG-03   | 통계 대시보드               | 구현됨             |
@@ -1455,7 +1456,39 @@ camelCase를 유지한다.
 | EVT-01  | Overflow 이벤트 저장·통계    | 구현됨             |
 | BIN-01  | BIN_STATES 상태 관리       | 구현됨             |
 | RPA-01  | 실제 전구·경고음 연동          | 미구현             |
+| RPA-02  | 수거 작업 생성·재알림·관리자 에스컬레이션 | 구현됨(기본 비활성화) |
 | AUTH-01 | 인증 및 권한               | 미구현             |
+
+---
+
+## EP-14. 수거 업무 자동화 RPA
+
+`RPA_COLLECTION_ENABLED=true`일 때 `BIN_STATES`가 `NORMAL`에서 `FULL`로 전환되면
+동일 `binId`의 활성 수거 작업을 최대 한 건 생성한다. 별도 `collection-scheduler` 프로세스가
+담당자 최초 알림, 설정 시간 후 재알림, 관리자 에스컬레이션을 순서대로 발송한다.
+
+### `GET /api/collectionTasks`
+
+- Query: `taskStatus`(`OPEN`/`ACKNOWLEDGED`/`COMPLETED`/`CANCELLED`, 선택),
+  `limit`(1~200, 기본 50)
+- Response: `{ "tasks": CollectionTask[], "total": number }`
+
+`CollectionTask`는 `collectionTaskId`, `binId`, `binType`, `cameraId`, `relatedEventId`,
+`taskStatus`, `detectedAt`, `createdAt`, 확인·완료 시각, 처리시간, 알림 단계와 발송 결과를 포함한다.
+
+### 작업 처리
+
+- `POST /api/collectionTasks/{collectionTaskId}/acknowledge`: `OPEN` 작업을
+  `ACKNOWLEDGED`로 변경한다.
+- `POST /api/collectionTasks/{collectionTaskId}/complete`: 활성 작업을 `COMPLETED`로 변경하고
+  처리 소요시간을 계산한다.
+- 작업 없음은 404, 이미 종료된 작업 재처리는 409를 반환한다.
+
+### `GET /api/collectionAutomation/status`
+
+자동화 활성 여부, 담당자·관리자 주소 설정 여부, 워커 heartbeat와 상태, 미처리·확인·에스컬레이션·
+당일 완료 건수, 평균 처리시간, 최근 알림 실행 이력을 반환한다. SMTP 비밀번호와 전체 수신 주소는
+응답하지 않는다.
 
 ---
 
