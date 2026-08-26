@@ -43,5 +43,9 @@ SMTP 발신 설정은 보고서 RPA와 동일한 `RPA_REPORT_FROM`, `SMTP_HOST`,
 - `GET /api/collectionAutomation/status`: 워커 상태, 처리 지표, 최근 발송 이력
 - `/statistics`: 수거 작업과 실행 이력 표시 및 확인·완료 처리
 
+공통 사이드바의 `쓰레기통 가득참` 표시는 `OPEN` 또는 `ACKNOWLEDGED` 수거 작업이 하나라도
+있을 때 유지됩니다. 마지막 활성 작업을 `COMPLETED` 처리하면 즉시 숨겨지며, 다른 화면이나
+브라우저에서 상태가 바뀐 경우에도 15초 주기로 동기화됩니다.
+
 자동화는 기본적으로 비활성화되어 있습니다. `RPA_COLLECTION_ENABLED=true`로 변경한 뒤
 백엔드와 `collection-scheduler`를 모두 재시작해야 새 `FULL` 전환부터 작업이 생성됩니다.

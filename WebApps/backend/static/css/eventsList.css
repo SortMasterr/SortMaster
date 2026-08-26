@@ -203,7 +203,7 @@ body {
 /* 카드 현황판 */
 .stats {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 16px;
     margin-bottom: 24px;
 }
@@ -464,27 +464,6 @@ td.time {
 
 .status.err {
     color: #dc2626;
-}
-
-/* 알림 상태 */
-.alarm {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.85rem;
-}
-
-.alarm.on {
-    color: #d97706;
-    font-weight: 600;
-}
-
-.alarm.off {
-    color: #dc2626;
-}
-
-.alarm i {
-    font-size: 0.9rem;
 }
 
 /* 빈 목록 */
