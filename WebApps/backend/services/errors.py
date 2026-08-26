@@ -16,3 +16,7 @@ class EmptyRecordingError(ValueError):
 
 class RecordingConflictError(ValueError):
     """A recordingId was reused for a different detection result."""
+
+
+class ReportEmailSettingsError(RuntimeError):
+    """The automatic-report recipient settings could not be read or saved."""

@@ -1,5 +1,4 @@
 import asyncio
-import smtplib
 from datetime import datetime, timezone
 
 from fastapi import (
@@ -27,7 +26,10 @@ from schemas.mode import (
     ModeResponse,
     ModeUpdate,
 )
-from schemas.report import ReportEmailRequest, ReportEmailResponse
+from schemas.report import (
+    ReportEmailSettingsRequest,
+    ReportEmailSettingsResponse,
+)
 from schemas.statistics import Statistics
 from services.binStateService import binStateService
 from services.detectionService import detectionService
@@ -37,18 +39,11 @@ from services.errors import (
     RecordingCameraMismatchError,
     RecordingConflictError,
     RecordingNotFoundError,
+    ReportEmailSettingsError,
 )
 from services.eventService import eventService
 from services.modeService import modeService
-from services.reportEmailService import (
-    ApiResponseError,
-    ConfigurationError,
-    DataMismatchError,
-    DuplicateReportError,
-    LockUnavailableError,
-    SmtpAuthenticationError,
-    reportEmailService,
-)
+from services.reportEmailService import reportEmailService
 from services.webSocketManager import (
     webSocketManager,
 )
@@ -65,41 +60,36 @@ router = APIRouter(
 
 @router.post(
     "/reports/email",
-    response_model=ReportEmailResponse,
+    response_model=ReportEmailSettingsResponse,
     responses={
-        400: {"description": "보고서 기준일 또는 SMTP 설정 오류"},
-        409: {"description": "같은 보고서 중복 발송"},
-        423: {"description": "다른 보고서 프로세스 실행 중"},
-        502: {"description": "통계 API 또는 SMTP 실패"},
+        422: {"description": "이메일 형식 오류"},
+        500: {"description": "이메일 설정 저장 실패"},
     },
 )
-async def sendReportEmail(
-    request: ReportEmailRequest,
-) -> ReportEmailResponse:
+def saveReportEmailSettings(
+    request: ReportEmailSettingsRequest,
+) -> ReportEmailSettingsResponse:
     try:
-        return await reportEmailService.sendReport(request)
-    except DuplicateReportError as error:
+        return reportEmailService.saveSettings(request)
+    except ReportEmailSettingsError as error:
         raise HTTPException(
-            status_code=409,
-            detail="이미 발송된 보고서입니다.",
+            status_code=500,
+            detail="자동 보고서 수신 이메일을 저장할 수 없습니다.",
         ) from error
-    except LockUnavailableError as error:
-        raise HTTPException(status_code=423, detail=str(error)) from error
-    except (ConfigurationError, ValueError) as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    except SmtpAuthenticationError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
-    except (ApiResponseError, DataMismatchError) as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
-    except ConnectionError as error:
+
+
+@router.get(
+    "/reports/email",
+    response_model=ReportEmailSettingsResponse,
+    responses={500: {"description": "이메일 설정 조회 실패"}},
+)
+def getReportEmailSettings() -> ReportEmailSettingsResponse:
+    try:
+        return reportEmailService.getSettings()
+    except ReportEmailSettingsError as error:
         raise HTTPException(
-            status_code=502,
-            detail="통계 API 연결에 실패했습니다.",
-        ) from error
-    except (smtplib.SMTPException, OSError) as error:
-        raise HTTPException(
-            status_code=502,
-            detail="이메일 서버 연결 또는 발송에 실패했습니다.",
+            status_code=500,
+            detail="자동 보고서 수신 이메일을 불러올 수 없습니다.",
         ) from error
 
 

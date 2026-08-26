@@ -5,7 +5,7 @@ services:
       dockerfile: WebApps/backend/Dockerfile
     container_name: sortmaster-backend
     # 로컬 배포 서버 전용 — GPU 서버에서 이 파일을 쓸 때(inference/side-overflow) 이름
-    # 없이 `docker compose up`을 실수로 치면 backend/mongo까지 같이 뜨려는 걸 막기 위해
+    # 없이 `docker compose up`을 실수로 치면 로컬 서비스까지 같이 뜨려는 걸 막기 위해
     # profile로 분리. `docker compose --profile local up -d`로 기동.
     profiles: ["local"]
     restart: unless-stopped
@@ -13,18 +13,45 @@ services:
       - "8047:8047"
     env_file:
       - .env
+    environment:
+      - RPA_STATE_DIRECTORY=/app/RPAs/reportAutomation/state
     depends_on:
       - mongo
+    volumes:
+      - report-state:/app/RPAs/reportAutomation/state
     # 카메라가 GPU 서버와 다른 사설망(팀원 로컬 PC)에 있을 때, 노트북→GPU서버 역방향
     # SSH 터널(-R)로 끌어온 RTSP를 컨테이너 안에서 host.docker.internal로 접근하기 위함.
     # .env의 CAMERA_SOURCE_<CameraId>에서 host.docker.internal 사용 시에만 의미 있음.
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  # 통계 보고서 예약 실행 전용 프로세스. FastAPI와 분리해 개발용 reload나 다중 worker로
+  # 인한 중복 실행을 막고, 대시보드에서 저장한 수신 주소와 발송 이력을 공유한다.
+  report-scheduler:
+    build:
+      context: .
+      dockerfile: WebApps/backend/Dockerfile
+    container_name: sortmaster-report-scheduler
+    profiles: ["local"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - RPA_STATE_DIRECTORY=/app/RPAs/reportAutomation/state
+      - SORTMASTER_API_BASE_URL=http://backend:8047
+    depends_on:
+      - backend
+    volumes:
+      - report-state:/app/RPAs/reportAutomation/state
+    command:
+      - python
+      - -m
+      - RPAs.reportAutomation.reportScheduler
+
   mongo:
     image: mongo:7.0
     container_name: sortmaster-mongo
-    # backend와 같은 이유로 local profile — GPU 서버에서 잘못 같이 뜨는 것 방지
+    # backend/report-scheduler와 같은 이유로 local profile — GPU 서버에서 잘못 같이 뜨는 것 방지
     profiles: ["local"]
     restart: unless-stopped
     ports:
@@ -179,3 +206,4 @@ services:
 volumes:
   mongo-data:
   llm-model-cache:
+  report-state:

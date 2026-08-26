@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -7,9 +8,13 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from RPAs.reportAutomation.reportAutomation import (
+    ConfigurationError,
     DataMismatchError,
     DuplicateReportError,
+    RecipientSettingsStore,
+    ReportSnapshotStore,
     Settings,
+    SnapshotUnavailableError,
     aggregateData,
     buildCsv,
     buildExecutionKey,
@@ -78,21 +83,78 @@ class FakeApiClient:
 
 
 class ReportAutomationTests(unittest.TestCase):
-    def testDashboardModeDoesNotRequireEnvironmentRecipient(self):
-        with patch.dict(
-            "os.environ",
-            {
-                "RPA_REPORT_FROM": "sender@example.com",
-                "SMTP_HOST": "smtp.example.com",
-            },
-            clear=True,
-        ):
-            settings = Settings.fromEnvironment(
-                requireEmail=True,
-                requireRecipients=False,
+    def testSavedRecipientOverridesEnvironmentRecipient(self):
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            stateDirectory = Path(temporaryDirectory)
+            RecipientSettingsStore(stateDirectory).saveRecipient(
+                "saved@example.com"
+            )
+            with patch.dict(
+                "os.environ",
+                {
+                    "RPA_STATE_DIRECTORY": temporaryDirectory,
+                    "RPA_REPORT_RECIPIENTS": "old@example.com",
+                    "RPA_REPORT_FROM": "sender@example.com",
+                    "SMTP_HOST": "smtp.example.com",
+                    "SMTP_USER": "sender@example.com",
+                    "SMTP_PASSWORD": "app-password",
+                },
+                clear=True,
+            ):
+                settings = Settings.fromEnvironment()
+
+        self.assertEqual(("saved@example.com",), settings.recipients)
+
+    def testRecipientSettingsStoreNormalizesAddress(self):
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            store = RecipientSettingsStore(Path(temporaryDirectory))
+
+            saved = store.saveRecipient(" Manager@Example.com ")
+
+            self.assertEqual("manager@example.com", saved)
+            self.assertEqual(saved, store.loadRecipient())
+
+    def testClearedRecipientDisablesEnvironmentFallback(self):
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            stateDirectory = Path(temporaryDirectory)
+            RecipientSettingsStore(stateDirectory).clearRecipient()
+            with patch.dict(
+                "os.environ",
+                {
+                    "RPA_STATE_DIRECTORY": temporaryDirectory,
+                    "RPA_REPORT_RECIPIENTS": "fallback@example.com",
+                },
+                clear=True,
+            ):
+                settings = Settings.fromEnvironment(
+                    requireEmail=False,
+                    requireRecipients=False,
+                )
+
+            self.assertEqual((), settings.recipients)
+            self.assertIsNone(
+                RecipientSettingsStore(stateDirectory).loadRecipient()
             )
 
-        self.assertEqual((), settings.recipients)
+    def testGmailSenderAndSmtpUserMustMatch(self):
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            with patch.dict(
+                "os.environ",
+                {
+                    "RPA_STATE_DIRECTORY": temporaryDirectory,
+                    "RPA_REPORT_RECIPIENTS": "manager@example.com",
+                    "RPA_REPORT_FROM": "sender@gmail.com",
+                    "SMTP_HOST": "smtp.gmail.com",
+                    "SMTP_USER": "different@gmail.com",
+                    "SMTP_PASSWORD": "app-password",
+                },
+                clear=True,
+            ):
+                with self.assertRaisesRegex(
+                    ConfigurationError,
+                    "SMTP_USER",
+                ):
+                    Settings.fromEnvironment()
 
     def testDailyPeriodUsesPreviousKstCalendarDayAndUtcBoundary(self):
         now = datetime(2026, 8, 25, 9, 0, tzinfo=ZoneInfo("Asia/Seoul"))
@@ -187,6 +249,18 @@ class ReportAutomationTests(unittest.TestCase):
             )
 
             self.assertEqual("sent", result["status"])
+            snapshotPath = (
+                settings.stateDirectory
+                / "dailyReportSnapshots"
+                / "2026-08-24.json"
+            )
+            self.assertTrue(snapshotPath.exists())
+            self.assertNotIn(
+                "imageFileId",
+                json.loads(
+                    snapshotPath.read_text(encoding="utf-8")
+                )["events"][0],
+            )
             period = calculatePeriod("daily", targetDate=date(2026, 8, 24))
             self.assertEqual("daily:2026-08-24:operations", buildExecutionKey(period, "operations"))
             with self.assertRaises(DuplicateReportError):
@@ -198,17 +272,33 @@ class ReportAutomationTests(unittest.TestCase):
                     emailSender=lambda unusedSettings, unusedMessage, recipients: set(recipients),
                 )
 
-    def testWeeklyFetchesPreviousWeekForComparison(self):
+    def testWeeklyUsesSevenSnapshotsAndSavedAggregateForComparison(self):
         with tempfile.TemporaryDirectory() as temporaryDirectory:
             settings = self.makeSettings(Path(temporaryDirectory))
             currentEvents = [makeEvent("current", "2026-08-17T01:00:00Z")]
             previousEvents = [makeEvent("previous", "2026-08-10T01:00:00Z", "overflow", binType="normal")]
-            client = FakeApiClient(
-                [
-                    (makeStatistics(currentEvents), currentEvents),
-                    (makeStatistics(previousEvents), previousEvents),
-                ]
+            snapshotStore = ReportSnapshotStore(settings.stateDirectory)
+            for offset in range(7):
+                targetDate = date(2026, 8, 17 + offset)
+                dailyEvents = currentEvents if offset == 0 else []
+                snapshotStore.saveDaily(
+                    makeStatistics(dailyEvents),
+                    dailyEvents,
+                    calculatePeriod("daily", targetDate=targetDate),
+                )
+            previousPeriod = calculatePeriod(
+                "weekly",
+                targetDate=date(2026, 8, 10),
             )
+            snapshotStore.saveWeeklyAggregate(
+                aggregateData(
+                    makeStatistics(previousEvents),
+                    previousEvents,
+                    previousPeriod,
+                ),
+                previousPeriod,
+            )
+            client = FakeApiClient([])
 
             result = runReport(
                 "weekly",
@@ -219,8 +309,40 @@ class ReportAutomationTests(unittest.TestCase):
             )
 
             self.assertEqual("dryRun", result["status"])
-            self.assertEqual(date(2026, 8, 10), client.periods[1].startKst.date())
+            self.assertEqual([], client.periods)
             self.assertIn("전주 대비 증감", Path(result["htmlPath"]).read_text(encoding="utf-8"))
+
+    def testWeeklyRejectsMissingDailySnapshot(self):
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            settings = self.makeSettings(Path(temporaryDirectory))
+
+            with self.assertRaisesRegex(
+                SnapshotUnavailableError,
+                "2026-08-17",
+            ):
+                runReport(
+                    "weekly",
+                    settings,
+                    dryRun=True,
+                    targetDate=date(2026, 8, 17),
+                    apiClient=FakeApiClient([]),
+                )
+
+    def testDailySnapshotStoreKeepsOnlyLatestSevenDates(self):
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            store = ReportSnapshotStore(Path(temporaryDirectory))
+            for offset in range(8):
+                targetDate = date(2026, 8, 1 + offset)
+                period = calculatePeriod("daily", targetDate=targetDate)
+                store.saveDaily(makeStatistics([]), [], period)
+
+            snapshotNames = sorted(
+                path.name
+                for path in store.dailyDirectory.glob("*.json")
+            )
+
+            self.assertEqual(7, len(snapshotNames))
+            self.assertEqual("2026-08-02.json", snapshotNames[0])
 
     def testPartialRecipientSuccessRetriesOnlyPendingRecipient(self):
         with tempfile.TemporaryDirectory() as temporaryDirectory:

@@ -27,7 +27,7 @@
 * 관리 모드에서 오분류 이벤트 WebSocket 알림
 * Jinja2 기반 모니터링, 이전기록, 통계 페이지
 * 프론트엔드와 실제 API 연동
-* 통계 대시보드 수신 이메일 입력 및 일일·주간 보고서 수동 발송 API
+* 통계 대시보드 자동 보고서 수신 이메일 설정 API 및 별도 일일·주간 스케줄러
 * 5초 중복 이벤트 방지 Cooldown
 * 요청 스키마 및 Enum 검증
 * 이벤트 미존재 시 HTTP 404 처리
@@ -1036,56 +1036,64 @@ EP-02와 동일한 `Event` 형태. `result: correct`이거나 값 매핑에 실�
 
 ---
 
-## EP-13. `POST /api/reports/email`
+## EP-13. `GET/POST /api/reports/email`
 
-통계 대시보드에서 사용자가 입력한 이메일 주소로 일일 또는 주간 통계 보고서를 발송한다.
-수신 주소는 `.env`가 아니라 요청 Body에서 받으며, SMTP 발신 계정과 비밀번호는 브라우저에
-노출하지 않고 서버 환경 설정에만 둔다. 기존 `RPAs/reportAutomation/reportAutomation.py`의
-기간 조회, 통계·이벤트 교차 검증, HTML 본문, CSV 첨부, SMTP 발송 및 중복 방지 로직을
-재사용한다.
+통계 대시보드의 **이메일 설정** 기능이다. 이 API는 보고서를 즉시 발송하지 않는다. 관리자가
+자동 일일·주간 보고서를 받을 이메일 한 개를 조회·저장하거나 수신을 해제한다. 저장된 주소는
+`RPAs/reportAutomation/state/recipientSettings.json`에 기록되며, Docker에서는 `backend`와
+별도 `report-scheduler` 프로세스가 `report-state` 볼륨으로 공유한다. SMTP 발신 계정과 앱
+비밀번호는 계속 서버 환경 설정에만 두며 브라우저로 전달하지 않는다.
 
-### Request Body — `ReportEmailRequest`
+### `GET /api/reports/email`
+
+설정된 수신 이메일을 조회한다. 아직 설정하지 않았으면 HTTP 200과 함께 `configured=false`,
+`recipient=null`을 반환한다.
+
+### `POST /api/reports/email` Request — `ReportEmailSettingsRequest`
 
 | 필드 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |
-| `recipient` | string | ✅ | 화면에서 입력한 수신 이메일 한 개(최대 254자) |
-| `reportType` | string | 선택 | `daily`(기본값) 또는 `weekly` |
-| `targetDate` | string | 선택 | `YYYY-MM-DD`. daily는 대상일, weekly는 시작 월요일. 생략하면 직전 완료 일/주 |
-
-### 요청 예시
+| `recipient` | string \| null | ❌ | 자동 보고서를 받을 이메일 한 개(최대 254자). `null` 또는 빈 문자열이면 수신 해제 |
 
 ```json
 {
-  "recipient": "manager@example.com",
-  "reportType": "daily",
-  "targetDate": "2026-08-24"
+  "recipient": "manager@example.com"
 }
 ```
 
-### 정상 응답 — `ReportEmailResponse`(HTTP 200)
+### 정상 응답 — `ReportEmailSettingsResponse`(HTTP 200)
 
 ```json
 {
-  "status": "sent",
-  "reportType": "daily",
-  "period": "2026-08-24",
+  "configured": true,
   "recipient": "manager@example.com",
-  "message": "보고서 이메일을 발송했습니다."
+  "message": "자동 보고서 수신 이메일을 저장했습니다."
 }
 ```
+
+저장 이후 별도 `report-scheduler` 프로세스가 KST 기준 매일 09:00에 전날 일일 보고서를,
+매주 월요일 09:10에 이전 주 주간 보고서를 생성·발송한다. 통계·이벤트 API 교차 검증,
+HTML/CSV 생성, 재시도 및 중복 발송 방지는 기존 RPA 로직을 그대로 사용한다.
+설정 확인 시점에는 즉시 발송하지 않으며 다음 예약 시각부터 적용한다.
+수신 해제 시 `recipient=null` 상태를 저장해 `.env`의 `RPA_REPORT_RECIPIENTS` 폴백도 사용하지
+않는다. 다시 이메일을 저장하기 전까지 예약 보고서는 발송되지 않는다.
+
+운영 DB의 7일 보존 경계와 주간 발송 시각 사이에 데이터가 사라지는 것을 막기 위해 일일
+보고서에서 검증한 이벤트 메타데이터를 `report-state` 볼륨에 날짜별 JSON으로 임시 저장한다.
+최근 7개 날짜만 유지하고 GIF·이미지 원본·SMTP 자격 증명은 저장하지 않는다. 주간 보고서는
+이 스냅샷 7개를 합산하며, 누락 또는 검증 실패가 있으면 부정확한 메일을 발송하지 않는다.
+전주 비교는 원본 이벤트 대신 최근 2개의 주간 집계만 보존한다. 이 동작은 기존 API 요청·응답
+스키마를 변경하지 않는다.
 
 ### 에러 응답
 
 | 상태 코드 | 발생 조건 |
 | --- | --- |
-| 400 | 보고서 기준일 또는 서버 SMTP 설정 오류 |
-| 409 | 같은 수신자에게 같은 기간 보고서를 이미 발송함 |
-| 423 | 다른 보고서 프로세스가 실행 중임 |
-| 422 | 이메일 형식 또는 요청 스키마 불일치 |
-| 502 | 통계 API 검증, SMTP 인증·연결·발송 실패 |
+| 422 | 비어 있지 않은 이메일의 형식 또는 요청 스키마 불일치 |
+| 500 | 수신 이메일 설정 파일 조회 또는 저장 실패 |
 
 현재 인증·권한은 구현되지 않았으므로 내부망 대시보드 사용을 전제로 한다. 외부 공개 전에는
-이 엔드포인트에 관리자 인증과 발송 제한을 추가해야 한다.
+이 엔드포인트에 관리자 인증을 추가해야 한다.
 
 ---
 
@@ -1164,12 +1172,15 @@ WS /ws/events
 * 오분류 이벤트 수 표시
 * 최근 이벤트 목록 표시
 * 실제 API 데이터 사용
+* 자동 일일·주간 보고서 수신 이메일 조회·설정(즉시 발송 없음)
 
 ### 사용하는 API
 
 ```text
 GET /api/statistics
 GET /api/events
+GET /api/reports/email
+POST /api/reports/email
 POST /api/mode
 WS /ws/events
 ```
@@ -1434,7 +1445,7 @@ camelCase를 유지한다.
 | EP-10   | BIN_STATES 조회           | 구현됨             |
 | EP-11   | BIN_STATES 갱신(전환 시 overflow 이벤트 생성) | 구현됨 |
 | EP-12   | GPU 서버(`tracking2.py`) 투척 판정 결과 수신 | 구현됨(`tracking2.py`의 RTSP 연결·상시 서비스화는 TBD) |
-| EP-13   | 통계 보고서 이메일 수동 발송 | 구현됨(대시보드 수신자 입력, SMTP 발신 비밀은 서버 설정) |
+| EP-13   | 자동 통계 보고서 수신 이메일 설정 | 구현됨(대시보드에서 1개 주소 저장, 별도 스케줄러가 일일·주간 자동 발송) |
 | PG-01   | 모니터링 페이지              | 구현됨             |
 | PG-02   | 이전기록 페이지              | 구현됨             |
 | PG-03   | 통계 대시보드               | 구현됨             |

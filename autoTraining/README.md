@@ -19,7 +19,8 @@ MongoDB events + 카메라별 GridFS 이벤트 영상 저장소
   ↓
 모든 결과를 humanReviewQueue.jsonl로 전달
   ↓
-사람이 humanDecisions.jsonl에 최종 승인/거절 및 수정 라벨 기록
+localhost 검수 UI에서 사람이 승인/라벨 수정 승인/거절
+→ humanDecisions.jsonl 자동 저장
   ↓
 5. HumanReview : 누락·중복·라벨 파일 검증
   ↓
@@ -51,24 +52,27 @@ smoke test까지 통과했습니다.
 
 다만 현재 저장소에는 기존 학습 데이터셋과 Golden Test가 없고 일일 입력도 0개입니다.
 GPU 서버에서 `llm` 서비스(vLLM)를 기동해 `/v1/models`와 텍스트 전용 `/v1/chat/completions`
-(JSON Schema 구조화 출력)까지는 연결·응답 형식 확인을 마쳤지만(2026-08-25,
-`gpuServerOps.md`의 "vLLM(llm 서비스) 기동" 참고), `reviewLabels.py`가 실제로 보내는 원본+
-bbox 표시 이미지 2장을 포함한 멀티모달 요청은 실 이벤트 데이터가 없어 아직 미검증입니다.
-bootstrap 체크포인트의 snake_case
+(JSON Schema 구조화 출력)는 정상 확인했고, `reviewLabels.py`가 실제로 보내는 원본+bbox
+표시 이미지 2장을 포함해 실제 프로덕션 이미지로도 멀티모달 요청을 실행해봤습니다
+(2026-08-26). 하지만 **이미지가 포함되면 모델이 JSON 스키마를 못 지키고 응답을 끝없이
+늘어놓다 컨텍스트 한도에서 문자열이 잘리는 문제**를 확인했고(`max_tokens` 상한으로 빨리
+실패하도록 완화는 했지만 근본 원인은 미해결), 그래서 Review 단계는 "연결 자체는 됨,
+실제로 쓸만한 결과가 나오는지는 아직 아님" 상태입니다. bootstrap 체크포인트의 snake_case
 클래스명은 설정의 camelCase 계약과 다르므로 현재 상태로 Label부터 전체 E2E를 실행할 수 없습니다.
 
 | 항목 | 상태 | 확인 결과 |
 |---|---|---|
 | 전체 단계 코드 | 구현됨 | `Collect → Extract → Select → Label → Review → HumanReview → Build → Train → Evaluate → Promote → Deploy` |
 | 일일 2구간 CLI | 구현됨 | `prepareDailyBatch`는 사람 검수 큐까지, `continueAfterHumanReview`는 평가까지 실행 |
-| Python 코드 | 통과 | `autoTraining` Python 파일 17개 `compileall` 및 CLI import 성공 |
+| 사람 라벨 검수 UI | 구현·HTTP smoke test 통과 | localhost UI에서 원본/bbox/Qwen/클래스 순서를 보고 승인·라벨 텍스트 수정 승인·거절을 원자적으로 저장 |
+| Python 코드 | 통과 | `autoTraining` Python 파일 18개 `compileall` 및 CLI import 성공 |
 | 실행 환경 | 일치 | Conda `env_py311`, Python 3.11.15, `pip check` 충돌 없음 |
 | requirements | 최신화됨 | 실제 환경의 Ultralytics 8.4.117, PyTorch 2.7.1+cu118, OpenCV 4.14.0.94, NumPy 2.4.4 등을 고정 |
 | GPU | 사용 가능 | 현재 환경에서 CUDA 사용 가능, PyTorch CUDA 빌드는 11.8 |
 | Collect 저장소 연동 | 구현됨, 실DB 미검증 | MongoDB `events`를 읽고 `ELEV-TOP`/`misclassification`의 `topMedia` GridFS GIF를 수집하도록 구현 |
 | GIF 프레임 추출 | 테스트 통과 | 생성한 다중 프레임 GIF를 Collect 매니페스트 기준으로 Extract하는 smoke test 통과 |
 | Qwen-VL 주소 구성 | 구현됨 | `.env`의 `LLM_PORT`와 `qwenVl.apiHost`를 조합하고 포트 범위를 검증 |
-| Qwen-VL 실제 연결 | GPU 서버에서 텍스트 기준 검증됨(2026-08-25) | `docker compose --profile llm up -d llm` 기동 후 `/v1/models`, `/v1/chat/completions`(JSON Schema 구조화 출력) 텍스트 요청 응답 확인. 원본+bbox 이미지 2장을 포함한 실제 멀티모달 요청은 실 이벤트 데이터 없어 미검증 |
+| Qwen-VL 실제 연결 | 연결 확인, 멀티모달 응답 신뢰성 문제 발견(2026-08-26) | GPU 서버 안에서 `/v1/models`/텍스트 `/v1/chat/completions`(JSON Schema)는 정상. 실제 프로덕션 이미지 2장 포함한 멀티모달 요청은 스키마를 못 지키고 폭주 생성하다 잘림(`max_tokens` 상한으로 완화, 근본 원인 미해결) — Review 결과 신뢰 불가 상태 |
 | bootstrap 모델 파일 | 로드 가능 | `models/bootstrap/best.pt`, 5,393,150바이트, SHA-256 `757F...B7F2` |
 | 모델 클래스 계약 | 불일치 | 체크포인트는 `trash_normal`, `trash_paper`, `trash_recyclables`, `trash_coffeecup`; 설정은 camelCase 4종 |
 | 활성 모델 포인터 | 초기 상태 | `models/current.json`이 없어 최초 사이클은 bootstrap 모델을 선택 |
@@ -94,6 +98,7 @@ bootstrap 체크포인트의 snake_case
 - YOLO 라벨과 bbox 표시 이미지 생성
 - vLLM OpenAI 호환 API를 이용한 Qwen-VL 자동 검수
 - Qwen 결과 전체의 사람 검수 큐 생성과 사람 결정 JSONL 검증
+- localhost 사람 검수 UI에서 원본·bbox·Qwen 결과 확인, 승인·YOLO 라벨 수정 승인·거절
 - 사람 최종 승인 데이터와 기존 train/val 데이터셋 병합
 - 영상 단위 train/val/test 분리
 - 신규 모델 학습 및 실행별 불변 `models/candidates/<batchId>/<runName>/best.pt` 저장
@@ -138,6 +143,8 @@ bootstrap 체크포인트의 snake_case
 3. **최신 데이터 수집과 운영 재시작 미연결**
    - Qwen Review는 Compose의 vLLM OpenAI 호환 API로 변경했고, 사람 결정 JSONL 승인 게이트와
      `bestTop.pt` 배포·롤백 파일 교체까지 구현했습니다.
+   - 로컬 `LLM_PORT`는 SSH 프로세스가 리스닝하고 TCP 연결도 성공하지만 `/v1/models` 요청은
+     3회 모두 원격 종료됐습니다. GPU 서버 내부에서 vLLM 상태와 같은 API를 먼저 확인해야 합니다.
    - MongoDB `events.imageFileId`와 카메라별 GridFS 계약을 사용한 Collect를 구현했습니다.
      실제 로컬 DB, 역방향 SSH 터널과 운영 이벤트를 연결한 검증은 아직 필요합니다.
    - Deploy 이후 `tracking2.py` 프로세스 재시작, smoke test와 실패 감지에 따른 자동 rollback은
@@ -181,11 +188,14 @@ bootstrap 체크포인트의 snake_case
 - 영상 키는 입력 배치 내 상대 경로의 SHA-256 일부를 포함하므로 카메라별 동일 파일명이 충돌하지 않습니다.
 - JSONL은 행 단위로 처리하며 프로세스별 임시 파일에 `flush`/`fsync`한 뒤 교체합니다.
 - `trainingResult.json`과 `evaluation.json`도 완성된 JSON만 다음 단계에 노출하도록 원자적으로 저장합니다.
+
 ### 추가 구현이 필요한 기능
 
-- `humanReviewQueue.jsonl`과 `humanDecisions.jsonl` 계약을 사용하는 사람 검수 UI
+- 검수 UI의 마우스 기반 bbox 그리기·크기 조절(현재는 YOLO 라벨 텍스트 수정)
+- 배치 상태 파일, 실패 단계 재개와 중복 실행 잠금
 - Docker Compose의 독립 `autoTraining` 서비스
 - 스케줄 실행, 실패 재시도 및 알림
+- 배포 승인 한 번으로 Promote·Deploy를 연결하는 release 명령
 - Deploy 후 `tracking2.py` 재시작, smoke test 및 실패 시 자동 rollback
 - 실제 GPU 서버에서의 전체 E2E 테스트
 - 실제 vLLM·Golden Test·GPU 학습을 포함한 단계별 단위 테스트와 소규모 E2E 자동 테스트
@@ -217,6 +227,7 @@ autoTraining/
 │  ├─ autoLabeling.py
 │  ├─ reviewLabels.py
 │  ├─ humanReview.py
+│  ├─ humanReviewUi.py
 │  ├─ buildDataset.py
 │  ├─ trainModel.py
 │  ├─ evaluateModel.py
@@ -404,16 +415,21 @@ python autoTraining/trainingPipeline.py prepareDailyBatch --batchId 2026-08-25
 위 명령은 Collect → Extract → Select → Label → Qwen Review를 실행하고
 `workspace/batches/2026-08-25/humanReviewQueue.jsonl`을 만든 뒤 멈춥니다.
 
-사람은 같은 배치 폴더에 `humanDecisions.jsonl`을 작성합니다.
+사람은 로컬 검수 UI를 실행합니다.
 
-```json
-{"id":"video__frame_00000001","decision":"approved","reviewer":"reviewerId","reviewedAt":"2026-08-25T18:00:00+09:00"}
-{"id":"video__frame_00000002","decision":"rejected","reviewer":"reviewerId","reviewedAt":"2026-08-25T18:01:00+09:00","notes":"bbox 오류"}
+```powershell
+python autoTraining/trainingPipeline.py reviewUi --batchId 2026-08-25
 ```
 
-수정한 YOLO txt를 승인하려면 결정 행에 `labelPath`를 지정합니다. 모든 큐 id에 결정이 있어야
-다음 단계로 진행되며 누락·중복·허용되지 않은 decision은 즉시 실패합니다.
+기본 브라우저에서 `http://127.0.0.1:8765`가 열립니다. UI는 원본 이미지, YOLO bbox 이미지,
+Qwen 판정, 클래스 ID 순서와 YOLO 라벨 텍스트를 표시합니다. 승인·라벨 텍스트 수정 승인·거절을
+누를 때마다 `humanDecisions.jsonl`을 원자적으로 갱신하고 수정 라벨은
+`humanReview/correctedLabels`에 별도로 보존합니다. UI 종료는 터미널에서 `Ctrl+C`입니다.
 
+GPU 서버에서 브라우저를 직접 열 수 없다면 `--noBrowser`로 실행하고 SSH 포트 포워딩을 사용합니다.
+UI는 기본적으로 localhost에만 바인딩되며 공개 네트워크에 직접 노출하지 않습니다. JSONL 수동
+편집도 호환되지만 운영 기본 경로는 검수 UI입니다. 모든 큐 id에 결정이 있어야 다음 단계로
+진행되며 누락·중복·허용되지 않은 decision은 `HumanReview`에서 즉시 실패합니다.
 ### 2차 자동 구간: 사람 검수 이후 평가까지
 
 ```powershell
@@ -491,6 +507,20 @@ qwenVl:
 Review는 조합한 주소의 vLLM OpenAI 호환 `/v1/models`, `/v1/chat/completions`를 호출합니다.
 GPU 서버 외부에서 파이프라인을 실행한다면 `apiHost`를 GPU 서버 주소로 바꾸되 실제 주소와
 인증정보는 공개 문서에 기록하지 않습니다.
+
+2026-08-25 재연결 시험에서는 localhost의 설정 포트까지 TCP 연결됐고 해당 포트를 SSH 프로세스가
+리스닝하는 것도 확인했습니다. 그러나 `/v1/models` 요청은 3회 모두 HTTP 응답 전에
+`ConnectionResetError`로 종료됐습니다. 이는 로컬 파이프라인에서 SSH 터널 입구까지는 도달했지만
+터널 뒤의 vLLM 서비스가 정상 응답하지 않는 상태를 의미합니다. GPU 서버에서 다음을 확인해야 합니다.
+
+```bash
+docker compose ps llm
+docker compose logs --tail=100 llm
+curl http://127.0.0.1:${LLM_PORT}/v1/models
+```
+
+GPU 서버 내부의 `curl`이 성공한 뒤 로컬 터널을 다시 시험하고, 이후 실제 이미지가 포함된
+`/v1/chat/completions` 멀티모달 요청까지 확인해야 Review를 실환경 검증 완료로 판단합니다.
 
 ## 메모리 및 I/O 최적화
 

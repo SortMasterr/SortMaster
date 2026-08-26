@@ -169,14 +169,14 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
   MobileNet_V3_Small 넘침 판정, TOP과 같은 패턴) / `llm`(Qwen3-VL-8B 서빙, vLLM — 자동
   라벨링 검증용으로 **이미 사용 중**, `training`과 함께 필요할 때만 기동, Docker 컨테이너).
   `inference`/`side-overflow` 둘 다 `docker-compose.yml`에 정의 완료 — `training`/`llm`처럼
-  온디맨드는 아니지만, `backend`/`mongo`(로컬 전용, `local` profile)와 같은 파일을
+  온디맨드는 아니지만, `backend`/`mongo`/`report-scheduler`(로컬 전용, `local` profile)와 같은 파일을
   공유해서 실수로 같이 뜨는 걸 막기 위해 이쪽은 `gpu` profile로 묶어서 `docker compose
   --profile gpu up -d`로 한 번에 기동 — **2026-08-25에 GPU 서버에서 실제 컨테이너 기동을
   처음 시도**, `host.docker.internal`이 SSH `-R` 역터널의 루프백 리스닝에 닿지 못해 crash
   loop가 발생해서 `network_mode: host`로 수정 완료(커밋 `06f3d0d`) — **단, 수정 후 재기동해서
   정상 연결되는지 최종 재검증은 아직 안 됨**(그 전까지 확실히 검증된 건 venv+
   `python tracking2.py`/`sideOverflow.py` 직접 실행 기준 end-to-end, 아래 참고).
-  `backend`/`mongo`는 GPU 서버가 아니라 **로컬에서 구동**(아래 "배포 전략" 참고)
+  `backend`/`mongo`/`report-scheduler`는 GPU 서버가 아니라 **로컬에서 구동**(아래 "배포 전략" 참고)
 - `tracking2.py`/`sideOverflow.py`는 `training`과 같은 카드(`GPU_DEVICE_ID`)를 공유해서
   상시 돌게 될 예정이라, 학습을 돌리는 시간대엔 세 워크로드가 VRAM/연산을 나눠 써야 함 —
   `llm`처럼 GPU 메모리 사용량을 제한해두는 게 안전(실측 후 조정 필요, 아래 TBD 참고. 단,
@@ -223,8 +223,8 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 > 이후 재전환된 결정, `decisionLog.md` 참고. 상세는 위 "탐지 파이프라인" 참고
 
 - 개발: Windows+Docker, 로컬 웹캠 테스트(기존과 동일)
-- **배포**: `backend`+`mongo`는 로컬 `<LOCAL_BACKEND_IP>`(확정, 실제 값은 Notion 참고)에서
-  `docker compose up backend mongo`로 실행. `training`/`llm`은 GPU 서버로 이전해서
+- **배포**: `backend`+`mongo`+`report-scheduler`는 로컬 `<LOCAL_BACKEND_IP>`(확정, 실제 값은 Notion 참고)에서
+  `docker compose --profile local up -d backend mongo report-scheduler`로 실행. `training`/`llm`은 GPU 서버로 이전해서
   `docker compose --profile training up`/`--profile llm up`(둘 다 자동 라벨링 검증
   파이프라인 돌 때만 같이 기동). `tracking2.py`/`sideOverflow.py` 둘 다 아직 Docker화 안
   됨(TBD) — 지금은 GPU 서버에서 스크립트로 직접 실행
@@ -307,6 +307,22 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 
 - 오분류 시 전구+경고음 즉시 자동 트리거(재전파 없음)
 - `COLLECT` 모드: 알림 전부 Mute, 탐지 로직은 계속 동작(통계만 갱신)
+
+## 자동 통계 보고서
+
+- `/statistics`의 **이메일 설정**은 보고서를 즉시 보내지 않고 자동 보고서 수신 주소 한 개를
+  `RPAs/reportAutomation/state/recipientSettings.json`에 저장한다. 빈 입력으로 확인하면 명시적
+  수신 해제 상태를 저장하며, 이 상태에서는 `.env` 수신 주소도 폴백하지 않는다.
+- 일일 보고서는 매일 09:00에 전날 KST 데이터를, 주간 보고서는 매주 월요일 09:10에 이전
+  월~일 KST 데이터를 조회해 HTML 이메일과 UTF-8 CSV로 자동 발송한다.
+- 예약 실행은 FastAPI 내부가 아닌 별도 `report-scheduler` 프로세스가 담당한다. Docker에서는
+  `backend`와 `report-scheduler`가 `report-state` 볼륨으로 수신 설정·발송 이력·실행 잠금·
+  보고서 임시 스냅샷을 공유한다.
+- 보고서 프로세스는 MongoDB에 직접 접근하지 않고 `GET /api/statistics`와 `GET /api/events`만
+  사용한다. SMTP 발신 계정과 앱 비밀번호는 `.env`에만 보관한다.
+- 운영 DB의 7일 보존 경계에서 주간 첫날 데이터가 삭제되는 문제를 막기 위해 매일 검증된 이벤트
+  메타데이터를 날짜별 JSON으로 저장하고 최근 7개 날짜만 유지한다. 주간 보고서는 이 7개를
+  합산하며, 누락 시 불완전한 메일을 보내지 않는다. 전주 비교는 최근 2개의 주간 합계만 보존한다.
 
 ## 이벤트 적재
 

@@ -1,7 +1,7 @@
 """SortMaster daily/weekly report automation.
 
-This process reads the public REST API only.  It never connects to MongoDB and is
-intended to be launched by Windows Task Scheduler or cron.
+This process reads the public REST API only. It never connects to MongoDB and is
+launched by the dedicated Docker scheduler, Windows Task Scheduler, or cron.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import io
 import json
 import logging
 import os
+import re
 import smtplib
 import socket
 import ssl
@@ -53,6 +54,10 @@ class DuplicateReportError(ReportAutomationError):
 
 class LockUnavailableError(ReportAutomationError):
     """Another process owns the report execution lock."""
+
+
+class SnapshotUnavailableError(ReportAutomationError):
+    """A complete set of daily snapshots is not available."""
 
 
 class SmtpAuthenticationError(ReportAutomationError):
@@ -105,6 +110,84 @@ REQUIRED_EVENT_FIELDS = (
     "actionTaken",
     "modelVersion",
 )
+SNAPSHOT_EVENT_FIELDS = (
+    "eventId",
+    "timestamp",
+    "cameraId",
+    "eventCategory",
+    "detectedClass",
+    "binId",
+    "binType",
+    "confidenceScore",
+    "actionTaken",
+    "modelVersion",
+)
+
+
+def normalizeEmailAddress(value: str) -> str:
+    normalized = value.strip().lower()
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", normalized):
+        raise ConfigurationError("올바른 수신 이메일 주소가 설정되지 않았습니다.")
+    return normalized
+
+
+class RecipientSettingsStore:
+    def __init__(self, directory: Path):
+        self.directory = directory
+        self.settingsPath = directory / "recipientSettings.json"
+
+    def loadRecipient(self) -> str | None:
+        if not self.settingsPath.exists():
+            return None
+        try:
+            data = json.loads(self.settingsPath.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise ConfigurationError(
+                "수신 이메일 설정을 읽을 수 없습니다."
+            ) from error
+        if not isinstance(data, dict) or not isinstance(
+            data.get("recipient"),
+            (str, type(None)),
+        ):
+            raise ConfigurationError(
+                "수신 이메일 설정 파일 형식이 잘못되었습니다."
+            )
+        if data["recipient"] is None:
+            return None
+        return normalizeEmailAddress(data["recipient"])
+
+    def saveRecipient(self, recipient: str) -> str:
+        normalized = normalizeEmailAddress(recipient)
+        self._saveSettings(normalized)
+        return normalized
+
+    def clearRecipient(self) -> None:
+        self._saveSettings(None)
+
+    def hasStoredSettings(self) -> bool:
+        return self.settingsPath.exists()
+
+    def _saveSettings(self, recipient: str | None) -> None:
+        self.directory.mkdir(parents=True, exist_ok=True)
+        temporary = self.settingsPath.with_suffix(".tmp")
+        payload = {
+            "recipient": recipient,
+            "updatedAt": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            temporary.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            os.replace(temporary, self.settingsPath)
+        except OSError as error:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+            raise ConfigurationError(
+                "수신 이메일 설정을 저장할 수 없습니다."
+            ) from error
 
 
 @dataclass(frozen=True)
@@ -153,10 +236,28 @@ class Settings:
         requireEmail: bool = True,
         requireRecipients: bool = True,
     ) -> "Settings":
-        recipients = tuple(
+        baseDirectory = Path(__file__).resolve().parent
+        stateDirectory = Path(
+            os.getenv(
+                "RPA_STATE_DIRECTORY",
+                str(baseDirectory / "state"),
+            )
+        )
+        environmentRecipients = tuple(
             item.strip()
             for item in os.getenv("RPA_REPORT_RECIPIENTS", "").split(",")
             if item.strip()
+        )
+        recipientStore = RecipientSettingsStore(stateDirectory)
+        storedRecipient = recipientStore.loadRecipient()
+        recipients = (
+            (storedRecipient,)
+            if storedRecipient
+            else (
+                ()
+                if recipientStore.hasStoredSettings()
+                else environmentRecipients
+            )
         )
         sender = os.getenv("RPA_REPORT_FROM", "").strip()
         smtpHost = os.getenv("SMTP_HOST", "").strip()
@@ -167,6 +268,8 @@ class Settings:
             requiredEmailSettings = [
                 ("RPA_REPORT_FROM", sender),
                 ("SMTP_HOST", smtpHost),
+                ("SMTP_USER", smtpUser),
+                ("SMTP_PASSWORD", smtpPassword),
             ]
             if requireRecipients:
                 requiredEmailSettings.insert(
@@ -178,6 +281,13 @@ class Settings:
                     missing.append(name)
         if missing:
             raise ConfigurationError(f"필수 환경변수 누락: {', '.join(missing)}")
+        if requireEmail and smtpHost.lower() == "smtp.gmail.com":
+            normalizedSender = normalizeEmailAddress(sender)
+            normalizedUser = normalizeEmailAddress(smtpUser)
+            if normalizedSender != normalizedUser:
+                raise ConfigurationError(
+                    "Gmail SMTP_USER는 RPA_REPORT_FROM과 같은 전체 이메일 주소여야 합니다."
+                )
 
         timezoneName = os.getenv("RPA_REPORT_TIMEZONE", "Asia/Seoul").strip()
         try:
@@ -195,7 +305,6 @@ class Settings:
         if any(delay < 0 for delay in retryDelays) or timeout <= 0:
             raise ConfigurationError("재시도 간격은 0 이상, 요청 제한 시간은 0보다 커야 합니다.")
 
-        baseDirectory = Path(__file__).resolve().parent
         return cls(
             enabled=_parseBool(os.getenv("RPA_REPORT_ENABLED", "true")),
             timezoneName=timezoneName,
@@ -211,7 +320,7 @@ class Settings:
             webBaseUrl=os.getenv("SORTMASTER_WEB_BASE_URL", "http://localhost:8047").rstrip("/"),
             retryDelays=retryDelays,
             requestTimeoutSeconds=timeout,
-            stateDirectory=Path(os.getenv("RPA_STATE_DIRECTORY", str(baseDirectory / "state"))),
+            stateDirectory=stateDirectory,
             outputDirectory=Path(os.getenv("RPA_OUTPUT_DIRECTORY", str(baseDirectory / "output"))),
         )
 
@@ -692,6 +801,220 @@ class StateStore:
         self.save(state)
 
 
+def statisticsFromEvents(events: list[dict[str, Any]]) -> dict[str, Any]:
+    labels = list(CLASS_NAMES)
+    classCounts = Counter(
+        event.get("detectedClass")
+        for event in events
+        if event.get("eventCategory") == "misclassification"
+    )
+    return {
+        "labels": labels,
+        "counts": [classCounts[label] for label in labels],
+        "totalEventCount": len(events),
+        "misclassificationCount": sum(
+            event.get("eventCategory") == "misclassification"
+            for event in events
+        ),
+        "overflowCount": sum(
+            event.get("eventCategory") == "overflow"
+            for event in events
+        ),
+    }
+
+
+class ReportSnapshotStore:
+    retentionDays = 7
+
+    def __init__(self, directory: Path):
+        self.dailyDirectory = directory / "dailyReportSnapshots"
+        self.weeklyDirectory = directory / "weeklyReportAggregates"
+
+    def saveDaily(
+        self,
+        statistics: dict[str, Any],
+        events: list[dict[str, Any]],
+        period: ReportPeriod,
+    ) -> Path:
+        if period.reportType != "daily":
+            raise ValueError("일일 기간만 스냅샷으로 저장할 수 있습니다.")
+        validateData(statistics, events, period)
+        snapshotEvents = [
+            {field: event.get(field) for field in SNAPSHOT_EVENT_FIELDS}
+            for event in events
+        ]
+        payload = {
+            "version": 1,
+            "date": period.startKst.date().isoformat(),
+            "capturedAt": datetime.now(timezone.utc).isoformat(),
+            "statistics": statistics,
+            "events": snapshotEvents,
+        }
+        snapshotPath = self._dailyPath(period.startKst.date())
+        self._writeJson(snapshotPath, payload)
+        self._removeExpiredDailySnapshots(period.startKst.date())
+        return snapshotPath
+
+    def loadWeek(
+        self,
+        period: ReportPeriod,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        if period.reportType != "weekly":
+            raise ValueError("주간 기간만 일일 스냅샷에서 구성할 수 있습니다.")
+        events: list[dict[str, Any]] = []
+        missingDates = []
+        for offset in range(7):
+            targetDate = period.startKst.date() + timedelta(days=offset)
+            snapshotPath = self._dailyPath(targetDate)
+            if not snapshotPath.exists():
+                missingDates.append(targetDate.isoformat())
+                continue
+            payload = self._readJson(snapshotPath, "일일 보고서 스냅샷")
+            if payload.get("version") != 1 or payload.get("date") != targetDate.isoformat():
+                raise SnapshotUnavailableError(
+                    f"일일 보고서 스냅샷 형식이 잘못되었습니다: {targetDate.isoformat()}"
+                )
+            dailyStatistics = payload.get("statistics")
+            dailyEvents = payload.get("events")
+            if not isinstance(dailyStatistics, dict) or not isinstance(dailyEvents, list):
+                raise SnapshotUnavailableError(
+                    f"일일 보고서 스냅샷 데이터가 잘못되었습니다: {targetDate.isoformat()}"
+                )
+            dailyPeriod = calculatePeriod(
+                "daily",
+                timezoneName=period.startKst.tzinfo.key,
+                targetDate=targetDate,
+            )
+            try:
+                validateData(dailyStatistics, dailyEvents, dailyPeriod)
+            except (ApiResponseError, DataMismatchError) as error:
+                raise SnapshotUnavailableError(
+                    f"일일 보고서 스냅샷 검증에 실패했습니다: {targetDate.isoformat()}"
+                ) from error
+            events.extend(dailyEvents)
+        if missingDates:
+            raise SnapshotUnavailableError(
+                "주간 보고서에 필요한 일일 스냅샷이 없습니다: "
+                + ", ".join(missingDates)
+            )
+        eventIds = [event["eventId"] for event in events]
+        if len(eventIds) != len(set(eventIds)):
+            raise SnapshotUnavailableError(
+                "일일 보고서 스냅샷에 중복 eventId가 있습니다."
+            )
+        statistics = statisticsFromEvents(events)
+        validateData(statistics, events, period)
+        return statistics, events
+
+    def saveWeeklyAggregate(
+        self,
+        data: dict[str, Any],
+        period: ReportPeriod,
+    ) -> Path:
+        if period.reportType != "weekly":
+            raise ValueError("주간 집계만 저장할 수 있습니다.")
+        payload = {
+            "version": 1,
+            "periodStart": period.startKst.date().isoformat(),
+            "periodEnd": period.endKst.date().isoformat(),
+            "capturedAt": datetime.now(timezone.utc).isoformat(),
+            "statistics": data["statistics"],
+            "classCounts": data["classCounts"],
+            "binCounts": {
+                binName: dict(counts)
+                for binName, counts in data["binCounts"].items()
+            },
+        }
+        aggregatePath = self._weeklyPath(period.startKst.date())
+        self._writeJson(aggregatePath, payload)
+        self._removeOldWeeklyAggregates()
+        return aggregatePath
+
+    def loadWeeklyAggregate(
+        self,
+        period: ReportPeriod,
+    ) -> dict[str, Any] | None:
+        aggregatePath = self._weeklyPath(period.startKst.date())
+        if not aggregatePath.exists():
+            return None
+        payload = self._readJson(aggregatePath, "주간 보고서 집계")
+        required = ("statistics", "classCounts", "binCounts")
+        if (
+            payload.get("version") != 1
+            or payload.get("periodStart") != period.startKst.date().isoformat()
+            or payload.get("periodEnd") != period.endKst.date().isoformat()
+            or any(not isinstance(payload.get(field), dict) for field in required)
+        ):
+            raise SnapshotUnavailableError("주간 보고서 집계 파일 형식이 잘못되었습니다.")
+        return {
+            "statistics": payload["statistics"],
+            "classCounts": payload["classCounts"],
+            "binCounts": payload["binCounts"],
+        }
+
+    def _dailyPath(self, targetDate: date) -> Path:
+        return self.dailyDirectory / f"{targetDate.isoformat()}.json"
+
+    def _weeklyPath(self, startDate: date) -> Path:
+        return self.weeklyDirectory / f"{startDate.isoformat()}.json"
+
+    def _removeExpiredDailySnapshots(self, newestDate: date) -> None:
+        snapshotPaths = list(self.dailyDirectory.glob("*.json"))
+        snapshotDates = []
+        for snapshotPath in snapshotPaths:
+            try:
+                snapshotDates.append(date.fromisoformat(snapshotPath.stem))
+            except ValueError:
+                continue
+        referenceDate = max(snapshotDates, default=newestDate)
+        oldestDate = referenceDate - timedelta(days=self.retentionDays - 1)
+        for snapshotPath in snapshotPaths:
+            try:
+                snapshotDate = date.fromisoformat(snapshotPath.stem)
+            except ValueError:
+                continue
+            if snapshotDate < oldestDate:
+                snapshotPath.unlink()
+
+    def _removeOldWeeklyAggregates(self) -> None:
+        datedPaths = []
+        for aggregatePath in self.weeklyDirectory.glob("*.json"):
+            try:
+                startDate = date.fromisoformat(aggregatePath.stem)
+            except ValueError:
+                continue
+            datedPaths.append((startDate, aggregatePath))
+        for unusedDate, aggregatePath in sorted(datedPaths, reverse=True)[2:]:
+            aggregatePath.unlink()
+
+    @staticmethod
+    def _readJson(path: Path, label: str) -> dict[str, Any]:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise SnapshotUnavailableError(f"{label}을 읽을 수 없습니다.") from error
+        if not isinstance(payload, dict):
+            raise SnapshotUnavailableError(f"{label} 형식이 잘못되었습니다.")
+        return payload
+
+    @staticmethod
+    def _writeJson(path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        try:
+            temporary.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            os.replace(temporary, path)
+        except OSError as error:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+            raise ReportAutomationError("보고서 임시저장소에 쓸 수 없습니다.") from error
+
+
 def _retry(
     operation: Callable[[], Any],
     retryDelays: tuple[float, ...],
@@ -769,33 +1092,33 @@ def runReport(
     period = calculatePeriod(reportType, now, settings.timezoneName, targetDate)
     executionKey = buildExecutionKey(period, settings.recipientGroup)
     store = StateStore(settings.stateDirectory)
+    snapshotStore = ReportSnapshotStore(settings.stateDirectory)
     logger.info("report=%s period=%s status=STARTED", reportType, period.fileLabel)
     with store.lock():
         delivered = store.deliveredRecipients(executionKey)
         if delivered and not force and delivered.issuperset(settings.recipients):
             raise DuplicateReportError(f"이미 발송된 보고서입니다: {executionKey}")
         client = apiClient or ApiClient(settings.apiBaseUrl, settings.requestTimeoutSeconds)
-        statistics, events = _retry(
-            lambda: client.getReportData(period),
-            settings.retryDelays,
-            logger,
-            "api-current",
-            (ConnectionError,),
-        )
-        validateData(statistics, events, period)
+        if reportType == "daily":
+            statistics, events = _retry(
+                lambda: client.getReportData(period),
+                settings.retryDelays,
+                logger,
+                "api-current",
+                (ConnectionError,),
+            )
+            validateData(statistics, events, period)
+            if not dryRun:
+                snapshotStore.saveDaily(statistics, events, period)
+        else:
+            statistics, events = snapshotStore.loadWeek(period)
         data = aggregateData(statistics, events, period)
         previousData = None
         if reportType == "weekly":
             comparisonPeriod = previousPeriod(period)
-            previousStatistics, previousEvents = _retry(
-                lambda: client.getReportData(comparisonPeriod),
-                settings.retryDelays,
-                logger,
-                "api-previous",
-                (ConnectionError,),
-            )
-            validateData(previousStatistics, previousEvents, comparisonPeriod)
-            previousData = aggregateData(previousStatistics, previousEvents, comparisonPeriod)
+            previousData = snapshotStore.loadWeeklyAggregate(comparisonPeriod)
+            if not dryRun:
+                snapshotStore.saveWeeklyAggregate(data, period)
         logger.info("statistics=%d events=%d status=VALIDATED", statistics["totalEventCount"], len(events))
         htmlBody = buildHtml(data, period, settings.webBaseUrl, previousData)
         csvBytes = buildCsv(events, settings.timezoneName)
