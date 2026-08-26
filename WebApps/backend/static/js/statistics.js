@@ -396,6 +396,13 @@ document.addEventListener(
             }
         }
 
+        function formatDateTime(timestamp) {
+            const date = new Date(timestamp);
+            return Number.isNaN(date.getTime())
+                ? "-"
+                : date.toLocaleString("ko-KR", { hour12: false });
+        }
+
         function setupReportEmailSettingsForm() {
             const modal = getElement(
                 "reportEmailSettingsModal"
@@ -560,6 +567,110 @@ document.addEventListener(
             );
         }
 
+        function formatDuration(seconds) {
+            if (seconds === null || seconds === undefined) {
+                return "-";
+            }
+            const minutes = Math.round(seconds / 60);
+            return minutes < 60
+                ? `${minutes}분`
+                : `${Math.floor(minutes / 60)}시간 ${minutes % 60}분`;
+        }
+
+        function renderCollectionAutomation(status, taskList) {
+            updateText("collectionOpenCount", status.openTaskCount ?? 0);
+            updateText("collectionAcknowledgedCount", status.acknowledgedTaskCount ?? 0);
+            updateText("collectionEscalatedCount", status.escalatedTaskCount ?? 0);
+            updateText("collectionCompletedCount", status.completedTodayCount ?? 0);
+            updateText("collectionAverageTime", formatDuration(status.averageProcessingSeconds));
+            updateText("collectionHeartbeat", formatDateTime(status.lastHeartbeatAt));
+
+            const workerStatus = getElement("collectionWorkerStatus");
+            if (workerStatus) {
+                const label = !status.enabled
+                    ? "비활성화"
+                    : status.workerStatus === "RUNNING"
+                        ? "정상 가동"
+                        : status.workerStatus === "NOT_STARTED"
+                            ? "워커 미실행"
+                            : status.workerStatus;
+                workerStatus.textContent = label;
+                workerStatus.classList.toggle("isRunning", status.enabled && status.workerStatus === "RUNNING");
+                workerStatus.classList.toggle("isFailed", status.enabled && status.workerStatus !== "RUNNING");
+            }
+
+            const tasksBody = getElement("collectionTasksBody");
+            if (tasksBody) {
+                tasksBody.innerHTML = taskList.tasks.length
+                    ? taskList.tasks.map((task) => {
+                        const closed = ["COMPLETED", "CANCELLED"].includes(task.taskStatus);
+                        const acknowledge = task.taskStatus === "OPEN"
+                            ? `<button class="collectionActionButton" data-collection-action="acknowledge" data-task-id="${escapeHtml(task.collectionTaskId)}">확인</button>`
+                            : "";
+                        const complete = !closed
+                            ? `<button class="collectionActionButton complete" data-collection-action="complete" data-task-id="${escapeHtml(task.collectionTaskId)}">완료</button>`
+                            : "-";
+                        return `<tr>
+                            <td>${escapeHtml(formatDateTime(task.detectedAt))}</td>
+                            <td>${escapeHtml(typeNameByClass[task.binType] || task.binId)}</td>
+                            <td>${escapeHtml(task.taskStatus)}</td>
+                            <td>${task.escalationLevel}단계</td>
+                            <td>${acknowledge}${complete}</td>
+                        </tr>`;
+                    }).join("")
+                    : '<tr><td colspan="5">수거 작업이 없습니다.</td></tr>';
+            }
+
+            const runsBody = getElement("collectionRunsBody");
+            if (runsBody) {
+                runsBody.innerHTML = status.recentRuns.length
+                    ? status.recentRuns.map((run) => `<tr>
+                        <td>${escapeHtml(formatDateTime(run.attemptedAt))}</td>
+                        <td>${escapeHtml(run.actionType)}</td>
+                        <td>${escapeHtml(run.recipientRole)}</td>
+                        <td>${escapeHtml(run.status)}${run.errorType ? ` (${escapeHtml(run.errorType)})` : ""}</td>
+                    </tr>`).join("")
+                    : '<tr><td colspan="4">RPA 실행 이력이 없습니다.</td></tr>';
+            }
+        }
+
+        async function loadCollectionAutomation() {
+            const [status, taskList] = await Promise.all([
+                requestJson("/api/collectionAutomation/status"),
+                requestJson("/api/collectionTasks?limit=20"),
+            ]);
+            renderCollectionAutomation(status, taskList);
+        }
+
+        function setupCollectionTaskActions() {
+            const tasksBody = getElement("collectionTasksBody");
+            if (!tasksBody) {
+                return;
+            }
+            tasksBody.addEventListener("click", async (event) => {
+                const button = event.target.closest("[data-collection-action]");
+                if (!button) {
+                    return;
+                }
+                button.disabled = true;
+                try {
+                    const response = await fetch(
+                        `/api/collectionTasks/${encodeURIComponent(button.dataset.taskId)}/${button.dataset.collectionAction}`,
+                        { method: "POST" }
+                    );
+                    const result = await response.json();
+                    if (!response.ok) {
+                        throw new Error(result.detail || "수거 작업 처리에 실패했습니다.");
+                    }
+                    await loadCollectionAutomation();
+                } catch (error) {
+                    window.alert(error.message || "수거 작업 처리에 실패했습니다.");
+                } finally {
+                    button.disabled = false;
+                }
+            });
+        }
+
         async function loadDashboard() {
             try {
                 const [
@@ -594,6 +705,17 @@ document.addEventListener(
         }
 
         setupReportEmailSettingsForm();
-        await loadDashboard();
+        setupCollectionTaskActions();
+        await Promise.all([
+            loadDashboard(),
+            loadCollectionAutomation().catch((error) => {
+                const status = getElement("collectionWorkerStatus");
+                if (status) {
+                    status.textContent = "조회 실패";
+                    status.classList.add("isFailed");
+                    status.title = error.message;
+                }
+            }),
+        ]);
     }
 );

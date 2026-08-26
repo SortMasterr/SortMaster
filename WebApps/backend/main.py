@@ -19,6 +19,7 @@ from controllers.webSocket import (
     router as webSocketRouter,
 )
 from repositories.binStateRepository import binStateRepository
+from repositories.collectionTaskRepository import collectionTaskRepository
 from repositories.eventRepository import eventRepository
 from repositories.mongoClient import (
     closeMongoClient,
@@ -43,6 +44,7 @@ async def lifespan(_app: FastAPI):
         await eventRepository.ensureIndexes()
         await binStateRepository.ensureIndexes()
         await visitClipRepository.ensureIndexes()
+        await collectionTaskRepository.ensureIndexes()
         await presenceGateService.start()
         yield
     finally:

@@ -77,6 +77,14 @@ class MemoryBinStateRepository:
         return binState
 
 
+class MemoryCollectionTaskService:
+    def __init__(self):
+        self.events = []
+
+    async def createForOverflow(self, event):
+        self.events.append(event)
+
+
 def createUpdate(
     binId="BIN-GENERAL",
     detectionId="detection-001",
@@ -181,6 +189,17 @@ class BinStateServiceTest(unittest.IsolatedAsyncioTestCase):
                 detectionId="detection-invalid",
                 modelVersion="overflow-mvp-1",
             )
+
+    async def testFullTransitionRequestsCollectionTaskCreation(self):
+        collectionTasks = MemoryCollectionTaskService()
+        service = BinStateService(
+            self.binStateRepository,
+            self.eventService,
+            collectionTasks,
+        )
+        await service.applyUpdate(createUpdate())
+        self.assertEqual(1, len(collectionTasks.events))
+        self.assertEqual(EventCategory.OVERFLOW, collectionTasks.events[0].eventCategory)
 
 
 if __name__ == "__main__":

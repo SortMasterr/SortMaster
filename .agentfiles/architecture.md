@@ -223,8 +223,8 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 > 이후 재전환된 결정, `decisionLog.md` 참고. 상세는 위 "탐지 파이프라인" 참고
 
 - 개발: Windows+Docker, 로컬 웹캠 테스트(기존과 동일)
-- **배포**: `backend`+`mongo`+`report-scheduler`는 로컬 `<LOCAL_BACKEND_IP>`(확정, 실제 값은 Notion 참고)에서
-  `docker compose --profile local up -d backend mongo report-scheduler`로 실행. `training`/`llm`은 GPU 서버로 이전해서
+- **배포**: `backend`+`mongo`+`report-scheduler`+`collection-scheduler`는 로컬 `<LOCAL_BACKEND_IP>`(확정, 실제 값은 Notion 참고)에서
+  `docker compose --profile local up -d backend mongo report-scheduler collection-scheduler`로 실행. `training`/`llm`은 GPU 서버로 이전해서
   `docker compose --profile training up`/`--profile llm up`(둘 다 자동 라벨링 검증
   파이프라인 돌 때만 같이 기동). `tracking2.py`/`sideOverflow.py` 둘 다 아직 Docker화 안
   됨(TBD) — 지금은 GPU 서버에서 스크립트로 직접 실행
@@ -323,6 +323,18 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 - 운영 DB의 7일 보존 경계에서 주간 첫날 데이터가 삭제되는 문제를 막기 위해 매일 검증된 이벤트
   메타데이터를 날짜별 JSON으로 저장하고 최근 7개 날짜만 유지한다. 주간 보고서는 이 7개를
   합산하며, 누락 시 불완전한 메일을 보내지 않는다. 전주 비교는 최근 2개의 주간 합계만 보존한다.
+
+## 수거 업무 자동화 RPA
+
+- `RPA_COLLECTION_ENABLED=true`일 때 `BIN_STATES`의 `NORMAL→FULL` 전환으로 생성된 overflow
+  `EVENT`를 기준으로 `collectionTasks` 작업을 생성한다. 같은 `binId`에는 활성 작업을 최대 한 건만
+  허용하며 완료된 뒤 다시 `NORMAL→FULL`로 전환되면 새 작업을 생성한다.
+- 별도 `collection-scheduler` 프로세스가 담당자 최초 알림, 설정 시간 후 재알림, 관리자
+  에스컬레이션을 순서대로 처리한다. FastAPI 개발용 reload나 다중 worker와 분리해 중복 이메일을
+  방지하고, 작업·실행 이력·heartbeat는 MongoDB에 저장해 재시작 후에도 이어서 처리한다.
+- `/statistics`에서 활성 작업을 확인·완료 처리하고 자동화 상태, 처리 지표, 최근 발송 이력을 본다.
+  SMTP 설정은 보고서 RPA와 공유하지만 담당자·관리자 수신 주소는 별도 환경변수를 사용한다.
+- 신규 API와 MongoDB 컬렉션을 포함하므로 실제 배포 전 CTO 검토가 필요하다.
 
 ## 이벤트 적재
 

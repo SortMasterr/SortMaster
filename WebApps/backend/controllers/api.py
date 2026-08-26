@@ -31,8 +31,19 @@ from schemas.report import (
     ReportEmailSettingsResponse,
 )
 from schemas.statistics import Statistics
+from schemas.collectionTask import (
+    CollectionAutomationStatus,
+    CollectionTask,
+    CollectionTaskList,
+    CollectionTaskStatus,
+)
 from schemas.visitClip import TrackEndedRequest, TrackStartedRequest
 from services.binStateService import binStateService
+from services.collectionTaskService import (
+    CollectionTaskConflictError,
+    CollectionTaskNotFoundError,
+    collectionTaskService,
+)
 from services.detectionService import detectionService
 from services.errors import (
     CameraUnavailableError,
@@ -375,6 +386,55 @@ async def updateBinState(
         )
 
     return binState
+
+
+@router.get(
+    "/collectionTasks",
+    response_model=CollectionTaskList,
+)
+async def getCollectionTasks(
+    taskStatus: CollectionTaskStatus | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> CollectionTaskList:
+    return await collectionTaskService.getTasks(taskStatus, limit)
+
+
+@router.post(
+    "/collectionTasks/{collectionTaskId}/acknowledge",
+    response_model=CollectionTask,
+)
+async def acknowledgeCollectionTask(
+    collectionTaskId: str,
+) -> CollectionTask:
+    try:
+        return await collectionTaskService.acknowledge(collectionTaskId)
+    except CollectionTaskNotFoundError as error:
+        raise HTTPException(status_code=404, detail="수거 작업을 찾을 수 없습니다.") from error
+    except CollectionTaskConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.post(
+    "/collectionTasks/{collectionTaskId}/complete",
+    response_model=CollectionTask,
+)
+async def completeCollectionTask(
+    collectionTaskId: str,
+) -> CollectionTask:
+    try:
+        return await collectionTaskService.complete(collectionTaskId)
+    except CollectionTaskNotFoundError as error:
+        raise HTTPException(status_code=404, detail="수거 작업을 찾을 수 없습니다.") from error
+    except CollectionTaskConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.get(
+    "/collectionAutomation/status",
+    response_model=CollectionAutomationStatus,
+)
+async def getCollectionAutomationStatus() -> CollectionAutomationStatus:
+    return await collectionTaskService.getAutomationStatus()
 
 
 @router.post(

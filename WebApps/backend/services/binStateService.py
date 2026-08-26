@@ -18,6 +18,10 @@ from services.eventService import (
     EventService,
     eventService,
 )
+from services.collectionTaskService import (
+    CollectionTaskService,
+    collectionTaskService,
+)
 
 
 class BinStateService:
@@ -25,9 +29,11 @@ class BinStateService:
         self,
         repository: BinStateRepository,
         eventServiceInstance: EventService,
+        collectionTaskServiceInstance: CollectionTaskService | None = None,
     ):
         self.repository = repository
         self.eventService = eventServiceInstance
+        self.collectionTaskService = collectionTaskServiceInstance
         self.transitionLock = asyncio.Lock()
 
     async def getBinStates(self) -> list[BinState]:
@@ -89,6 +95,10 @@ class BinStateService:
 
             if eventResult.event is not None:
                 activeOverflowEventId = eventResult.event.eventId
+                if self.collectionTaskService is not None:
+                    await self.collectionTaskService.createForOverflow(
+                        eventResult.event
+                    )
         elif transitionedToNormal:
             activeOverflowEventId = None
 
@@ -118,4 +128,5 @@ class BinStateService:
 binStateService = BinStateService(
     binStateRepository,
     eventService,
+    collectionTaskService,
 )

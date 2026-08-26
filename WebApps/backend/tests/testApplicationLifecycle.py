@@ -27,6 +27,11 @@ class ApplicationLifecycleTest(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(),
             ) as ensureBinStateIndexes,
             patch.object(
+                main.collectionTaskRepository,
+                "ensureIndexes",
+                AsyncMock(),
+            ) as ensureCollectionTaskIndexes,
+            patch.object(
                 main.presenceGateService,
                 "start",
                 AsyncMock(),
@@ -55,6 +60,7 @@ class ApplicationLifecycleTest(unittest.IsolatedAsyncioTestCase):
                 pingMongo.assert_awaited_once_with()
                 ensureIndexes.assert_awaited_once_with()
                 ensureBinStateIndexes.assert_awaited_once_with()
+                ensureCollectionTaskIndexes.assert_awaited_once_with()
                 startPresenceGate.assert_awaited_once_with()
 
             shutdownPresenceGate.assert_awaited_once_with()
@@ -79,6 +85,16 @@ class ApplicationLifecycleTest(unittest.IsolatedAsyncioTestCase):
                 "ensureIndexes",
                 AsyncMock(),
             ) as ensureIndexes,
+            patch.object(
+                main.binStateRepository,
+                "ensureIndexes",
+                AsyncMock(),
+            ),
+            patch.object(
+                main.collectionTaskRepository,
+                "ensureIndexes",
+                AsyncMock(),
+            ),
             patch.object(
                 main.presenceGateService,
                 "start",
@@ -134,6 +150,16 @@ class ApplicationLifecycleTest(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(),
             ),
             patch.object(
+                main.binStateRepository,
+                "ensureIndexes",
+                AsyncMock(),
+            ),
+            patch.object(
+                main.collectionTaskRepository,
+                "ensureIndexes",
+                AsyncMock(),
+            ),
+            patch.object(
                 main.presenceGateService,
                 "start",
                 AsyncMock(),
@@ -183,6 +209,16 @@ class ApplicationLifecycleTest(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(
                 main.eventRepository,
+                "ensureIndexes",
+                AsyncMock(),
+            ),
+            patch.object(
+                main.binStateRepository,
+                "ensureIndexes",
+                AsyncMock(),
+            ),
+            patch.object(
+                main.collectionTaskRepository,
                 "ensureIndexes",
                 AsyncMock(),
             ),
@@ -249,6 +285,16 @@ class ApplicationLifecycleTest(unittest.IsolatedAsyncioTestCase):
                 "ensureIndexes",
                 AsyncMock(),
             ) as ensureIndexes,
+            patch.object(
+                main.binStateRepository,
+                "ensureIndexes",
+                AsyncMock(),
+            ),
+            patch.object(
+                main.collectionTaskRepository,
+                "ensureIndexes",
+                AsyncMock(),
+            ),
             patch.object(
                 main.presenceGateService,
                 "start",
