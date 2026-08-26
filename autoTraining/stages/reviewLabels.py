@@ -213,6 +213,7 @@ class ReviewLabelsStage:
             }],
             "temperature": 0,
             "seed": 42,
+            "max_tokens": int(self.config["qwenVl"]["maxResponseTokens"]),
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {

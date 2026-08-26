@@ -50,8 +50,14 @@ tracking2.py 재시작 + smoke test, 실패 시 rollback
 `requirements.txt`에 반영했고 Python 구문, CLI import, 의존성 충돌, GridFS GIF 프레임 추출
 smoke test까지 통과했습니다.
 
-다만 현재 저장소에는 기존 학습 데이터셋과 Golden Test가 없고 일일 입력도 0개입니다. Qwen용
-localhost 포트의 SSH 리스너에는 도달하지만 원격 측이 `/v1/models` HTTP 응답 전에 연결을 종료합니다. bootstrap 체크포인트의 snake_case
+다만 현재 저장소에는 기존 학습 데이터셋과 Golden Test가 없고 일일 입력도 0개입니다.
+GPU 서버에서 `llm` 서비스(vLLM)를 기동해 `/v1/models`와 텍스트 전용 `/v1/chat/completions`
+(JSON Schema 구조화 출력)는 정상 확인했고, `reviewLabels.py`가 실제로 보내는 원본+bbox
+표시 이미지 2장을 포함해 실제 프로덕션 이미지로도 멀티모달 요청을 실행해봤습니다
+(2026-08-26). 하지만 **이미지가 포함되면 모델이 JSON 스키마를 못 지키고 응답을 끝없이
+늘어놓다 컨텍스트 한도에서 문자열이 잘리는 문제**를 확인했고(`max_tokens` 상한으로 빨리
+실패하도록 완화는 했지만 근본 원인은 미해결), 그래서 Review 단계는 "연결 자체는 됨,
+실제로 쓸만한 결과가 나오는지는 아직 아님" 상태입니다. bootstrap 체크포인트의 snake_case
 클래스명은 설정의 camelCase 계약과 다르므로 현재 상태로 Label부터 전체 E2E를 실행할 수 없습니다.
 
 | 항목 | 상태 | 확인 결과 |
@@ -66,7 +72,7 @@ localhost 포트의 SSH 리스너에는 도달하지만 원격 측이 `/v1/model
 | Collect 저장소 연동 | 구현됨, 실DB 미검증 | MongoDB `events`를 읽고 `ELEV-TOP`/`misclassification`의 `topMedia` GridFS GIF를 수집하도록 구현 |
 | GIF 프레임 추출 | 테스트 통과 | 생성한 다중 프레임 GIF를 Collect 매니페스트 기준으로 Extract하는 smoke test 통과 |
 | Qwen-VL 주소 구성 | 구현됨 | `.env`의 `LLM_PORT`와 `qwenVl.apiHost`를 조합하고 포트 범위를 검증 |
-| Qwen-VL 실제 연결 | SSH 터널 도달, vLLM 응답 실패 | TCP 연결과 SSH 리스너는 확인했지만 `/v1/models` 3회 모두 `ConnectionResetError`; GPU 서버의 vLLM 기동·로그·원격 목적지 포트 확인 필요 |
+| Qwen-VL 실제 연결 | 연결 확인, 멀티모달 응답 신뢰성 문제 발견(2026-08-26) | GPU 서버 안에서 `/v1/models`/텍스트 `/v1/chat/completions`(JSON Schema)는 정상. 실제 프로덕션 이미지 2장 포함한 멀티모달 요청은 스키마를 못 지키고 폭주 생성하다 잘림(`max_tokens` 상한으로 완화, 근본 원인 미해결) — Review 결과 신뢰 불가 상태 |
 | bootstrap 모델 파일 | 로드 가능 | `models/bootstrap/best.pt`, 5,393,150바이트, SHA-256 `757F...B7F2` |
 | 모델 클래스 계약 | 불일치 | 체크포인트는 `trash_normal`, `trash_paper`, `trash_recyclables`, `trash_coffeecup`; 설정은 camelCase 4종 |
 | 활성 모델 포인터 | 초기 상태 | `models/current.json`이 없어 최초 사이클은 bootstrap 모델을 선택 |

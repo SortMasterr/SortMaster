@@ -34,7 +34,7 @@ v0.2(MVP), 구현 기준일 2026-08-25. `DetectedClass`/`BinType`의 `general`�
 | EP-09 | POST /api/detection/stop | 녹화 종료+GIF 업로드+이벤트 저장(탐지 종료 결과 신호) | Body: recordingId, cameraId, eventCategory(생략 시 misclassification), detectionId, binId, binType, modelVersion + 카테고리별 필드 | 200/400/404/422 | misclassification/overflow 공통. EP-02와 동일한 저장·Cooldown·WS 부수효과 적용. recordingId 없으면 404, 캡처된 프레임 없으면 400 |
 | EP-10 | GET /api/binStates | BIN_STATES 전체 조회(binId당 최신 1행, 대시보드용) | 없음 | 200 | 없음 |
 | EP-11 | POST /api/binStates | BIN_STATES 갱신(GPU 서버의 SIDE MobileNet_V3_Small 로직 `sideOverflow.py`가 주기 호출, TOP의 EP-12와 동일 방향) | Body: binId, cameraId(기본 ELEV-SIDE), binType, sessionId, currentState(NORMAL/FULL), confidenceScore, overflowDuration, overflowThreshold?, detectionId, modelVersion | 200/422 | `currentState`가 이전 저장값과 다를 때만 전환 처리. NORMAL→FULL: EP-02와 동일한 `eventService`로 overflow EVENT 생성(detectionId 중복 방지 포함)+`activeOverflowEventId` 기록+MANAGE 모드 시 WS 브로드캐스트. FULL→NORMAL: EVENT 생성 없이 `activeOverflowEventId`만 null로 리셋. 상태 유지 시 값만 갱신 |
-| EP-12 | POST /api/events/aiDisposal | GPU 서버(`models/trashdetect/tracking2.py`)가 투척 완료 판정 시 직접 푸시하는 전용 엔드포인트 | Body: eventId, trackId, timestamp, cameraId("CAM-01" 등 GPU 쪽 값 그대로), detectedClass("normal"/"paper"/"recyclables"/"coffeecup"), binId(detectedClass와 동일 값 체계), result("correct"/"incorrect"/"unknown"), imagePath? | 200/422 | `eventService.createEventFromAiDisposal`이 GPU 쪽 값 체계(cameraId/detectedClass/binId/result)를 내부 `EventCreate`로 매핑 후 EP-02와 동일한 `createEventWithStatus`(쿨다운/멱등성) 재사용. 매핑 실패(값 미지정) 또는 `result: unknown`이면 이벤트 미생성(로그만, 에러 아님). `imagePath`는 GPU 서버 로컬 경로라 아직 GridFS 연동 안 됨(TBD) |
+| EP-12 | POST /api/events/aiDisposal | GPU 서버(`models/trashdetect/tracking2.py`)가 투척 완료 판정 시 직접 푸시하는 전용 엔드포인트 | Body: eventId, trackId, timestamp, cameraId("CAM-01" 등 GPU 쪽 값 그대로), detectedClass("normal"/"paper"/"recyclables"/"coffeecup"), binId(detectedClass와 동일 값 체계), result("correct"/"incorrect"/"unknown"), imagePath? | 200/422 | `eventService.createEventFromAiDisposal`이 GPU 쪽 값 체계(cameraId/detectedClass/binId/result)를 내부 `EventCreate`로 매핑 후 EP-02와 동일한 `createEventWithStatus`(쿨다운/멱등성) 재사용. 매핑 실패(값 미지정) 또는 `result: unknown`이면 이벤트 미생성(로그만, 에러 아님). `imagePath`는 GPU 서버 로컬 경로라 아직 GridFS 연동 안 됨(TBD — **설계 확정**: 여기 포함된 `trackId`로 `visitClip`을 찾아 그 `imageFileId`를 붙이는 방식, EP-14/EP-15 참고, 미구현) |
 | EP-13 | GET/POST /api/reports/email | 자동 일일·주간 보고서 수신 이메일 조회/저장/해제(즉시 발송 없음) | GET: 없음 / POST Body: recipient(string\|null, 빈 값은 수신 해제) | 200/422/500 | `state/recipientSettings.json`에 주소 또는 명시적 해제 상태를 저장. 해제 상태에서는 환경변수 수신 주소도 폴백하지 않음. Docker에서는 backend와 별도 report-scheduler가 report-state 볼륨 공유. 스케줄러가 매일 09:00 일일, 월요일 09:10 주간 보고서를 자동 발송. 검증된 일일 이벤트 메타데이터를 최근 7일만 임시 저장하고 주간 보고서는 이를 합산하며, 누락 시 발송하지 않음. 전주 비교는 최근 2개 주간 합계만 보존. SMTP 비밀은 서버 설정에만 유지 |
 | EP-14 | GET /api/collectionTasks, POST /api/collectionTasks/{collectionTaskId}/acknowledge, POST /api/collectionTasks/{collectionTaskId}/complete, GET /api/collectionAutomation/status | FULL 감지 기반 수거 작업 조회·확인·완료 및 RPA 상태 조회 | 목록: taskStatus?, limit? / 처리: collectionTaskId | 200/404/409/422 | `RPA_COLLECTION_ENABLED=true`일 때 NORMAL→FULL overflow 이벤트에 활성 수거 작업 1건 생성. 별도 collection-scheduler가 최초 담당자 알림→재알림→관리자 에스컬레이션 순으로 발송. 작업·발송 이력·heartbeat는 MongoDB에 영속화 |
 
@@ -107,6 +107,9 @@ sidebar.html은 라우트 아님 — 각 페이지에 공통 포함되는 사이
 - EP-07 detectedClass 필드 추가 여부
 - EP-03/EP-05 페이지네이션(limit/offset) 여부
 - 인증/권한 (P3, 현재 없음)
+- **EP-14/EP-15(`trackStarted`/`trackEnded`) 구현** — 설계는 확정됐지만 `tracking2.py`에
+  신호 추가(모델팀), 백엔드 `activeTracks`/`visitClips` 저장소 코드는 아직 없음.
+  `architecture.md`의 "재학습용 미확정 방문 캡처", `decisionLog.md` 참고
 
 ## 해결된 TBD
 

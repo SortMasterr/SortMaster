@@ -67,7 +67,8 @@ pip install opencv-python-headless ultralytics requests torch torchvision numpy
 우회). `.venv-inference`라는 이름은 `.gitignore`에 이미 예약돼 있던 패턴 — `tracking2.py`/
 `sideOverflow.py`는 **Docker화(`inference`/`side-overflow` 서비스, `gpu` profile)로
 방향 확정**됐으므로(`architecture.md`/`decisionLog.md` 참고) 이 venv는 결국 버려도 되지만,
-컨테이너 빌드+기동이 실제로 검증되기 전까지는 이 venv로 직접 실행해서 계속 테스트할 것.
+컨테이너 기동(`network_mode: host`로 수정 완료, 2026-08-25 커밋 `06f3d0d`)의 재기동 최종
+재검증이 끝나기 전까지는 이 venv로 직접 실행해서 계속 테스트할 것.
 
 ## GPU 카드 격리 & 포트
 
@@ -82,6 +83,65 @@ pip install opencv-python-headless ultralytics requests torch torchvision numpy
   docker compose down && docker compose --profile training down
   docker compose up -d --build && docker compose --profile training up -d --build training
   ```
+
+## vLLM(`llm` 서비스) 기동 (자동 라벨링 검증용, GPU 서버에서만)
+
+실시간 탐지 경로엔 LLM을 안 씀(`architecture.md`) — `autoTraining/stages/reviewLabels.py`가
+학습 준비 단계 자동 라벨링 검증에서만 이 서비스의 vLLM OpenAI 호환 API를 호출한다. **로컬 PC
+(Windows)엔 GPU가 없어 `llm` 컨테이너는 반드시 GPU 서버에서 띄운다.**
+
+### 기동 전 확인
+
+1. 카드 배정: `.env`의 `GPU_DEVICE_ID`가 우리 팀에 할당된 인덱스인지 `nvidia-smi`로 재확인(다른
+   팀 카드를 잡으면 안 됨, 위 "GPU 카드 격리 & 포트" 참고)
+2. 호스트 포트: `sudo ss -tlnp | grep ${LLM_PORT:-8099}` — 비어있어야 함(다른 수강생이 이미 쓰고
+   있을 수 있음)
+3. 동시 기동 여부: `docker compose --profile training ps`로 `training`이 같은 시간대에 돌고
+   있는지 확인 — 같은 카드를 나눠 쓰므로(`architecture.md`) 겹치면 vLLM이 VRAM 부족으로 기동
+   실패할 수 있음. 가능하면 트래픽 적은 시간대에 기동
+4. 게이트 모델 여부: `${LLM_MODEL_NAME:-Qwen/Qwen3-VL-8B-Instruct-FP8}`이 Hugging Face 게이트
+   모델이면 `.env`의 `HF_TOKEN`을 채워야 함(비어있으면 다운로드 401)
+
+### 기동
+
+```bash
+docker compose --profile llm up -d llm
+docker compose logs -f llm
+```
+
+첫 기동은 모델 가중치 다운로드(수 GB~수십 GB, `llm-model-cache` 볼륨에 캐시돼 재기동부터는
+생략됨)로 수 분~수십 분 걸릴 수 있음 — vLLM의 서버 기동 완료 로그가 뜰 때까지 대기.
+
+### 연결 검증 (GPU 서버 안에서)
+
+```bash
+curl -s http://localhost:${LLM_PORT:-8099}/v1/models | python3 -m json.tool
+```
+
+`data` 배열에 모델 id가 나오고 그 id에 `qwen`/`vl`이 둘 다 포함돼 있으면 정상(`reviewLabels.py`의
+`_resolveQwenVlModel()`이 이 두 단어로 자동 선택함).
+
+### 파이프라인(`autoTraining`)에서 연결 검증
+
+- `.env`(또는 `WebApps/backend/.env`)의 `LLM_PORT`가 GPU 서버와 같은 값인지 확인
+- `autoTraining/pipelineConfig.yaml`의 `qwenVl.apiHost`가 기본값(`http://127.0.0.1`, GPU 서버
+  로컬 실행 전용)인지, 아니면 GPU 서버 밖에서 부를지 확인 — GPU 서버 밖에서 부른다면 실제 주소를
+  문서에 적지 말고 Notion 참고, 아래 "외부 접속 — SSH 터널"의 `-L 8099:localhost:8099` 터널이
+  먼저 연결돼 있어야 함(2222 외 포트포워딩 불가)
+- `review` 단계로 최소 연결 확인(이미 `label`까지 끝난 배치 필요):
+  ```bash
+  python autoTraining/trainingPipeline.py review --batchId <batchId>
+  ```
+  `Qwen-VL API 연결 실패` `RuntimeError` 없이 `[REVIEW] {...}` 카운트가 출력되면 연결 성공
+
+### 종료
+
+```bash
+docker compose --profile llm down
+```
+
+`training`과 마찬가지로 상시 기동 서비스가 아니라 자동 라벨링 검증 돌릴 때만 띄우는 온디맨드
+서비스 — 다 쓰면 바로 내려서 VRAM을 다른 팀/워크로드에 돌려줄 것.
 
 ## 외부 접속 — SSH 터널 (2222 외 포트포워딩 불가)
 

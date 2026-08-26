@@ -125,7 +125,6 @@
   걱정도, GPU 자원을 상시로 낭비하는 문제도 둘 다 해소됨(SIDE의 룰 베이스 판정과 마찬가지로
   "완전 자동화 이전에 사람이 실제로 관여하는 순간에만 무거운 연산을 쓴다"는 원칙과도 일치).
   구체적인 사람 존재 감지 구현 방식은 TBD. 상세는 `architecture.md`의 "탐지 파이프라인" 참고
-<<<<<<< HEAD
 - **GPU 연동 방식을 "로컬 백엔드가 프레임 샘플링해 GPU API 호출·폴링"에서 "GPU가 자체
   판단 후 로컬 백엔드로 결과 푸시"로 재차 전환** → 위 두 항목(세션 API 설계, 존재 감지
   게이팅)은 GPU `inference`를 우리가 새로 만드는 서비스라고 가정하고 세운 설계였음. 실제로
@@ -287,3 +286,33 @@
   없어서(요청을 안 받고 푸시만 하는 워커) 네트워크 격리를 포기해도 손해가 없음.
   `extra_hosts`/`BACKEND_HOST=host.docker.internal` 설정 제거, `tracking2.py`/
   `sideOverflow.py`의 `BACKEND_HOST` 기본값(`127.0.0.1`)은 그대로 유효해서 코드 변경 불필요
+- **재학습용 "미확정 방문" 캡처 설계 확정(`VISIT_CLIP`, `trackStarted`/`trackEnded`) —
+  presence 기반 무조건 저장 + trackId 기반 정밀 매칭으로 결정** → GPU 서버에서 LLM
+  review 단계를 실제 프로덕션 이미지(`waste_events/*.jpg`)로 검증하던 중(`autoTraining`
+  README의 Qwen-VL 연결 검증 작업) 발견된 문제에서 출발. 지금 구조는 (1) 사람 존재 감지
+  기반 녹화(`presenceGateService.py`)가 GPU 판정과 완전히 독립 동작하고 (2)
+  `tracking2.py`는 투입이 **확정된 순간에만** `POST /api/events/aiDisposal`을 보내는데,
+  이 둘이 서로 연결이 안 돼 있어서 확정된 이벤트조차 영상이 안 붙고(기존에 알려진
+  `imageFileId` 없이 저장되는 문제와 동일 원인), **YOLO가 아예 인지를 못했거나 확정을
+  못 낸 방문은 영상이 저장될 경로 자체가 없다**는 게 드러남. 이게 문제인 이유는, 이런
+  "YOLO가 놓친 사례"가 바로 `autoTraining` 재학습 파이프라인이 제일 필요로 하는 데이터
+  (모델이 지금 뭘 못 맞추는지 보여주는 실패 사례)인데, 지금 Collect 단계는 확정된
+  `misclassification` 이벤트만 가져가는 구조라 이런 데이터가 애초에 존재하지 않음.
+  - 처음엔 "GPU의 `aiDisposal` 타임스탬프와 presence 녹화 구간을 시간 범위로 매칭"하는
+    단순한 안을 검토했으나, 네트워크 지연 등으로 타임스탬프가 어긋나면 매칭을 놓칠 수
+    있다는 지적이 나와서 기각. 대신 GPU가 트랙을 **발견한 즉시**(확정 전에) 알리는
+    `trackStarted` 신호를 추가해서, 시간 매칭은 "사람 등장 시점"처럼 지연이 훨씬 적은
+    지점에서만 쓰고, 이후 `aiDisposal`/`trackEnded`는 `trackId`로 **정확히** 매칭하는
+    2단계 방식으로 확정
+  - **저장 여부(=presence 감지)와 라벨링(=trackId 매칭)을 명확히 분리**하는 게 핵심 — 이
+    분리가 없으면 "GPU가 아예 트랙조차 시작 안 한, 가장 심각한 실패 사례"가 여전히
+    안 잡힘(트랙이 없으면 매칭할 trackId 자체가 없으니까). presence 기반 저장은 GPU
+    신호와 완전히 무관하게 항상 실행되도록 설계해서, 이 최악의 케이스도 최소한 영상
+    자체는 남도록 함(라벨은 "미확정"으로만 남고, 그것만으로 재학습 후보 조건이 성립)
+  - `EVENT`(확정 컬렉션)에 미확정 방문까지 섞으면 대시보드 통계/알림이 오염되므로,
+    `VISIT_CLIP`이라는 별도 컬렉션으로 분리하기로 확정(재학습 데이터 소스 전용, 대시보드
+    미노출)
+  - **2026-08-26 기준 설계만 확정, 코드 없음** — `tracking2.py`의 `trackStarted`/
+    `trackEnded` 신호 추가는 모델팀 작업 필요, 백엔드 `visitClips` 저장소/API/
+    `autoTraining` Collect 확장도 미착수. 상세는 `architecture.md`의 "재학습용 미확정
+    방문 캡처", `Docs/ERD.md`의 `VISIT_CLIP`, `.agentfiles/apiSpec.md`의 EP-14/EP-15 참고
