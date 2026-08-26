@@ -663,6 +663,11 @@ document.addEventListener(
                         throw new Error(result.detail || "수거 작업 처리에 실패했습니다.");
                     }
                     await loadCollectionAutomation();
+                    window.dispatchEvent(
+                        new Event(
+                            "collectionTasksChanged"
+                        )
+                    );
                 } catch (error) {
                     window.alert(error.message || "수거 작업 처리에 실패했습니다.");
                 } finally {

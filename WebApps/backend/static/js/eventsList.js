@@ -115,9 +115,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                 className: "normalWaste",
             };
 
-        const alarm =
-            eventData.actionTaken !== "none";
-
         return {
             eventId: eventData.eventId,
             time: new Date(eventData.timestamp),
@@ -137,13 +134,10 @@ document.addEventListener("DOMContentLoaded", async () => {
                     ? "오분류"
                     : "정상",
 
-            alarm,
             confidenceScore:
                 eventData.confidenceScore,
             eventCategory:
                 eventData.eventCategory,
-            actionTaken:
-                eventData.actionTaken,
             notes:
                 eventData.notes,
         };
@@ -197,7 +191,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (tableBody) {
             tableBody.innerHTML = `
                 <tr class="emptyRow">
-                    <td colspan="6">
+                    <td colspan="5">
                         기록을 불러오는 중입니다.
                     </td>
                 </tr>
@@ -256,9 +250,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         const selectedResult =
             getElement("fResult")?.value ?? "";
 
-        const selectedAlarm =
-            getElement("fAlarm")?.value ?? "";
-
         const filteredRows =
             data.filter((row) => {
                 if (fromValue) {
@@ -291,20 +282,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                 if (
                     selectedResult &&
                     row.result !== selectedResult
-                ) {
-                    return false;
-                }
-
-                if (
-                    selectedAlarm === "on" &&
-                    !row.alarm
-                ) {
-                    return false;
-                }
-
-                if (
-                    selectedAlarm === "off" &&
-                    row.alarm
                 ) {
                     return false;
                 }
@@ -468,30 +445,6 @@ document.addEventListener("DOMContentLoaded", async () => {
             });
     }
 
-    function getAlarmDisplay(
-        row,
-        includeDetail = false
-    ) {
-        if (row.alarm) {
-            return {
-                className: "on",
-                icon:
-                    '<i class="fa-solid fa-bell"></i>',
-                text:
-                    includeDetail
-                        ? "알림 울림 (경고 장치 작동)"
-                        : "알림 울림",
-            };
-        }
-
-        return {
-            className: "off",
-            icon:
-                '<i class="fa-solid fa-bell-slash"></i>',
-            text: "알림 없음",
-        };
-    }
-
     function openModal(row) {
         const modalTitle =
             getElement("modalTitle");
@@ -510,9 +463,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         const modalResult =
             getElement("mResult");
-
-        const modalAlarm =
-            getElement("mAlarm");
 
         const modalBackdrop =
             getElement("modalBackdrop");
@@ -561,23 +511,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                     class="status ${resultClass}"
                 >
                     ${row.result}
-                </span>
-            `;
-        }
-
-        if (modalAlarm) {
-            const alarmDisplay =
-                getAlarmDisplay(
-                    row,
-                    true
-                );
-
-            modalAlarm.innerHTML = `
-                <span
-                    class="alarm ${alarmDisplay.className}"
-                >
-                    ${alarmDisplay.icon}
-                    ${alarmDisplay.text}
                 </span>
             `;
         }
@@ -692,11 +625,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                 ) * 100
                 : 0;
 
-        const alarmOffCount =
-            data.filter(
-                (row) => !row.alarm
-            ).length;
-
         const statTotal =
             getElement("statTotal");
 
@@ -705,9 +633,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         const statAccuracy =
             getElement("statAccuracy");
-
-        const statAlarmOff =
-            getElement("statAlarmOff");
 
         if (statTotal) {
             statTotal.innerHTML =
@@ -727,11 +652,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                 "<span>%</span>";
         }
 
-        if (statAlarmOff) {
-            statAlarmOff.innerHTML =
-                `${alarmOffCount}` +
-                "<span>건</span>";
-        }
     }
 
     function render() {
@@ -795,7 +715,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (pageRows.length === 0) {
             tableBody.innerHTML = `
                 <tr class="emptyRow">
-                    <td colspan="6">
+                    <td colspan="5">
                         ${
                             loadErrorMessage ||
                             "조건에 맞는 기록이 없습니다."
@@ -812,9 +732,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                             "정상"
                                 ? "ok"
                                 : "err";
-
-                        const alarmDisplay =
-                            getAlarmDisplay(row);
 
                         return `
                             <tr
@@ -866,14 +783,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                                     </span>
                                 </td>
 
-                                <td>
-                                    <span
-                                        class="alarm ${alarmDisplay.className}"
-                                    >
-                                        ${alarmDisplay.icon}
-                                        ${alarmDisplay.text}
-                                    </span>
-                                </td>
                             </tr>
                         `;
                     })
@@ -950,7 +859,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     [
         "fType",
         "fResult",
-        "fAlarm",
     ].forEach((id) => {
         const field =
             getElement(id);
@@ -976,7 +884,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                 [
                     "fType",
                     "fResult",
-                    "fAlarm",
                 ].forEach((id) => {
                     const input =
                         getElement(id);
