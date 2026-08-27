@@ -633,6 +633,38 @@ document.addEventListener(
             }
         }
 
+        function renderGpuHeartbeats(statuses) {
+            const banner = getElement("gpuHeartbeatBanner");
+            if (!banner) {
+                return;
+            }
+
+            const offlineFeatureNameByCameraId = {
+                "ELEV-TOP": "오분류 자동 감지",
+                "ELEV-SIDE": "쓰레기통 넘침 자동 감지",
+            };
+
+            const offlineFeatures = statuses
+                .filter((status) => status.status !== "ONLINE")
+                .map((status) => offlineFeatureNameByCameraId[status.cameraId])
+                .filter(Boolean);
+
+            if (offlineFeatures.length === 0) {
+                banner.hidden = true;
+                banner.textContent = "";
+                return;
+            }
+
+            banner.hidden = false;
+            banner.textContent =
+                `⚠ ${offlineFeatures.join(", ")} 기능이 일시적으로 중단되었습니다. ` +
+                "잠시 후 다시 확인해 주세요.";
+        }
+
+        async function loadGpuHeartbeats() {
+            renderGpuHeartbeats(await requestJson("/api/gpuHeartbeats"));
+        }
+
         async function loadCollectionAutomation() {
             const [status, taskList] = await Promise.all([
                 requestJson("/api/collectionAutomation/status"),
@@ -720,6 +752,11 @@ document.addEventListener(
                     status.title = error.message;
                 }
             }),
+            loadGpuHeartbeats().catch(() => {}),
         ]);
+
+        setInterval(() => {
+            loadGpuHeartbeats().catch(() => {});
+        }, 20000);
     }
 );

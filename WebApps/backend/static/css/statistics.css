@@ -416,6 +416,16 @@ body {
 }
 .collectionActionButton.complete { background: #16a34a; }
 
+.gpuHeartbeatBanner {
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    font-size: 13px;
+    font-weight: 700;
+}
+
 @media (max-width: 600px) {
     .statisticsCardHeader {
         align-items: flex-start;

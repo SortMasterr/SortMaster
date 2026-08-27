@@ -46,6 +46,11 @@ CAMERA_ID = "CAM-01"
 # SSH 역터널(-R 8299:localhost:8047)로 도커 PC의 8047을 GPU 서버의 8299로 매핑해서 접속
 BACKEND_URL = f"http://{BACKEND_HOST}:8299/api/events/aiDisposal"
 
+# 판정 이벤트와 무관하게 이 스크립트가 살아있음을 알리는 생존 신호(architecture.md의
+# "GPU 쪽 헬스체크/하트비트 부재" TBD 해결용) — 같은 터널을 그대로 재사용
+HEARTBEAT_URL = f"http://{BACKEND_HOST}:8299/api/gpuHeartbeats"
+HEARTBEAT_INTERVAL_SECONDS = 30.0
+
 # GPU 서버는 화면(디스플레이)이 없는 헤드리스 환경이라 cv2.imshow를 그대로 쓰면 에러 남
 HEADLESS = True
 
@@ -630,6 +635,31 @@ def handle_disposal_event(event):
         print(f"[BACKEND] 전송 실패: {error}")
 
 
+_last_heartbeat_sent_at = 0.0
+
+
+def send_heartbeat_if_due():
+    """HEARTBEAT_INTERVAL_SECONDS마다 생존 신호를 보낸다. 판정 이벤트가 없어도(=조용해도)
+    이 스크립트/터널이 살아있는지 백엔드가 구분할 수 있도록 매 프레임 루프에서 호출한다.
+    """
+    global _last_heartbeat_sent_at
+
+    now = time.monotonic()
+    if now - _last_heartbeat_sent_at < HEARTBEAT_INTERVAL_SECONDS:
+        return
+
+    _last_heartbeat_sent_at = now
+
+    try:
+        requests.post(
+            HEARTBEAT_URL,
+            json={"cameraId": "ELEV-TOP"},
+            timeout=3,
+        )
+    except requests.RequestException as error:
+        print(f"[HEARTBEAT] 전송 실패: {error}")
+
+
 # ============================================================
 # 9. 쓰레기통 화면 표시
 # ============================================================
@@ -690,6 +720,8 @@ try:
 
             print("영상 입력이 종료되었습니다.")
             break
+
+        send_heartbeat_if_due()
 
         frame_index += 1
         clean_frame = frame.copy()

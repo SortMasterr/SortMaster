@@ -22,6 +22,7 @@ from schemas.event import (
     EventCategory,
     EventCreate,
 )
+from schemas.gpuHeartbeat import GpuHeartbeatPing, GpuHeartbeatStatus
 from schemas.mode import (
     Mode,
     ModeResponse,
@@ -55,6 +56,7 @@ from services.errors import (
     ReportEmailSettingsError,
 )
 from services.eventService import eventService
+from services.gpuHeartbeatService import gpuHeartbeatService
 from services.mediaService import mediaService
 from services.modeService import modeService
 from services.reportEmailService import reportEmailService
@@ -452,6 +454,24 @@ async def updateBinState(
         )
 
     return binState
+
+
+@router.get(
+    "/gpuHeartbeats",
+    response_model=list[GpuHeartbeatStatus],
+)
+async def getGpuHeartbeats() -> list[GpuHeartbeatStatus]:
+    return await gpuHeartbeatService.getStatuses()
+
+
+@router.post(
+    "/gpuHeartbeats",
+    response_model=GpuHeartbeatStatus,
+)
+async def recordGpuHeartbeat(
+    ping: GpuHeartbeatPing,
+) -> GpuHeartbeatStatus:
+    return await gpuHeartbeatService.recordHeartbeat(ping.cameraId)
 
 
 @router.get(
