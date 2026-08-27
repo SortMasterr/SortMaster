@@ -1,6 +1,8 @@
 import logging
+from datetime import datetime, timedelta
 
 from bson import ObjectId
+from pymongo import ReturnDocument
 
 from repositories.mongoClient import getMongoDb
 from schemas.event import CameraId
@@ -54,7 +56,11 @@ class VisitClipRepository:
         document = await self.collection.find_one({"trackIds": trackId})
         return self._fromDocument(document) if document is not None else None
 
-    async def addMatchedEvent(self, trackId: int, eventId: str) -> bool:
+    async def addMatchedEvent(
+        self,
+        trackId: int,
+        eventId: str,
+    ) -> VisitClip | None:
         """clip 생성 이후에 뒤늦게 도착한 aiDisposal을 위한 폴백 매칭.
 
         일반적인 순서(트랙이 사람 방문 중에 확정되는 경우)는 아직 만들어지지 않은
@@ -62,11 +68,48 @@ class VisitClipRepository:
         처리되므로, 여기까지 오는 건 드문 순서(clip이 먼저 저장된 뒤 결과가 도착)뿐이다.
         """
         await self.ensureIndexes()
-        result = await self.collection.update_one(
+        document = await self.collection.find_one_and_update(
             {"trackIds": trackId},
             {"$addToSet": {"matchedEventIds": eventId}},
+            return_document=ReturnDocument.AFTER,
         )
-        return result.matched_count > 0
+        return (
+            self._fromDocument(document)
+            if document is not None
+            else None
+        )
+
+    async def addMatchedEventByTimestamp(
+        self,
+        cameraId: CameraId,
+        timestamp: datetime,
+        eventId: str,
+        toleranceSeconds: float,
+    ) -> VisitClip | None:
+        await self.ensureIndexes()
+        document = await self.collection.find_one_and_update(
+            {
+                "cameraId": cameraId.value,
+                "startedAt": {
+                    "$lte": timestamp + timedelta(
+                        seconds=toleranceSeconds
+                    )
+                },
+                "endedAt": {
+                    "$gte": timestamp - timedelta(
+                        seconds=toleranceSeconds
+                    )
+                },
+            },
+            {"$addToSet": {"matchedEventIds": eventId}},
+            sort=[("startedAt", -1)],
+            return_document=ReturnDocument.AFTER,
+        )
+        return (
+            self._fromDocument(document)
+            if document is not None
+            else None
+        )
 
     async def addUnresolvedTrack(self, trackId: int) -> bool:
         """addMatchedEvent와 동일한 이유로, clip 저장 이후 도착한 trackEnded 전용 폴백."""

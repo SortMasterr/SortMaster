@@ -1,8 +1,10 @@
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 from schemas.aiDisposalEvent import AiDisposalEvent
 from schemas.event import CameraId, DetectedClass
+from schemas.visitClip import VisitClip
 from services.eventService import EventService
 
 
@@ -83,28 +85,41 @@ class EventServiceAiDisposalTest(unittest.IsolatedAsyncioTestCase):
             "event-1", result.event.detectionId
         )
 
-    async def testIncorrectResultStoresRecentFiveSecondGif(self):
-        recentFrames = [b"frame"] * 25
+    async def testIncorrectResultWaitsForStoredVisitClip(self):
+        result = await self.service.createEventFromAiDisposal(
+            buildAiEvent()
+        )
 
-        with (
-            patch(
-                "services.eventService.recordingService.snapshotRecentFrames",
-                return_value=(recentFrames, 5.0),
-            ) as snapshot,
-            patch(
-                "services.eventService.mediaService.saveClipAsGif",
-                AsyncMock(return_value="507f1f77bcf86cd799439011"),
-            ) as saveGif,
-        ):
+        self.assertIsNone(result.event.imageFileId)
+        self.registerResolution.assert_awaited_once()
+
+    async def testLateIncorrectResultUsesStoredVisitClip(self):
+        startedAt = datetime(2026, 8, 23, 7, 11, 50, tzinfo=timezone.utc)
+        visitClip = VisitClip(
+            cameraId=CameraId.ELEVTOP,
+            startedAt=startedAt,
+            endedAt=startedAt + timedelta(seconds=30),
+            imageFileId="507f1f77bcf86cd799439010",
+            trackIds=[15],
+        )
+        self.registerResolution.return_value = visitClip
+
+        async def attachPreview(event, _visitClip, _timestamp):
+            return event.model_copy(
+                update={
+                    "imageFileId": "507f1f77bcf86cd799439011"
+                }
+            )
+
+        with patch(
+            "services.eventService.eventMediaService.attachPreviewFromVisitClip",
+            AsyncMock(side_effect=attachPreview),
+        ) as attach:
             result = await self.service.createEventFromAiDisposal(
                 buildAiEvent()
             )
 
-        snapshot.assert_called_once_with(
-            CameraId.ELEVTOP,
-            5.0,
-        )
-        saveGif.assert_awaited_once()
+        attach.assert_awaited_once()
         self.assertEqual(
             "507f1f77bcf86cd799439011",
             result.event.imageFileId,
