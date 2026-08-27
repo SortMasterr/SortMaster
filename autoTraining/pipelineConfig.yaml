@@ -59,13 +59,10 @@ dataset:
   testRatio: 0.10
   # autoTraining/models/bootstrap/best.pt(Label/Train 두 단계가 공용으로 쓰는 고정
   # 기준 모델)가 실제로 내놓는 클래스명 그대로(2026-08-26 model.names 직접 대조 확인).
-  # camelCase 목표(trashNormal 등)도 운영 bestTop.pt의 snake_case도 아닌 PascalCase에
-  # 가까운 표기라 어색해 보여도, 코드 일관성을 이유로 임의로 고치면 안 됨 — 이 값은
-  # 실제 체크포인트가 내놓는 문자열과 정확히 일치해야 Label 단계가 통과함
-  # (.agentfiles/naming.md 참고). 이 목록은 이 bootstrap 모델 전용이며, 지금 운영 중인
-  # WebApps/backend/models/trashdetect/tracking2.py의 EXPECTED_CLASS_NAMES/TRASH_CLASSES/
-  # TRASH_TYPE_MAP(snake_case)과는 별개 — tracking2.py는 새 모델이 실제로 재학습·Promote·
-  # Deploy될 때까지 그대로 둘 것(.agentfiles/decisionLog.md 참고).
+  # 현재 운영 bestTop.pt와 bootstrap best.pt가 모두 내놓는 PascalCase 표기입니다.
+  # 코드 일관성을 이유로 임의로 고치지 말고 실제 체크포인트의 model.names와 정확히
+  # 일치시켜야 합니다. tracking2.py의 EXPECTED_CLASS_NAMES/TRASH_CLASSES/TRASH_TYPE_MAP 키도
+  # 같은 값이며, TRASH_TYPE_MAP의 출력만 기존 lowercase API 계약을 유지합니다.
   classes:
     - TrashNormal
     - TrashPaper

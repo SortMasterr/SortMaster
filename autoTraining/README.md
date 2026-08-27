@@ -185,9 +185,10 @@ TOP-view YOLO 모델 클래스명만 lower camelCase 대신 PascalCase를 사용
 `TrashCoffeeCup` 표기와 다르지만 모델 체크포인트의 실제 문자열이므로 임의로 고치지 않습니다.
 `pipelineConfig.yaml`의 `dataset.classes`는 이 계약으로 변경됐습니다.
 
-현재 `tracking2.py`의 `EXPECTED_CLASS_NAMES`, `TRASH_CLASSES`, `TRASH_TYPE_MAP`은 아직 이전
-snake_case 값이므로 새 `bestTop.pt`와 일치하지 않습니다. 운영 추론을 다시 실행하기 전에 세 값을
-위 PascalCase 모델에 맞게 전환하고 시작 시 `model.names` 검증을 통과해야 합니다.
+`tracking2.py`의 `EXPECTED_CLASS_NAMES`, `TRASH_CLASSES`, `TRASH_TYPE_MAP`도 위 PascalCase
+계약으로 전환했습니다. `TRASH_TYPE_MAP`의 출력은 기존 API 계약인 `normal`, `paper`,
+`recyclables`, `coffeecup`을 유지하므로 백엔드와 DB 값은 변경되지 않습니다. 체크포인트 로드와
+`model.names` 대조는 통과했으며 실제 TOP 영상의 탐지·투입 판정 검증은 아직 필요합니다.
 물리 쓰레기통은 YOLO 클래스가 아닙니다. `tracking2.py`의 `RULE_BASED_BIN_ROIS`가 통 위치를
 판정합니다.
 
@@ -518,7 +519,7 @@ Golden Test 기준을 확정한 뒤 승인된 후보에만 release를 허용하�
 9. 스케줄·재시도·알림
 ## 남은 개발 및 검증 작업
 
-- 새 PascalCase `bestTop.pt`에 맞춰 `tracking2.py`의 클래스 매칭 상수 전환 및 실제 추론 검증
+- PascalCase `bestTop.pt`로 실제 TOP 영상 탐지·클래스 매핑·투입 판정 검증
 - `tracking2.py`의 `trackStarted`/`trackEnded` 신호 전송 연동
 - 기존 로컬 데이터셋을 MongoDB 계약으로 안전하게 최초 이관하는 관리자 도구
 - MongoDB Publish/Sync의 mock 기반 단위 테스트와 운영 DB 소규모 통합 테스트
