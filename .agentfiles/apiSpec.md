@@ -139,7 +139,9 @@ sidebar.html은 라우트 아님 — 각 페이지에 공통 포함되는 사이
 
 - **`trackStarted`/`trackEnded` 및 방문 클립 연결** → `visitClipService`의 active track과
   `visitClips` 저장소로 구현. EP-12의 오분류 이벤트는 GridFS에 저장된 전체 방문 GIF에서
-  직전 약 5초 GIF를 파생하며, 전체 방문 GIF는 재학습/방문 기록으로 분리 유지
+  직전 약 5초 GIF를 파생하며, 전체 방문 GIF는 재학습/방문 기록으로 분리 유지. GPU 쪽
+  (`models/trashdetect/tracking2.py`)도 새 트랙 등록 시 EP-14, 미확정 만료 시 EP-15를
+  실제로 호출하도록 구현 완료 — 실기기(GPU 서버) 검증은 아직 TBD(`architecture.md` 참고)
 
 - **GPU↔백엔드 오분류 판정 신호 전달 방식 확정** → 로컬 백엔드가 프레임을 GPU로 보내는
   방향이 아니라, GPU(`models/trashdetect/tracking2.py`)가 자체 판정 후 `POST

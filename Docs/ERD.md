@@ -32,9 +32,9 @@ erDiagram
     COLLECTION_TASK ||--o{ COLLECTION_AUTOMATION_RUN : "알림 실행 이력"
     EVENT |o--|| MEDIA_FILE : "참조(선택)"
     CAMERA ||--o| GPU_HEARTBEAT : "생존 신호(cameraId 기준, 구현 완료)"
-    CAMERA ||--o{ VISIT_CLIP : "presence 감지 기반 방문 녹화(설계만 확정, 구현 전)"
-    VISIT_CLIP |o--o{ EVENT : "matchedEventIds(trackId로 정밀 매칭, 구현 전)"
-    VISIT_CLIP |o--|| MEDIA_FILE : "imageFileId 참조(구현 전)"
+    CAMERA ||--o{ VISIT_CLIP : "presence 감지 기반 방문 녹화(구현 완료)"
+    VISIT_CLIP |o--o{ EVENT : "matchedEventIds(trackId로 정밀 매칭, 구현 완료, 실기기 검증 TBD)"
+    VISIT_CLIP |o--|| MEDIA_FILE : "imageFileId 참조(구현 완료)"
 
     CAMERA {
         string cameraId PK "ELEV-TOP/ELEV-SIDE/REST-4F-01(설치 위치는 12층 엘리베이터 앞 1곳뿐). ELEV-TOP=투기 판정 담당, ELEV-SIDE=넘침 감지 담당"
@@ -165,7 +165,8 @@ erDiagram
   시작~종료 신호 사이 실제 구간을 캡처(신호 유실 대비 최대 30초 안전 캡) — `misclassification`은
   투척 완료 후 약 3초 텀을 두고 종료 신호가 옴(`architecture.md`). 탐지 서비스가 아직 없어
   실제 트리거 전이라 `imageFileId`는 대부분 `null`.
-- **VISIT_CLIP**(신규, **설계만 확정, 코드 미반영** — 2026-08-26): `EVENT`처럼 판정이 확정된
+- **VISIT_CLIP**(신규, **구현 완료, 실기기 검증 TBD** — 백엔드+GPU 쪽 신호 전송 코드 모두
+  반영됐으나 실제 GPU 서버에서 신호가 정상 도달하는지는 아직 검증 안 됨): `EVENT`처럼 판정이 확정된
   것만 저장하는 게 아니라, **presence 감지로 "누가 통 근처에 왔다 갔다"는 사실 자체를 판정
   여부와 무관하게 항상 기록**하는 컬렉션. 재학습(`autoTraining`)에 YOLO가 놓친 실패 사례를
   공급하기 위한 용도 — 상세 배경/설계는 `architecture.md`의 "재학습용 미확정 방문 캡처",

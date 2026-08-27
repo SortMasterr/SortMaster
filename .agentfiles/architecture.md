@@ -399,7 +399,7 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
   → visitClips 컬렉션에 문서 생성: {cameraId, startedAt, endedAt, imageFileId,
     trackIds: [], matchedEventIds: [], unresolvedTrackIds: []}
 
-[GPU: tracking2.py, 신규 신호 2종 추가 필요]
+[GPU: tracking2.py, 신호 2종 구현 완료]
 트랙을 새로 발견하는 즉시 → POST /api/events/trackStarted {trackId, cameraId, timestamp}
   → 백엔드가 activeTracks에 임시 저장(사람 등장 시점과 거의 동시라 시간 오차 작음)
 트랙 종료 시 둘 중 하나:
@@ -421,13 +421,18 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 전부 반영됨. `autoTraining/stages/collectEventMedia.py`도 `matchedEventIds`가 비어있는
 `visitClip`을 재학습 후보(`eventCategory: unresolvedVisit`)로 수집하는 경로가 추가됨(진행
 중 — 아래 참고). 상세 필드는 `Docs/ERD.md`의 `VISIT_CLIP`, API 형식은
-`.agentfiles/apiSpec.md`의 EP-14/EP-15 참고.
+`.agentfiles/apiSpec.md`의 EP-14/EP-15 참고. **`tracking2.py`(GPU)의 `trackStarted`/
+`trackEnded` 전송도 구현 완료** — 새 트랙을 등록하는 즉시 `trackStarted`를, 어느 통에도
+못 들어가고 만료(`TRACK_EXPIRE_FRAMES`)되면 `trackEnded(unresolved)`를 보낸다. 통에 확정
+투입된 트랙은 기존 `aiDisposal`의 `trackId`로만 연결하고 별도 `trackEnded`는 보내지 않으며,
+같은 통에 ID가 바뀐 것으로 판단해 이벤트를 스킵하는 fragment-duplicate 트랙(극히 드묾)도
+실제로는 다른 trackId로 이미 확정됐으므로 `trackEnded`를 보내지 않는다 — 이 두 경우까지
+`unresolved`로 보내면 정상 처리된 방문이 재학습 후보로 잘못 잡힌다.
 
-**아직 안 된 것**: **`tracking2.py`(GPU)가 `trackStarted`/`trackEnded`를 아직 안 보냄**(모델팀
-코드 수정 필요) — 이 신호가 없으면 `visitClip.trackIds`가 항상 비어있어서, 지금
-`collectEventMedia.py`가 수집하는 후보는 전부 "YOLO가 트랙조차 시작 안 한 케이스"로만
-채워진다(트랙 시도 후 실패한 케이스는 신호 연동 전까지 구분 불가). 이 신호가 붙기 전까지는
-`unresolvedTrackIds` 기반 분류도 사실상 동작하지 않는 상태.
+**아직 안 된 것**: 위 GPU 쪽 코드는 이번에 작성됐지만 **실제 GPU 서버에서 트랙 신호가
+백엔드에 정상 도달하는지 실기기 검증은 아직 안 됨**(그 전까지 검증된 건 스키마 파싱 확인
+수준). 실기기 검증 전까지는 `unresolvedTrackIds` 기반 재학습 후보 분류도 실측으로 확인된
+상태는 아님.
 
 ## Event Flow
 
@@ -463,9 +468,6 @@ Detect → Create Event → Save Event → Check mode
 
 ## TBD
 
-- **재학습용 미확정 방문 캡처 구현** — 설계는 확정됨(위 "재학습용 미확정 방문 캡처" 절
-  참고), `tracking2.py`의 `trackStarted`/`trackEnded` 신호 추가와 `visitClips` 저장소/API
-  구현은 아직 안 됨
 - **로컬 백엔드와 라즈베리파이의 네트워크 세그먼트 일치 여부** — RTSP 수신(로컬 백엔드↔
   라즈베리파이)은 mDNS(`.local`) 이름 해석에 의존 중인데, 이건 **같은 네트워크 세그먼트
   안에서만** 동작함(멀티캐스트가 세그먼트를 못 넘어감). 실제 설치 위치(12층 엘리베이터
