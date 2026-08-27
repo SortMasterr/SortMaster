@@ -82,15 +82,26 @@ class BinStateRepository:
 
     async def findAll(self) -> list[BinState]:
         cursor = self.collection.find({}).sort("binId", 1)
-        binStates = []
+        latestByBinId: dict[str, BinState] = {}
 
         async for document in cursor:
             binState = self._tryFromDocument(document)
 
-            if binState is not None:
-                binStates.append(binState)
+            if binState is None:
+                continue
 
-        return binStates
+            existing = latestByBinId.get(binState.binId)
+
+            if (
+                existing is None
+                or binState.lastChangedAt > existing.lastChangedAt
+            ):
+                latestByBinId[binState.binId] = binState
+
+        return sorted(
+            latestByBinId.values(),
+            key=lambda item: item.binId,
+        )
 
     async def upsert(self, binState: BinState) -> BinState:
         await self.ensureIndexes()

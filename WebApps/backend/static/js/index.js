@@ -70,17 +70,6 @@ function buildAlertDetail(alertData) {
         `투입 위치: ${binName}`,
     ];
 
-    if (
-        typeof alertData.confidenceScore ===
-        "number"
-    ) {
-        details.push(
-            `신뢰도: ${Math.round(
-                alertData.confidenceScore * 100
-            )}%`
-        );
-    }
-
     return details.join(" · ");
 }
 
