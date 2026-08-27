@@ -56,7 +56,7 @@ CAMERA_ID = "ELEV-SIDE"
 # 물리 통 4개(binId) 중 이 모델/roi.json이 실제로 보고 있는 통 하나 — roi.json이 현재
 # 단일 ROI만 지원해서 우선 통 1개로 매핑(decisionLog.md 참고, 통 4개 각각 독립 판정하려면
 # ROI를 나누고 모델을 통별로 돌려야 함 — TBD). 실제 설치 후 카메라 구도에 맞게 조정 필요.
-BIN_ID = "bin-side-01"
+BIN_ID = "BIN-GENERAL"
 BIN_TYPE = "normal"
 
 # 로컬 백엔드 주소 — GPU 서버 포트는 팀 공유 규칙상 99로 끝나야 해서 8047을 그대로 못 씀.

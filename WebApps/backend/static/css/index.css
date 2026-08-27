@@ -497,13 +497,21 @@ body {
 
 /* 미확인 오분류 알림 */
 
-.eventAlertPanel {
+.eventAlertPanelSlot {
+    position: relative;
     min-width: 0;
-    height: 100%;
-    max-height: 675px;
+    min-height: 0;
+}
+
+.eventAlertPanel {
+    position: absolute;
+    inset: 0;
+    min-width: 0;
+    min-height: 0;
     padding: 18px;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
     background-color: #ffffff;
     border: 1px solid #dbe3ec;
     border-radius: 8px;
@@ -590,6 +598,7 @@ body {
 }
 
 .eventAlertList {
+    flex: 1;
     min-height: 0;
     margin-top: 10px;
     display: flex;
@@ -787,7 +796,7 @@ body {
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .eventAlertPanel {
-        max-height: 380px;
+    .eventAlertPanelSlot {
+        height: 380px;
     }
 }

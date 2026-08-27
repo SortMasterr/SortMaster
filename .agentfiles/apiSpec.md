@@ -119,7 +119,7 @@ TemplateResponse만 반환, views.py/api.py 혼용 금지.
 
 | ID | Path | 템플릿 | 설명 |
 |---|---|---|---|
-| PG-01 | GET / | index.html | 카메라 지점 2개(위+옆, `ELEV-TOP`/`ELEV-SIDE`) 스트리밍(분할 그리드)+모니터링 현황. 템플릿 컨텍스트의 `currentMode`는 현재 `MANAGE` 고정이며 실제 런타임 모드는 WS 연결 직후 동기화 |
+| PG-01 | GET / | index.html | 카메라 지점 2개(위+옆, `ELEV-TOP`/`ELEV-SIDE`) 스트리밍(분할 그리드)+모니터링 현황. 템플릿 컨텍스트의 `currentMode`는 현재 `MANAGE` 고정이며 실제 런타임 모드는 WS 연결 직후 동기화. 관리 모드에서 EP-10 응답 중 하나라도 `currentState=FULL`이면 수거 작업 생성 여부와 무관하게 사이드바에 `쓰레기통 가득참` 표시 |
 | PG-02 | GET /events | eventsList.html | EP-03 결과 표 렌더링(이전기록), EP-04/EP-04-M 상세 모달과 GIF 썸네일·확대 보기 |
 | PG-03 | GET /statistics | statistics.html | EP-05 요약·클래스별 집계와 EP-03 최근 이벤트 렌더링 |
 

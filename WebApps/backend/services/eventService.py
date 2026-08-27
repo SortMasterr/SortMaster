@@ -53,7 +53,7 @@ _aiClassToBinType: dict[str, BinType] = {
     "coffeecup": BinType.COFFEE_CUP,
 }
 
-# 물리 통 ID 문자열 자체는 CTO 승인 불필요(decisionLog.md의 SIDE bin-side-01 선례) —
+# 물리 통 ID 문자열 자체는 CTO 승인 불필요(decisionLog.md의 SIDE 통 ID 선례) —
 # debug/db/seedTestEvents.py와 동일한 명명 재사용
 _binTypeToBinId: dict[BinType, str] = {
     BinType.NORMAL: "BIN-GENERAL",

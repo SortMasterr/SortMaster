@@ -8,7 +8,7 @@ let isModeSynchronized = false;
 let sidebarSocket = null;
 let reconnectTimer = null;
 let sidebarWarningTimer = null;
-let collectionAlertPollTimer = null;
+let binFullAlertPollTimer = null;
 let currentMisclassificationAlerts = [];
 
 const acknowledgedAlertsStorageKey =
@@ -219,39 +219,25 @@ async function refreshBinFullAlert() {
     }
 
     try {
-        const [openResponse, acknowledgedResponse] =
-            await Promise.all([
-                fetch(
-                    "/api/collectionTasks?" +
-                    "taskStatus=OPEN&limit=1"
-                ),
-                fetch(
-                    "/api/collectionTasks?" +
-                    "taskStatus=ACKNOWLEDGED&limit=1"
-                )
-            ]);
+        const response = await fetch(
+            "/api/binStates"
+        );
 
-        if (
-            !openResponse.ok ||
-            !acknowledgedResponse.ok
-        ) {
+        if (!response.ok) {
             throw new Error(
-                "수거 작업 상태 조회 실패"
+                "쓰레기통 상태 조회 실패"
             );
         }
 
-        const [openTasks, acknowledgedTasks] =
-            await Promise.all([
-                openResponse.json(),
-                acknowledgedResponse.json()
-            ]);
+        const binStates = await response.json();
+        const hasFullBin = Array.isArray(binStates) &&
+            binStates.some(
+                (binState) =>
+                    binState.currentState === "FULL"
+            );
 
         setBinFullAlertVisible(
-            !isCollectMode &&
-            (
-                openTasks.total > 0 ||
-                acknowledgedTasks.total > 0
-            )
+            !isCollectMode && hasFullBin
         );
     } catch (error) {
         console.warn(
@@ -604,7 +590,7 @@ function initSidebarEvents() {
     refreshBinFullAlert();
     refreshMisclassificationAlerts();
 
-    collectionAlertPollTimer =
+    binFullAlertPollTimer =
         setInterval(
             refreshBinFullAlert,
             15000

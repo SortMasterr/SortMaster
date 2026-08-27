@@ -1155,6 +1155,8 @@ JSON API는 `controllers/api.py`, 페이지 라우트는 `controllers/views.py`�
 * 사이드바 메뉴
 * 관리/수거 모드 표시
 * WebSocket 연결
+* 관리 모드에서 `GET /api/binStates` 응답 중 하나라도 `currentState=FULL`이면 사이드바에
+  `쓰레기통 가득참` 표시. 수거 작업 생성 여부와 무관하며 모든 통이 `NORMAL`이면 숨김
 * 관리 모드에서 실제 오분류 이벤트가 저장되어 `MISCLASSIFICATION_DETECTED` WebSocket 메시지를
   받으면 카메라 영역에 5초간 빨간 경고 점멸 표시(수동 테스트 버튼 없음)
 
