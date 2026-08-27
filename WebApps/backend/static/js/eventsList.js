@@ -1068,4 +1068,24 @@ document.addEventListener("DOMContentLoaded", async () => {
     await loadEvents();
 
     render();
+
+    const requestedEventId =
+        new URLSearchParams(
+            window.location.search
+        ).get("eventId");
+
+    if (requestedEventId) {
+        try {
+            openModal(
+                await loadEventDetail(
+                    requestedEventId
+                )
+            );
+        } catch (error) {
+            console.error(
+                "Requested event detail load failed:",
+                error
+            );
+        }
+    }
 });

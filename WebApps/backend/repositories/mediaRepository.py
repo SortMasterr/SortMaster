@@ -27,5 +27,14 @@ class MediaRepository:
         bucket = getGridFsBucket(cameraId)
         await bucket.delete(ObjectId(fileId))
 
+    async def getBytes(
+        self,
+        fileId: str,
+        cameraId: CameraId,
+    ) -> bytes:
+        bucket = getGridFsBucket(cameraId)
+        stream = await bucket.open_download_stream(ObjectId(fileId))
+        return await stream.read()
+
 
 mediaRepository = MediaRepository()

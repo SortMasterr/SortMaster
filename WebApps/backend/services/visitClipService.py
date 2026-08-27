@@ -19,9 +19,10 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from repositories.mediaRepository import mediaRepository
 from repositories.visitClipRepository import visitClipRepository
 from schemas.event import CameraId
-from schemas.visitClip import VisitClip
+from schemas.visitClip import VisitClip, VisitClipSummary
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +176,19 @@ class VisitClipService:
         await visitClipRepository.save(clip)
 
         return matchedEventIds
+
+    async def listRecentClips(self, limit: int = 60) -> list[VisitClipSummary]:
+        """관리자 웹에서 최신 방문 클립을 훑어보기 위한 목록."""
+        documents = await visitClipRepository.listRecent(limit)
+        return [VisitClipSummary(**document) for document in documents]
+
+    async def getClipMediaBytes(self, clipId: str) -> bytes | None:
+        """관리자 웹이 방문 클립 GIF를 재생할 수 있도록 GridFS 원본을 그대로 반환."""
+        media = await visitClipRepository.findMediaById(clipId)
+        if media is None:
+            return None
+        imageFileId, cameraId = media
+        return await mediaRepository.getBytes(imageFileId, cameraId)
 
 
 visitClipService = VisitClipService()
