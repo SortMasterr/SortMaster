@@ -10,12 +10,15 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+import cv2
+
 from common.pipelineUtilities import (
     ManifestWriter,
     chinesePattern,
     iterateManifest,
     manifestHasRows,
 )
+from stages.autoLabeling import drawDetections
 
 
 class ReviewLabelsStage:
@@ -141,12 +144,35 @@ class ReviewLabelsStage:
                     "minimum": 0,
                     "maximum": 1,
                 },
+                "qwenDetections": {
+                    "type": "array",
+                    "description": (
+                        "Qwen이 원본 이미지에서 실제로 존재한다고 판단하는 쓰레기 "
+                        "객체 목록(픽셀 좌표) — YOLO 결과와 무관하게 직접 다시 "
+                        "판단한다. 쓰레기가 없으면 빈 배열."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "class": {"type": "string", "enum": classes},
+                            "xyxy": {
+                                "type": "array",
+                                "items": {"type": "number"},
+                                "minItems": 4,
+                                "maxItems": 4,
+                            },
+                        },
+                        "required": ["class", "xyxy"],
+                        "additionalProperties": False,
+                    },
+                },
             },
             "required": [
                 "decision",
                 "predictedClass",
                 "issues",
                 "confidence",
+                "qwenDetections",
             ],
             "additionalProperties": False,
         }
@@ -173,6 +199,18 @@ class ReviewLabelsStage:
         if not 0 <= confidence <= 1:
             raise ValueError("confidence는 0과 1 사이여야 합니다.")
         review["confidence"] = confidence
+
+        classes = self.config["dataset"]["classes"]
+        qwenDetections = review.get("qwenDetections")
+        if not isinstance(qwenDetections, list):
+            raise ValueError("qwenDetections는 배열이어야 합니다.")
+        for detection in qwenDetections:
+            if detection.get("class") not in classes:
+                raise ValueError("qwenDetections에 허용되지 않는 class가 있습니다.")
+            xyxy = detection.get("xyxy")
+            if not isinstance(xyxy, list) or len(xyxy) != 4:
+                raise ValueError("qwenDetections의 xyxy는 값 4개여야 합니다.")
+            detection["xyxy"] = [float(value) for value in xyxy]
         return review
 
     def _reviewOne(
@@ -192,7 +230,19 @@ class ReviewLabelsStage:
         ]
         prompt = (
             "첫 번째 이미지는 원본 CCTV 프레임이고 두 번째 이미지는 "
-            "YOLO bbox 표시 이미지다. 객체의 클래스와 bbox가 적절한지 검수하라. "
+            "YOLO bbox 표시 이미지다. 다음 두 가지를 모두 확인하라. "
+            "(1) YOLO가 이미 찾은 각 객체의 클래스와 bbox가 실제로 맞는지 "
+            "검증하라 — 틀렸으면 issues에 wrongClass/badBbox 등으로 표시하라. "
+            "(2) YOLO 결과와 무관하게 원본 이미지를 직접 보고, YOLO가 놓친 "
+            "쓰레기(허용 클래스 중 하나)가 있는지 적극적으로 확인하라 — YOLO "
+            "결과가 비어 있어도 원본에 실제로 쓰레기가 있으면 그건 미탐지이므로 "
+            "issues에 missingObject를 반드시 표시하고 predictedClass에 실제로 "
+            "보이는 클래스를 적어라. "
+            "qwenDetections에는 원본 이미지 기준으로 네가 실제로 존재한다고 "
+            "판단하는 쓰레기 객체만 다시 나열하라(YOLO가 맞았어도, 놓쳤어도, "
+            "틀렸어도 상관없이 네가 옳다고 보는 최종 목록) — 좌표는 원본 이미지의 "
+            "실제 픽셀 좌표(왼쪽 위가 0,0)로 [x1,y1,x2,y2] 형식이며, 쓰레기가 "
+            "없다고 판단하면 빈 배열로 둬라. "
             "쓰레기통 자체는 검수 대상이 아니다. 반드시 제공된 JSON schema만 "
             "출력하고 중국어와 자연어 설명은 출력하지 마라. "
             f"허용 클래스: {classes}. YOLO 결과: "
@@ -225,6 +275,27 @@ class ReviewLabelsStage:
         }
         response = self._requestQwenVl("POST", "/v1/chat/completions", payload)
         return self._validateReview(response["choices"][0]["message"]["content"])
+
+    def _saveQwenAnnotatedImage(self, row: dict[str, Any], review: dict[str, Any]) -> Path:
+        """Qwen이 직접 판단한 qwenDetections를 원본 위에 그려 사람이 눈으로
+        비교할 수 있게 한다 — YOLO가 틀리게 잡은 박스는 여기서 사라지고,
+        놓친 쓰레기는 여기서 새로 나타나는 식으로 확인할 수 있다."""
+        classes = self.config["dataset"]["classes"]
+        detections = [
+            {
+                "classId": classes.index(detection["class"]),
+                "confidence": review["confidence"],
+                "xyxy": detection["xyxy"],
+            }
+            for detection in review["qwenDetections"]
+        ]
+        rawImage = cv2.imread(row["imagePath"])
+        annotatedImage = drawDetections(rawImage, detections, classes)
+        qwenAnnotatedPath = self.qwenAnnotatedRoot / row["video"] / f"{row['id']}.jpg"
+        qwenAnnotatedPath.parent.mkdir(parents=True, exist_ok=True)
+        if not cv2.imwrite(str(qwenAnnotatedPath), annotatedImage):
+            raise OSError(f"Qwen 검수 이미지 저장 실패: {qwenAnnotatedPath}")
+        return qwenAnnotatedPath
 
     def review(self) -> None:
         """자동 라벨을 순차 검수하여 reviews.jsonl과 상태별 폴더에 저장합니다."""
@@ -267,6 +338,7 @@ class ReviewLabelsStage:
                         "predictedClass": "none",
                         "issues": ["badBbox"],
                         "confidence": 0.0,
+                        "qwenDetections": [],
                     }
                 riskyIssues = {
                     "wrongClass",
@@ -284,11 +356,14 @@ class ReviewLabelsStage:
                 ):
                     review["decision"] = "manualReview"
 
+                qwenAnnotatedPath = self._saveQwenAnnotatedImage(row, review)
+
                 output = dict(row)
                 output.update({
                     "review": review,
                     "reviewErrors": errors,
                     "qwenVlModel": qwenVlModel,
+                    "qwenAnnotatedPath": str(qwenAnnotatedPath.resolve()),
                 })
                 writer.write(output)
                 counts[review["decision"]] += 1
@@ -307,6 +382,10 @@ class ReviewLabelsStage:
                 shutil.copy2(
                     row["annotatedPath"],
                     queueDirectory / f"{row['id']}__annotated.jpg",
+                )
+                shutil.copy2(
+                    qwenAnnotatedPath,
+                    queueDirectory / f"{row['id']}__qwen.jpg",
                 )
                 shutil.copy2(
                     row["labelPath"],
