@@ -62,7 +62,7 @@ localhost 사람 검수 UI
    tracking2.py용 bestTop.pt 원자적 교체
 ```
 
-Deploy 후 `tracking2.py` 재시작·smoke test·실패 시 자동 rollback은 아직 수동입니다.
+Deploy는 모델 교체 전에 로드·클래스 계약·더미 프레임 추론 smoke test를 자동 수행합니다. `tracking2.py` 프로세스 재시작과 실패 시 자동 rollback은 아직 수동입니다.
 
 ## 단계별 자동화 수준
 
@@ -87,8 +87,8 @@ Deploy 후 `tracking2.py` 재시작·smoke test·실패 시 자동 rollback은 �
 | 9. Train | 자동 | GPU에서 신규 YOLO 후보 모델을 학습합니다. | 실행 전 GPU 자원과 학습 설정을 확인합니다. |
 | 10. Evaluate | 자동 | Golden Test로 기준 모델과 후보 모델을 비교합니다. | 사전에 독립된 Golden Test를 준비·관리합니다. |
 | 11. Promote | 반자동 | 별도 명령을 실행하면 품질 기준을 재검증하고 모델을 registry에 승격합니다. | 평가 결과를 확인하고 승격 실행 여부를 결정합니다. |
-| 12. Deploy | 반자동 | 별도 명령을 실행하면 승격 모델을 운영 모델 파일로 원자적으로 교체합니다. | 배포를 승인하고 이후 프로세스 재시작·smoke test를 수행합니다. |
-| Rollback | 반자동 | 지정한 registry 모델 파일로 운영 모델을 되돌립니다. | 롤백 버전을 선택하고 재시작·smoke test를 수행합니다. |
+| 12. Deploy | 반자동 | 승격 모델의 smoke test를 통과한 경우에만 운영 모델 파일로 원자적으로 교체합니다. | 배포를 승인하고 이후 프로세스를 재시작합니다. |
+| Rollback | 반자동 | 지정한 registry 모델의 smoke test를 통과한 경우에만 운영 모델로 되돌립니다. | 롤백 버전을 선택하고 프로세스를 재시작합니다. |
 
 `runDaily` 전체 흐름의 자동화 수준은 **반자동**입니다. Collect부터 Review까지 자동 실행한 뒤 사람 검수가
 끝날 때까지 대기하고, 검수가 완료되면 HumanReview부터 Evaluate까지 자동으로 이어집니다. Promote와
@@ -118,7 +118,8 @@ Deploy는 `runDaily`에 포함되지 않으며 사람의 평가 확인과 배포
 | 일일 입력 | 없음 | `inputVideos` 파일 없음 |
 | MongoDB 배치 스냅샷 | 없음 | 실제 Publish/Sync 실행 전 |
 | Golden Test | 없음 | `goldenTest` 디렉터리 없음 |
-| 운영 재시작·smoke test | 미구현 | Deploy 후 수동 |
+| 모델 smoke test | 구현됨 | Deploy·Rollback 전 자동 실행, 독립 `smokeTest` 명령 제공 |
+| 운영 프로세스 재시작·자동 rollback | 미구현 | 모델 교체 후 `tracking2.py` 재시작과 장애 시 복구는 수동 |
 | 전체 E2E | 미검증 | MongoDB, vLLM, Golden Test, GPU 학습이 필요 |
 
 
@@ -374,7 +375,17 @@ python autoTraining\trainingPipeline.py deploy --batchId <YYYY-MM-DD>
 python autoTraining\trainingPipeline.py rollback --batchId <YYYY-MM-DD> --version model-<VERSION>
 ```
 
-Deploy와 rollback은 모델 파일을 원자적으로 교체하지만 프로세스를 재시작하지 않습니다.
+Deploy와 rollback은 모델을 교체하기 전에 smoke test를 자동 수행하지만 프로세스를 재시작하지 않습니다.
+현재 운영 모델만 독립적으로 검사하려면 다음 명령을 사용합니다.
+
+```powershell
+python autoTraining\trainingPipeline.py smokeTest --batchId <YYYY-MM-DD>
+# 운영 GPU 장치까지 확인하려면:
+python autoTraining\trainingPipeline.py smokeTest --batchId <YYYY-MM-DD> --smokeDevice 0
+```
+
+기본 smoke 장치는 `cpu`이며 모델 로드, SHA-256, 클래스명·순서, 416×416 더미 BGR 프레임 추론을
+검증합니다. 실제 카메라 연결, 객체 탐지 성능과 투입 판정은 이 smoke test의 범위가 아닙니다.
 
 ## 주요 산출물
 
@@ -411,7 +422,8 @@ autoTraining/
    │  └─ samples.jsonl
    ├─ trainingResult.json
    ├─ evaluation.json
-   └─ deployment.json
+   ├─ deployment.json
+   └─ smokeTest.json
 ```
 
 | 단계 | 주요 출력 또는 변경 |
@@ -428,7 +440,8 @@ autoTraining/
 | Train | 후보 `best.pt`, `trainingResult.json` |
 | Evaluate | `evaluation.json` |
 | Promote | registry 모델, `models/current.json` |
-| Deploy | 운영 `bestTop.pt`, `deployment.json` |
+| Deploy | 운영 `bestTop.pt`, smoke 결과가 포함된 `deployment.json` |
+| SmokeTest | `smokeTest.json` |
 
 JSONL은 행 단위로 읽고 프로세스별 임시 파일에 기록한 뒤 `flush`/`fsync`와 원자적 교체를
 사용합니다. SyncDataset과 Build도 임시 디렉터리를 완성한 뒤 기존 결과와 교체합니다.
@@ -502,7 +515,7 @@ Qwen-VL은 후보 우선순위와 이상 사례 설명을 돕는 보조 수단�
 
 ### 5순위: 배포 안전장치 완성
 
-Promote와 Deploy는 분리되어 있지만 운영 프로세스 재시작, smoke test, 자동 rollback은 아직 수동입니다.
+Promote와 Deploy는 분리되어 있으며 모델 smoke test는 Deploy·Rollback 전에 자동 수행됩니다. 다만 운영 프로세스 재시작과 실패 시 자동 rollback은 아직 수동입니다.
 Golden Test 기준을 확정한 뒤 승인된 후보에만 release를 허용하고, 배포 후 상태 확인에 실패하면 직전
 모델과 프로세스로 자동 복구해야 합니다.
 
@@ -515,7 +528,7 @@ Golden Test 기준을 확정한 뒤 승인된 후보에만 release를 허용하�
 5. 데이터셋 버전과 모델 계보 기록
 6. Golden Test 및 단계별 자동 테스트
 7. Qwen 장애 시 fallback
-8. 재시작·smoke test·자동 rollback을 포함한 배포 자동화
+8. 프로세스 재시작·상태 확인·자동 rollback을 포함한 배포 자동화
 9. 스케줄·재시도·알림
 ## 남은 개발 및 검증 작업
 
@@ -531,7 +544,7 @@ Golden Test 기준을 확정한 뒤 승인된 후보에만 release를 허용하�
 - 검수 UI의 마우스 bbox 그리기·크기 조절
 - 독립 `autoTraining` Compose 서비스, 스케줄, 재시도와 알림
 - 배포 승인형 release 명령
-- Deploy 후 `tracking2.py` 재시작·smoke test·자동 rollback
+- Deploy 후 `tracking2.py` 재시작·서비스 상태 확인·자동 rollback
 - 실제 GPU 서버 전체 E2E
 
 ## 실패와 복구
@@ -541,7 +554,7 @@ Golden Test 기준을 확정한 뒤 승인된 후보에만 release를 허용하�
 - Sync 이미지 또는 라벨 해시가 다르면 기존 정상 스냅샷을 유지하고 실패합니다.
 - Build가 실패하면 기존 정상 `datasets/<batchId>`을 복구합니다.
 - ManifestWriter가 관리하는 JSONL은 단계 성공 때만 교체됩니다.
-- 모델 rollback 후에도 `tracking2.py` 재시작과 smoke test는 직접 수행해야 합니다.
+- 모델 rollback은 교체 전 smoke test를 자동 수행하지만 `tracking2.py` 재시작과 서비스 상태 확인은 직접 수행해야 합니다.
 
 ## 코드 변경 원칙
 
