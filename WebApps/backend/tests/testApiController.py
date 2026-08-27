@@ -65,6 +65,47 @@ def detectionStop():
 class ApiControllerBroadcastTest(
     unittest.IsolatedAsyncioTestCase
 ):
+    async def testEventMediaReturnsStoredGif(self):
+        event = savedEvent().model_copy(
+            update={
+                "imageFileId": "507f1f77bcf86cd799439011",
+            }
+        )
+
+        with (
+            patch(
+                "controllers.api.eventService.getEventById",
+                AsyncMock(return_value=event),
+            ),
+            patch(
+                "controllers.api.mediaService.getClip",
+                AsyncMock(return_value=b"GIF89a"),
+            ) as getClip,
+        ):
+            response = await api.getEventMedia(
+                event.eventId
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("image/gif", response.media_type)
+        self.assertEqual(b"GIF89a", response.body)
+        getClip.assert_awaited_once_with(
+            event.imageFileId,
+            event.cameraId,
+        )
+
+    async def testEventMediaReturns404WithoutImage(self):
+        with patch(
+            "controllers.api.eventService.getEventById",
+            AsyncMock(return_value=savedEvent()),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await api.getEventMedia(
+                    "controller-event"
+                )
+
+        self.assertEqual(404, raised.exception.status_code)
+
     async def testDuplicateResponseDoesNotBroadcastAgain(self):
         event = savedEvent()
 

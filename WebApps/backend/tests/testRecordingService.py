@@ -20,6 +20,31 @@ def recordingSession(recordingId="recording-test"):
 
 
 class RecordingServiceTest(unittest.IsolatedAsyncioTestCase):
+    async def testSnapshotRecentFramesReturnsOnlyRequestedWindow(self):
+        service = RecordingService({})
+        session = recordingSession("recording-snapshot")
+        session.frames.extend(range(40))
+        service.sessions[session.recordingId] = session
+
+        frames, fps = service.snapshotRecentFrames(
+            CameraId.ELEVTOP,
+            5.0,
+        )
+
+        self.assertEqual(list(range(15, 40)), frames)
+        self.assertEqual(5.0, fps)
+
+    async def testSnapshotRecentFramesReturnsEmptyWithoutActiveCamera(self):
+        service = RecordingService({})
+
+        frames, fps = service.snapshotRecentFrames(
+            CameraId.ELEVTOP,
+            5.0,
+        )
+
+        self.assertEqual([], frames)
+        self.assertEqual(0.0, fps)
+
     async def testCameraMismatchKeepsSessionForCorrectRetry(self):
         service = RecordingService({})
         session = recordingSession()

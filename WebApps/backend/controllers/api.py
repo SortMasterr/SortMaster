@@ -6,7 +6,7 @@ from fastapi import (
     HTTPException,
     Query,
 )
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from schemas.aiDisposalEvent import AiDisposalEvent
 from schemas.binState import BinState, BinStateUpdate
@@ -54,6 +54,7 @@ from services.errors import (
     ReportEmailSettingsError,
 )
 from services.eventService import eventService
+from services.mediaService import mediaService
 from services.modeService import modeService
 from services.reportEmailService import reportEmailService
 from services.visitClipService import visitClipService
@@ -146,6 +147,44 @@ async def getEventById(
         )
 
     return event
+
+
+@router.get(
+    "/events/{id}/media",
+    response_class=Response,
+    responses={
+        404: {"description": "이벤트 또는 저장된 GIF를 찾을 수 없음"},
+    },
+)
+async def getEventMedia(
+    id: str,
+) -> Response:
+    event = await eventService.getEventById(id)
+
+    if event is None or event.imageFileId is None:
+        raise HTTPException(
+            status_code=404,
+            detail="저장된 이벤트 GIF가 없습니다.",
+        )
+
+    clipBytes = await mediaService.getClip(
+        event.imageFileId,
+        event.cameraId,
+    )
+
+    if clipBytes is None:
+        raise HTTPException(
+            status_code=404,
+            detail="저장된 이벤트 GIF를 찾을 수 없습니다.",
+        )
+
+    return Response(
+        content=clipBytes,
+        media_type="image/gif",
+        headers={
+            "Cache-Control": "private, max-age=300",
+        },
+    )
 
 
 @router.post(

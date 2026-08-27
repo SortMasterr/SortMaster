@@ -141,6 +141,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
             eventCategory:
                 eventData.eventCategory,
+            imageFileId:
+                eventData.imageFileId,
             notes:
                 eventData.notes,
         };
@@ -488,6 +490,85 @@ document.addEventListener("DOMContentLoaded", async () => {
             });
     }
 
+    function closeMediaViewer() {
+        const viewer = getElement(
+            "eventMediaViewer"
+        );
+        const viewerImage = getElement(
+            "eventMediaViewerImage"
+        );
+
+        if (viewer) {
+            viewer.hidden = true;
+        }
+
+        if (viewerImage) {
+            viewerImage.removeAttribute("src");
+        }
+    }
+
+    function openMediaViewer(mediaUrl) {
+        const viewer = getElement(
+            "eventMediaViewer"
+        );
+        const viewerImage = getElement(
+            "eventMediaViewerImage"
+        );
+
+        if (!viewer || !viewerImage || !mediaUrl) {
+            return;
+        }
+
+        viewerImage.src = mediaUrl;
+        viewer.hidden = false;
+    }
+
+    function updateEventMedia(row) {
+        const thumbnailButton = getElement(
+            "eventMediaThumbnailBtn"
+        );
+        const thumbnail = getElement(
+            "eventMediaThumbnail"
+        );
+        const emptyState = getElement(
+            "eventMediaEmpty"
+        );
+
+        if (
+            !thumbnailButton ||
+            !thumbnail ||
+            !emptyState
+        ) {
+            return;
+        }
+
+        const hasMedia = Boolean(
+            row.imageFileId
+        );
+
+        thumbnailButton.hidden = !hasMedia;
+        emptyState.hidden = hasMedia;
+
+        if (!hasMedia) {
+            thumbnailButton.dataset.mediaUrl = "";
+            thumbnail.removeAttribute("src");
+            return;
+        }
+
+        const mediaUrl =
+            `/api/events/${encodeURIComponent(
+                row.eventId
+            )}/media`;
+
+        thumbnailButton.dataset.mediaUrl = mediaUrl;
+        thumbnail.onerror = () => {
+            thumbnailButton.hidden = true;
+            emptyState.hidden = false;
+            thumbnail.removeAttribute("src");
+        };
+        thumbnail.src = mediaUrl;
+    }
+
     function openModal(row) {
         const modalTitle =
             getElement("modalTitle");
@@ -558,6 +639,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             `;
         }
 
+        updateEventMedia(row);
+
         if (modalBackdrop) {
             modalBackdrop.classList.add(
                 "show"
@@ -573,6 +656,16 @@ document.addEventListener("DOMContentLoaded", async () => {
             modalBackdrop.classList.remove(
                 "show"
             );
+        }
+
+        closeMediaViewer();
+
+        const thumbnail = getElement(
+            "eventMediaThumbnail"
+        );
+
+        if (thumbnail) {
+            thumbnail.removeAttribute("src");
         }
     }
 
@@ -1005,6 +1098,46 @@ document.addEventListener("DOMContentLoaded", async () => {
         );
     }
 
+    const eventMediaThumbnailBtn =
+        getElement("eventMediaThumbnailBtn");
+
+    if (eventMediaThumbnailBtn) {
+        eventMediaThumbnailBtn.addEventListener(
+            "click",
+            () => {
+                openMediaViewer(
+                    eventMediaThumbnailBtn.dataset
+                        .mediaUrl
+                );
+            }
+        );
+    }
+
+    const eventMediaViewerClose =
+        getElement("eventMediaViewerClose");
+
+    if (eventMediaViewerClose) {
+        eventMediaViewerClose.addEventListener(
+            "click",
+            closeMediaViewer
+        );
+    }
+
+    const eventMediaViewer = getElement(
+        "eventMediaViewer"
+    );
+
+    if (eventMediaViewer) {
+        eventMediaViewer.addEventListener(
+            "click",
+            (event) => {
+                if (event.target === eventMediaViewer) {
+                    closeMediaViewer();
+                }
+            }
+        );
+    }
+
     const modalBackdrop =
         getElement("modalBackdrop");
 
@@ -1026,7 +1159,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         "keydown",
         (event) => {
             if (event.key === "Escape") {
-                closeModal();
+                if (
+                    eventMediaViewer &&
+                    !eventMediaViewer.hidden
+                ) {
+                    closeMediaViewer();
+                } else {
+                    closeModal();
+                }
             }
         }
     );

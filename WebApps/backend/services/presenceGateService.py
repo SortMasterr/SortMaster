@@ -6,7 +6,8 @@ architecture.md "탐지 파이프라인"의 사람 존재 감지 게이팅을 �
 투척 시작 순간을 놓칠 수 있어 기각됐고(decisionLog.md), 대신 detection/presenceDetector.py의
 배경 차분 전경 비율을 임계값+디바운스로 게이팅한다.
 
-이 녹화(라이브뷰/DB 저장용 클립)는 실제 오분류 판정과 완전히 독립적이다 — 오분류 판정은
+이 녹화는 실제 오분류 판정과 별개로 시작·종료되지만, 활성 프레임 버퍼는 오분류 판정 직전
+5초 미리보기에 사용된다. 오분류 판정 자체는
 GPU 서버의 models/trashdetect/tracking2.py가 TOP 카메라 RTSP를 직접 보면서 자체적으로
 투척 완료를 판단해 controllers/api.py의 POST /events/aiDisposal로 결과를 푸시하는 방식으로
 확정됐다(과거 "로컬 백엔드가 존재 감지 중 프레임을 샘플링해서 GPU 세션 API로 보내는" 설계는
@@ -24,7 +25,6 @@ import cv2
 import numpy as np
 
 from detection.presenceDetector import PersonPresenceDetector
-from repositories.eventRepository import eventRepository
 from schemas.event import CameraId
 from services.detectionService import detectionService
 from services.errors import (
@@ -278,12 +278,9 @@ class PresenceGateService:
             )
             return
 
-        eventIdsNeedingImage = await visitClipService.createClipForVisit(
+        await visitClipService.createClipForVisit(
             self.cameraId, startedAt, endedAt, imageFileId
         )
-
-        for eventId in eventIdsNeedingImage:
-            await eventRepository.updateImageFileId(eventId, imageFileId)
 
 
 presenceGateService = PresenceGateService(CameraId.ELEVTOP, cameraManagers)

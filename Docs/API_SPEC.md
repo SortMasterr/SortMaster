@@ -36,6 +36,8 @@
 * 이벤트 트리거 녹화 → GIF 인코딩 → GridFS 업로드 파이프라인(`recordingService`/
   `mediaService`/`mediaRepository`) — 실제 탐지 서비스가 아직 없어 `debug/detection/
   simulateEventPipeline.py`로 시작/종료 신호를 흉내내 검증
+* 오분류 판정 직전 약 5초 GIF 저장 및 이벤트 미디어 조회 API
+  (`GET /api/events/{id}/media`)
 * `BIN_STATES` 스키마·저장소·상태 갱신/조회 API(EP-10/EP-11) — `binId`당 최신 상태 1행을
   upsert로 유지하고, `NORMAL`→`FULL` 전환 순간에만 overflow 이벤트를 생성한다
   (`schemas/binState.py`, `repositories/binStateRepository.py`, `services/binStateService.py`)
@@ -55,7 +57,6 @@
   서비스화는 TBD.
 * 카메라 연결 해제 및 시스템 오류 WebSocket 이벤트 미구현
 * 이벤트 상세 페이지 미구현
-* `imageFileId`의 GridFS GIF를 내려받는 외부 API 미정의 — 새 API이므로 CTO 승인 필요
 * 인증 및 권한 미구현
 * EP-02/EP-09로 직접 만드는 overflow 이벤트는 여전히 `BIN_STATES` 전환 검증을 거치지 않는다
   (호출자가 유효한 스키마+새 `detectionId`만 보내면 바로 저장). 로컬 백엔드의 SIDE
@@ -544,6 +545,33 @@ GET /api/events/a3b70dae-3a1b-48b6-a8d1-a06afcb934d1
 
 ---
 
+## EP-04-M. `GET /api/events/{id}/media`
+
+이벤트의 `imageFileId`가 참조하는 카메라별 GridFS GIF를 반환한다. 브라우저에서 이전기록
+상세 모달의 썸네일과 확대 보기에 사용한다.
+
+### 요청 예시
+
+```http
+GET /api/events/a3b70dae-3a1b-48b6-a8d1-a06afcb934d1/media
+```
+
+### 정상 응답
+
+* **상태 코드**: HTTP 200
+* **Content-Type**: `image/gif`
+* **Cache-Control**: `private, max-age=300`
+
+### 상태 코드
+
+| 상태 코드 | 설명 |
+| --- | --- |
+| 200 | GIF 조회 성공 |
+| 404 | 이벤트가 없거나 `imageFileId`가 없거나 GridFS 파일을 찾을 수 없음 |
+| 500 | 서버 내부 처리 오류 |
+
+---
+
 ## EP-05. `GET /api/statistics`
 
 조회 시점에 이벤트 저장소를 집계해 탐지 클래스별 이벤트 수를 반환한다.
@@ -1008,6 +1036,13 @@ GPU 서버의 `models/trashdetect/tracking2.py`가 TOP 카메라 투척을 자�
 에러 응답 없이 이벤트만 생성하지 않는다(외부 스크립트가 보내는 데이터라 방어적으로 처리,
 서버 로그에 경고만 남김) — misclassification 여부가 아니라 값 자체를 해석 못 한 경우다.
 
+`result: incorrect`이면 이벤트 생성 직전에 활성 `ELEV-TOP` 방문 녹화 버퍼에서 최근 약
+5초(현재 5fps 기준 최대 25프레임)를 복사해 별도 GIF로 저장하고 그 GridFS ID를 이벤트의
+`imageFileId`에 연결한다. 녹화 시작 후 5초가 지나지 않았다면 확보된 프레임만 저장하며,
+활성 녹화 또는 프레임이 없으면 이벤트는 정상 저장하되 `imageFileId`는 `null`일 수 있다.
+방문 종료 시 만들어지는 전체 방문 GIF는 재학습/방문 기록용으로 유지되며 이 오분류
+미리보기 ID를 덮어쓰지 않는다. `imagePath`는 여전히 GPU 서버 로컬 경로이므로 사용하지 않는다.
+
 ### 요청 예시
 
 ```json
@@ -1158,6 +1193,7 @@ WS /ws/events
 ```text
 GET /api/events
 GET /api/events/{id}
+GET /api/events/{id}/media
 POST /api/mode
 WS /ws/events
 ```
@@ -1440,6 +1476,7 @@ camelCase를 유지한다.
 | EP-02   | 오분류/넘침 이벤트 생성         | 구현됨(`BIN_STATES` 전환 검증 제외) |
 | EP-03   | 이벤트 목록 및 기간 조회        | 구현됨             |
 | EP-04   | 이벤트 상세 및 404 처리       | 구현됨             |
+| EP-04-M | 이벤트 GIF 조회              | 구현됨             |
 | EP-05   | 클래스별 통계 조회            | 구현됨             |
 | EP-06   | 관리/수거 모드 전환           | 구현됨             |
 | EP-07   | WebSocket 모드·오분류·넘침 알림 | 구현됨             |

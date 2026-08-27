@@ -25,6 +25,8 @@ from schemas.event import (
 from schemas.mode import Mode
 from schemas.statistics import Statistics
 from services.modeService import modeService
+from services.mediaService import mediaService
+from services.recordingService import recordingService
 from services.visitClipService import visitClipService
 
 
@@ -67,6 +69,7 @@ _aiCameraIdToCameraId: dict[str, CameraId] = {
 }
 
 logger = logging.getLogger(__name__)
+misclassificationPreviewSeconds = 5.0
 
 
 class EventService:
@@ -171,8 +174,16 @@ class EventService:
 
         if aiEvent.result == "correct":
             isMisclassified = False
+            recentFrames = []
+            recentFps = 0.0
         elif aiEvent.result == "incorrect":
             isMisclassified = True
+            recentFrames, recentFps = (
+                recordingService.snapshotRecentFrames(
+                    cameraId,
+                    misclassificationPreviewSeconds,
+                )
+            )
         else:
             logger.warning(
                 "[eventService] AI 투기 이벤트 무시(판정 결과 unknown): "
@@ -202,26 +213,63 @@ class EventService:
 
         result = await self.createEventWithStatus(eventCreate)
 
+        if (
+            result.created
+            and result.event is not None
+            and recentFrames
+        ):
+            try:
+                imageFileId = await mediaService.saveClipAsGif(
+                    recentFrames,
+                    cameraId,
+                    result.event.timestamp,
+                    fps=recentFps,
+                )
+            except Exception:
+                logger.exception(
+                    "[eventService] 오분류 직전 %.0f초 GIF 저장 실패: eventId=%s",
+                    misclassificationPreviewSeconds,
+                    result.event.eventId,
+                )
+            else:
+                updatedEvent = result.event.model_copy(
+                    update={"imageFileId": imageFileId}
+                )
+
+                try:
+                    await self.repository.updateImageFileId(
+                        result.event.eventId,
+                        imageFileId,
+                    )
+                except Exception:
+                    try:
+                        await mediaService.deleteClip(
+                            imageFileId,
+                            cameraId,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "[eventService] 연결 실패 GIF 보상 삭제 실패: fileId=%s",
+                            imageFileId,
+                        )
+
+                    logger.exception(
+                        "[eventService] 오분류 GIF 이벤트 연결 실패: eventId=%s",
+                        result.event.eventId,
+                    )
+                else:
+                    result = EventCreationResult(
+                        event=updatedEvent,
+                        created=True,
+                    )
+
         # correct 판정은 EVENT를 저장하지 않지만(위 _createEventWithStatus 참고), 그래도
         # 방문 자체는 "정상적으로 해결됨"으로 표시해야 재학습 후보(미확정 방문)로 잘못
         # 잡히지 않는다 — eventId=None으로 호출해도 resolved 표시는 그대로 된다.
         resolvedEventId = result.event.eventId if result.event is not None else None
-        immediateImageFileId = await visitClipService.registerAiDisposalResolution(
+        await visitClipService.registerAiDisposalResolution(
             aiEvent.trackId, resolvedEventId
         )
-
-        # clip이 이미 만들어진 뒤에 이 결과가 늦게 도착한 드문 경우에만 값이 옴 — 보통은
-        # presenceGateService가 방문 종료 시점에 한꺼번에 채운다.
-        if immediateImageFileId is not None and result.event is not None:
-            await self.repository.updateImageFileId(
-                result.event.eventId, immediateImageFileId
-            )
-            result = EventCreationResult(
-                event=result.event.model_copy(
-                    update={"imageFileId": immediateImageFileId}
-                ),
-                created=result.created,
-            )
 
         return result
 
