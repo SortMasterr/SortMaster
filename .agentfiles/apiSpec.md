@@ -38,6 +38,8 @@ v0.2(MVP), 구현 기준일 2026-08-25. `DetectedClass`/`BinType`의 `general`�
 | EP-12 | POST /api/events/aiDisposal | GPU 서버(`models/trashdetect/tracking2.py`)가 투척 완료 판정 시 직접 푸시하는 전용 엔드포인트 | Body: eventId, trackId, timestamp, cameraId("CAM-01" 등 GPU 쪽 값 그대로), detectedClass("normal"/"paper"/"recyclables"/"coffeecup"), binId(detectedClass와 동일 값 체계), result("correct"/"incorrect"/"unknown"), imagePath? | 200/422 | `eventService.createEventFromAiDisposal`이 GPU 쪽 값을 내부 `EventCreate`로 매핑 후 EP-02의 쿨다운/멱등성을 재사용. `incorrect`이면 활성 TOP 방문 녹화 버퍼의 최근 약 5초(5fps, 최대 25프레임)를 별도 GIF로 저장해 `imageFileId`에 연결한다. 프레임이 없으면 이벤트만 저장한다. 전체 방문 GIF는 미리보기 ID를 덮어쓰지 않는다. `imagePath`는 GPU 로컬 경로라 사용하지 않는다. 매핑 실패 또는 `unknown`은 이벤트 미생성 |
 | EP-13 | GET/POST /api/reports/email | 자동 일일·주간 보고서 수신 이메일 조회/저장/해제(즉시 발송 없음) | GET: 없음 / POST Body: recipient(string\|null, 빈 값은 수신 해제) | 200/422/500 | `state/recipientSettings.json`에 주소 또는 명시적 해제 상태를 저장. 해제 상태에서는 환경변수 수신 주소도 폴백하지 않음. Docker에서는 backend와 별도 report-scheduler가 report-state 볼륨 공유. 스케줄러가 매일 09:00 일일, 월요일 09:10 주간 보고서를 자동 발송. 검증된 일일 이벤트 메타데이터를 최근 7일만 임시 저장하고 주간 보고서는 이를 합산하며, 누락 시 발송하지 않음. 전주 비교는 최근 2개 주간 합계만 보존. SMTP 비밀은 서버 설정에만 유지 |
 | EP-14 | GET /api/collectionTasks, POST /api/collectionTasks/{collectionTaskId}/acknowledge, POST /api/collectionTasks/{collectionTaskId}/complete, GET /api/collectionAutomation/status | FULL 감지 기반 수거 작업 조회·확인·완료 및 RPA 상태 조회 | 목록: taskStatus?, limit? / 처리: collectionTaskId | 200/404/409/422 | `RPA_COLLECTION_ENABLED=true`일 때 NORMAL→FULL overflow 이벤트에 활성 수거 작업 1건 생성. 별도 collection-scheduler가 최초 담당자 알림→재알림→관리자 에스컬레이션 순으로 발송. 작업·발송 이력·heartbeat는 MongoDB에 영속화 |
+| EP-17 | GET /api/visitClips | 방문 클립(presence 기반 녹화, 판정 여부 무관) 목록, 최신순 | Query: limit?(기본 60, 1~200) | 200/422 | 관리자 대시보드에는 노출하지 않음(사이드바/페이지 없음) — 필요 시 직접 호출하는 조회 전용 API. `imageFileId`는 응답에 노출하지 않고 EP-18 경로로만 접근 |
+| EP-18 | GET /api/visitClips/{clipId}/media | 방문 클립 GIF 원본 스트리밍(GridFS) | Path: clipId | 200/404 | `clipId`가 유효한 ObjectId가 아니거나 문서가 없으면 404. `cameraId`에 따라 topMedia/sideMedia 버킷에서 읽음(`repositories/mongoClient.py`의 `getGridFsBucket`과 동일 규칙). `Content-Type: image/gif` |
 
 ### EP-02. POST /api/events — 이벤트 생성
 
@@ -74,6 +76,28 @@ Event가 새로 저장되지 않아도 GridFS 파일이 먼저 생성될 수 있
 현재 `recordingId`에 저장된 시작 카메라와 stop 요청의 `cameraId`가 같은지는 검증하지 않는다.
 GPU→백엔드 오분류 판정 신호는 이 EP-08/09가 아니라 별도의 EP-12(`POST
 /api/events/aiDisposal`)로 확정 수신한다 — 위 "EP-12" 참고.
+
+### EP-17/EP-18. GET /api/visitClips, GET /api/visitClips/{clipId}/media — 방문 클립 조회
+
+`services/visitClipService.py`/`repositories/visitClipRepository.py`(`listRecent`/`findMediaById`)가
+`visitClips` 컬렉션을 직접 읽는다. EP-14/15(트랙 신호, 아래 TBD 참고)와 무관하게 이미 저장된
+클립을 사람이 확인하기 위한 용도.
+
+EP-17 Response(200, `VisitClipSummary[]`): id(str, Mongo `_id`), cameraId(CameraId),
+startedAt/endedAt(ISO8601), trackIds(int[]), matchedEventIds(str[]), unresolvedTrackIds(int[]).
+`imageFileId`는 응답에 포함하지 않는다(EP-18로만 접근).
+
+상태 판단은 클라이언트 책임(백엔드가 별도 status 필드를 계산하지 않음):
+- `matchedEventIds`가 비어있지 않음 → 판정 확정(EVENT 존재)
+- 비어있고 `unresolvedTrackIds`가 비어있지 않음 → 미확정(트랙 시도 후 실패)
+- `trackIds`까지 비어있음 → 감지 시도 자체가 없었음(YOLO가 아예 인지 못한 케이스)
+- 위 셋 다 아니면 아직 트랙 진행 중(드묾 — 방문 종료 시점엔 보통 해결됨)
+
+세 조건 모두 재학습 후보(`autoTraining/stages/collectEventMedia.py`가 `matchedEventIds` 빈
+클립을 `unresolvedVisit`로 수집)이므로, 목록에서 재학습 후보만 보고 싶으면 클라이언트에서
+`matchedEventIds.length === 0`으로 필터링한다.
+
+EP-18은 Response Body가 GIF 바이너리이고 JSON이 아니다.
 
 ### EP-07. WS /ws/events — 실시간 스트림
 
