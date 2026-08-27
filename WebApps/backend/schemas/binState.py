@@ -1,9 +1,9 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from schemas.event import BinType, CameraId
+from schemas.event import BinType, CameraId, normalizeBinId
 
 
 class BinCurrentState(str, Enum):
@@ -32,6 +32,11 @@ class BinStateUpdate(BaseModel):
     detectionId: str = Field(min_length=1)
     modelVersion: str = Field(min_length=1)
 
+    @field_validator("binId", mode="before")
+    @classmethod
+    def normalizeLegacyBinId(cls, value):
+        return normalizeBinId(value) if isinstance(value, str) else value
+
     @model_validator(mode="after")
     def checkCameraRole(self):
         if self.cameraId != CameraId.ELEVSIDE:
@@ -52,3 +57,8 @@ class BinState(BaseModel):
     overflowDuration: float
     lastChangedAt: datetime
     activeOverflowEventId: str | None = None
+
+    @field_validator("binId", mode="before")
+    @classmethod
+    def normalizeLegacyBinId(cls, value):
+        return normalizeBinId(value) if isinstance(value, str) else value
