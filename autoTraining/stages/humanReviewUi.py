@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from common.pipelineUtilities import ManifestWriter, iterateManifest, manifestHasRows
+from common.pipelineUtilities import ManifestWriter, iterateManifest
 
 
 _PAGE = r'''<!doctype html>
@@ -26,13 +26,40 @@ header,.controls,.panel{display:flex;gap:12px;align-items:center}.panel{align-it
 <div class="panel"><div class="images"><figure><figcaption>원본</figcaption><img id="original"></figure><figure><figcaption>YOLO bbox</figcaption><img id="annotated"></figure><figure><figcaption>Qwen 라벨링</figcaption><img id="qwen"></figure></div>
 <section class="form"><div id="meta" class="meta"></div><label>YOLO 라벨 (classId centerX centerY width height)</label><textarea id="label"></textarea><label>검수자</label><input id="reviewer"><label>메모</label><textarea id="notes" style="height:90px"></textarea><button class="approve" onclick="save('approved')">승인 / 수정 승인</button> <button class="reject" onclick="save('rejected')">거절</button></section></div>
 <script>
-let index=0,total=0,current=null;
-async function summary(){const s=await (await fetch('/api/summary')).json();total=s.total;document.getElementById('saved').textContent=`완료 ${s.decided}/${s.total}`;return s}
-async function load(i){if(!total)await summary();index=Math.max(0,Math.min(i,total-1));current=await (await fetch('/api/item?index='+index)).json();document.getElementById('progress').textContent=`${index+1} / ${total}`;document.getElementById('original').src=`/media?id=${encodeURIComponent(current.id)}&kind=original&t=${Date.now()}`;document.getElementById('annotated').src=`/media?id=${encodeURIComponent(current.id)}&kind=annotated&t=${Date.now()}`;document.getElementById('qwen').src=`/media?id=${encodeURIComponent(current.id)}&kind=qwen&t=${Date.now()}`;document.getElementById('label').value=current.labelText;document.getElementById('reviewer').value=current.decision?.reviewer||'';document.getElementById('notes').value=current.decision?.notes||'';document.getElementById('meta').textContent=JSON.stringify({id:current.id,video:current.video,qwen:current.review,classes:current.classes,previousDecision:current.decision?.decision||null},null,2)}
+let index=0,total=0,current=null,waitTimer=null;
+async function summary(){const s=await (await fetch('/api/summary')).json();total=s.total;document.getElementById('saved').textContent=`완료 ${s.decided}/${s.total} (LLM이 계속 만드는 중일 수 있음)`;return s}
+function stopWaiting(){if(waitTimer!==null){clearTimeout(waitTimer);waitTimer=null}}
+async function waitForIndex(i){
+    document.getElementById('progress').textContent='다음 항목을 기다리는 중... (LLM 처리 중)';
+    return new Promise((resolve)=>{
+        const check=async()=>{
+            const s=await summary();
+            if(i<s.total){stopWaiting();resolve();return}
+            waitTimer=setTimeout(check,2000);
+        };
+        check();
+    });
+}
+async function load(i){
+    if(!total)await summary();
+    if(i>=total)await waitForIndex(i);
+    stopWaiting();
+    index=Math.max(0,i);
+    current=await (await fetch('/api/item?index='+index)).json();
+    document.getElementById('progress').textContent=`${index+1} / ${total}`;
+    document.getElementById('original').src=`/media?id=${encodeURIComponent(current.id)}&kind=original&t=${Date.now()}`;
+    document.getElementById('annotated').src=`/media?id=${encodeURIComponent(current.id)}&kind=annotated&t=${Date.now()}`;
+    document.getElementById('qwen').src=`/media?id=${encodeURIComponent(current.id)}&kind=qwen&t=${Date.now()}`;
+    document.getElementById('label').value=current.labelText;
+    document.getElementById('reviewer').value=current.decision?.reviewer||'';
+    document.getElementById('notes').value=current.decision?.notes||'';
+    document.getElementById('meta').textContent=JSON.stringify({id:current.id,video:current.video,qwen:current.review,classes:current.classes,previousDecision:current.decision?.decision||null},null,2);
+}
 function move(step){load(index+step)}
-async function goUndecided(){const s=await summary();load(s.firstUndecidedIndex<0?0:s.firstUndecidedIndex)}
-async function save(decision){const body={id:current.id,decision,reviewer:document.getElementById('reviewer').value.trim(),notes:document.getElementById('notes').value,labelText:document.getElementById('label').value};const response=await fetch('/api/decision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const result=await response.json();if(!response.ok){alert(result.error||'저장 실패');return}if(result.complete){document.getElementById('saved').textContent='완료 '+total+'/'+total+' — 파이프라인을 계속 실행합니다.';return}await summary();if(index+1<total)load(index+1)}
+async function goUndecided(){const s=await summary();load(s.firstUndecidedIndex<0?s.total:s.firstUndecidedIndex)}
+async function save(decision){const body={id:current.id,decision,reviewer:document.getElementById('reviewer').value.trim(),notes:document.getElementById('notes').value,labelText:document.getElementById('label').value};const response=await fetch('/api/decision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const result=await response.json();if(!response.ok){alert(result.error||'저장 실패');return}if(result.complete){document.getElementById('saved').textContent='완료 '+total+'/'+total+' — 파이프라인을 계속 실행합니다.';return}await summary();load(index+1)}
 summary().then(()=>goUndecided()).catch(e=>alert(e));
+setInterval(()=>{if(waitTimer===null)summary()},5000);
 </script></main></body></html>'''
 
 
@@ -68,25 +95,40 @@ class HumanReviewUiStage:
         openBrowser: bool = True,
         stopWhenComplete: bool = False,
     ) -> None:
-        """검수 큐를 제공하며 자동 실행에서는 모든 결정 완료 시 서버를 종료합니다."""
-        if not manifestHasRows(self.humanReviewQueue):
-            raise RuntimeError("먼저 review 단계를 실행해 humanReviewQueue.jsonl을 만드세요.")
+        """검수 큐를 제공한다.
+
+        review 단계가 아직 진행 중이어도(humanReviewQueue.jsonl에 항목이 계속
+        추가되는 중이어도) 시작할 수 있다 — 큐가 비어 있으면 새 항목이 도착할
+        때까지 대기 안내만 보여준다. `_reloadQueue`가 매 요청마다 파일을 다시
+        읽어 새로 도착한 항목을 반영하므로 서버 재시작 없이 실시간으로 늘어난다.
+        """
         if not 1 <= port <= 65535:
             raise ValueError("review UI port는 1~65535 범위여야 합니다.")
 
-        queueRows = list(iterateManifest(self.humanReviewQueue))
-        queueById = {str(row["id"]): row for row in queueRows}
+        queueRows: list[dict[str, Any]] = []
+        queueById: dict[str, dict[str, Any]] = {}
         decisions = {
             str(row["id"]): row
             for row in iterateManifest(self.humanDecisionsManifest)
-            if str(row["id"]) in queueById
         }
-        if stopWhenComplete and all(itemId in decisions for itemId in queueById):
-            print("[HUMAN REVIEW UI] 모든 결정이 이미 저장되어 다음 단계를 계속합니다.")
-            return
         correctedRoot = self.humanReviewRoot / "correctedLabels"
         writeLock = threading.Lock()
         stage = self
+
+        def reloadQueue() -> None:
+            # humanReviewQueue.jsonl은 review 단계가 항목을 처리할 때마다 바로
+            # append하므로(원자적 전체 교체가 아님), 새로 늘어난 줄만 반영한다.
+            with writeLock:
+                for row in iterateManifest(stage.humanReviewQueue):
+                    rowId = str(row["id"])
+                    if rowId not in queueById:
+                        queueRows.append(row)
+                        queueById[rowId] = row
+
+        reloadQueue()
+        if stopWhenComplete and queueById and all(itemId in decisions for itemId in queueById):
+            print("[HUMAN REVIEW UI] 모든 결정이 이미 저장되어 다음 단계를 계속합니다.")
+            return
 
         def persistDecisions() -> None:
             # 파일을 매 요청마다 원자적으로 다시 만들면 브라우저/프로세스 종료 중에도 이전 결정이 보존된다.
@@ -115,9 +157,11 @@ class HumanReviewUiStage:
                     self.send_header("Content-Length", str(len(payload)))
                     self.end_headers(); self.wfile.write(payload); return
                 if parsed.path == "/api/summary":
+                    reloadQueue()
                     undecided = next((i for i,row in enumerate(queueRows) if str(row["id"]) not in decisions), -1)
                     self._json({"total": len(queueRows), "decided": len(decisions), "firstUndecidedIndex": undecided}); return
                 if parsed.path == "/api/item":
+                    reloadQueue()
                     try: row = queueRows[int(query.get("index", ["0"])[0])]
                     except (ValueError, IndexError): self._json({"error":"잘못된 index"},HTTPStatus.BAD_REQUEST); return
                     itemId = str(row["id"]); decision = decisions.get(itemId)

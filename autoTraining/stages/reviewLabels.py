@@ -13,7 +13,6 @@ from typing import Any
 import cv2
 
 from common.pipelineUtilities import (
-    ManifestWriter,
     chinesePattern,
     iterateManifest,
     manifestHasRows,
@@ -157,7 +156,15 @@ class ReviewLabelsStage:
                             "class": {"type": "string", "enum": classes},
                             "xyxy": {
                                 "type": "array",
-                                "items": {"type": "number"},
+                                "description": (
+                                    "이미지 폭/높이 대비 0~1 정규화 좌표 "
+                                    "[x1, y1, x2, y2] — 절대 픽셀 좌표 아님."
+                                ),
+                                "items": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1,
+                                },
                                 "minItems": 4,
                                 "maxItems": 4,
                             },
@@ -210,7 +217,10 @@ class ReviewLabelsStage:
             xyxy = detection.get("xyxy")
             if not isinstance(xyxy, list) or len(xyxy) != 4:
                 raise ValueError("qwenDetections의 xyxy는 값 4개여야 합니다.")
-            detection["xyxy"] = [float(value) for value in xyxy]
+            normalizedXyxy = [float(value) for value in xyxy]
+            if not all(0.0 <= value <= 1.0 for value in normalizedXyxy):
+                raise ValueError("qwenDetections의 xyxy는 0~1 정규화 좌표여야 합니다.")
+            detection["xyxy"] = normalizedXyxy
         return review
 
     def _reviewOne(
@@ -240,9 +250,11 @@ class ReviewLabelsStage:
             "보이는 클래스를 적어라. "
             "qwenDetections에는 원본 이미지 기준으로 네가 실제로 존재한다고 "
             "판단하는 쓰레기 객체만 다시 나열하라(YOLO가 맞았어도, 놓쳤어도, "
-            "틀렸어도 상관없이 네가 옳다고 보는 최종 목록) — 좌표는 원본 이미지의 "
-            "실제 픽셀 좌표(왼쪽 위가 0,0)로 [x1,y1,x2,y2] 형식이며, 쓰레기가 "
-            "없다고 판단하면 빈 배열로 둬라. "
+            "틀렸어도 상관없이 네가 옳다고 보는 최종 목록) — 좌표는 절대 픽셀 "
+            "값이 아니라 이미지 폭/높이에 대한 0~1 비율로 [x1,y1,x2,y2](왼쪽 "
+            "위가 0,0, 오른쪽 아래가 1,1)를 적어라. 아래 YOLO 결과의 xyxy는 "
+            "참고용 실제 픽셀 좌표이니 그대로 베끼지 말고 반드시 비율로 변환해서 "
+            "적어라. 쓰레기가 없다고 판단하면 빈 배열로 둬라. "
             "쓰레기통 자체는 검수 대상이 아니다. 반드시 제공된 JSON schema만 "
             "출력하고 중국어와 자연어 설명은 출력하지 마라. "
             f"허용 클래스: {classes}. YOLO 결과: "
@@ -281,15 +293,24 @@ class ReviewLabelsStage:
         비교할 수 있게 한다 — YOLO가 틀리게 잡은 박스는 여기서 사라지고,
         놓친 쓰레기는 여기서 새로 나타나는 식으로 확인할 수 있다."""
         classes = self.config["dataset"]["classes"]
+        rawImage = cv2.imread(row["imagePath"])
+        imageHeight, imageWidth = rawImage.shape[:2]
         detections = [
             {
                 "classId": classes.index(detection["class"]),
                 "confidence": review["confidence"],
-                "xyxy": detection["xyxy"],
+                # Qwen은 0~1 정규화 좌표로 반환한다(모델이 내부적으로 리사이즈한
+                # 크기를 알 수 없어 절대 픽셀 좌표는 신뢰할 수 없었음) — 실제
+                # 이미지 크기로 환산해야 bbox가 맞는 위치에 그려진다.
+                "xyxy": [
+                    detection["xyxy"][0] * imageWidth,
+                    detection["xyxy"][1] * imageHeight,
+                    detection["xyxy"][2] * imageWidth,
+                    detection["xyxy"][3] * imageHeight,
+                ],
             }
             for detection in review["qwenDetections"]
         ]
-        rawImage = cv2.imread(row["imagePath"])
         annotatedImage = drawDetections(rawImage, detections, classes)
         qwenAnnotatedPath = self.qwenAnnotatedRoot / row["video"] / f"{row['id']}.jpg"
         qwenAnnotatedPath.parent.mkdir(parents=True, exist_ok=True)
@@ -297,8 +318,23 @@ class ReviewLabelsStage:
             raise OSError(f"Qwen 검수 이미지 저장 실패: {qwenAnnotatedPath}")
         return qwenAnnotatedPath
 
+    @staticmethod
+    def _appendJsonLine(path: Path, row: dict[str, Any]) -> None:
+        """사람 검수 UI가 review 진행 중에도 이미 처리된 항목을 바로 볼 수 있도록,
+        배치가 끝나야 파일이 나타나는 ManifestWriter의 원자적 교체 대신 한 줄씩
+        즉시 append+flush한다."""
+        with path.open("a", encoding="utf-8", newline="\n") as file:
+            file.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+            file.flush()
+            os.fsync(file.fileno())
+
     def review(self) -> None:
-        """자동 라벨을 순차 검수하여 reviews.jsonl과 상태별 폴더에 저장합니다."""
+        """자동 라벨을 순차 검수하여 reviews.jsonl/humanReviewQueue.jsonl과
+        상태별 폴더에 즉시 반영합니다(사람 검수 UI가 실시간으로 따라올 수 있게).
+
+        재실행 시 중단-재개 없이 처음부터 다시 돌기 때문에, 시작 시 두 파일을
+        비워서 새로 만든다.
+        """
         if not manifestHasRows(self.labelsManifest):
             raise RuntimeError("먼저 label 단계를 실행하세요.")
 
@@ -311,96 +347,117 @@ class ReviewLabelsStage:
             name: 0
             for name in ("approved", "rejected", "manualReview")
         }
-        processedCount = 0
 
-        # 결과를 즉시 기록하여 긴 영상에서도 전체 응답이 RAM에 쌓이지 않게 합니다.
-        with ManifestWriter(self.reviewsManifest) as writer:
-            for row in iterateManifest(self.labelsManifest):
-                review = None
-                errors = []
-                for attempt in range(retries + 1):
-                    try:
-                        review = self._reviewOne(qwenVlModel, row)
-                        break
-                    except (
-                        ValueError,
-                        RuntimeError,
-                        KeyError,
-                        json.JSONDecodeError,
-                    ) as error:
-                        errors.append(f"attempt {attempt + 1}: {error}")
-                        time.sleep(min(2 ** attempt, 5))
+        self.reviewsManifest.parent.mkdir(parents=True, exist_ok=True)
+        self.humanReviewQueue.parent.mkdir(parents=True, exist_ok=True)
+        self.reviewsManifest.write_text("", encoding="utf-8")
+        self.humanReviewQueue.write_text("", encoding="utf-8")
 
-                # 서버 오류나 잘못된 응답은 자동 승인하지 않고 사람 검수로 보냅니다.
-                if review is None:
-                    review = {
-                        "decision": "manualReview",
-                        "predictedClass": "none",
-                        "issues": ["badBbox"],
-                        "confidence": 0.0,
-                        "qwenDetections": [],
-                    }
-                riskyIssues = {
-                    "wrongClass",
-                    "badBbox",
-                    "missingObject",
-                    "extraBox",
-                    "multipleObjects",
+        for row in iterateManifest(self.labelsManifest):
+            review = None
+            errors = []
+            for attempt in range(retries + 1):
+                try:
+                    review = self._reviewOne(qwenVlModel, row)
+                    break
+                except (
+                    ValueError,
+                    RuntimeError,
+                    KeyError,
+                    json.JSONDecodeError,
+                ) as error:
+                    errors.append(f"attempt {attempt + 1}: {error}")
+                    time.sleep(min(2 ** attempt, 5))
+
+            # 서버 오류나 잘못된 응답은 자동 승인하지 않고 사람 검수로 보냅니다.
+            if review is None:
+                review = {
+                    "decision": "manualReview",
+                    "predictedClass": "none",
+                    "issues": ["badBbox"],
+                    "confidence": 0.0,
+                    "qwenDetections": [],
                 }
-                if (
-                    review["confidence"] < minimumConfidence
-                    or any(
-                        issue in riskyIssues
-                        for issue in review["issues"]
-                    )
-                ):
-                    review["decision"] = "manualReview"
-
-                qwenAnnotatedPath = self._saveQwenAnnotatedImage(row, review)
-
-                output = dict(row)
-                output.update({
-                    "review": review,
-                    "reviewErrors": errors,
-                    "qwenVlModel": qwenVlModel,
-                    "qwenAnnotatedPath": str(qwenAnnotatedPath.resolve()),
-                })
-                writer.write(output)
-                counts[review["decision"]] += 1
-
-                queueRoot = {
-                    "approved": self.approvedRoot,
-                    "rejected": self.rejectedRoot,
-                    "manualReview": self.manualRoot,
-                }[review["decision"]]
-                queueDirectory = queueRoot / row["video"]
-                queueDirectory.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(
-                    row["imagePath"],
-                    queueDirectory / f"{row['id']}.jpg",
+            riskyIssues = {
+                "wrongClass",
+                "badBbox",
+                "missingObject",
+                "extraBox",
+                "multipleObjects",
+            }
+            if (
+                review["confidence"] < minimumConfidence
+                or any(
+                    issue in riskyIssues
+                    for issue in review["issues"]
                 )
-                shutil.copy2(
-                    row["annotatedPath"],
-                    queueDirectory / f"{row['id']}__annotated.jpg",
-                )
-                shutil.copy2(
-                    qwenAnnotatedPath,
-                    queueDirectory / f"{row['id']}__qwen.jpg",
-                )
-                shutil.copy2(
-                    row["labelPath"],
-                    queueDirectory / f"{row['id']}.txt",
-                )
+            ):
+                review["decision"] = "manualReview"
 
-                processedCount += 1
-                if processedCount % 25 == 0:
-                    print(f"[REVIEW] {processedCount}개 처리")
+            qwenAnnotatedPath = self._saveQwenAnnotatedImage(row, review)
+
+            output = dict(row)
+            output.update({
+                "review": review,
+                "reviewErrors": errors,
+                "qwenVlModel": qwenVlModel,
+                "qwenAnnotatedPath": str(qwenAnnotatedPath.resolve()),
+            })
+            self._appendJsonLine(self.reviewsManifest, output)
+
+            # exportHumanReviewQueue()가 하던 변환을 여기서 바로 적용해, 사람
+            # 검수 큐도 review와 같은 속도로 실시간 성장한다.
+            queueRow = dict(output)
+            queueRow["batchId"] = self.batchId
+            queueRow["humanDecision"] = None
+            self._appendJsonLine(self.humanReviewQueue, queueRow)
+
+            counts[review["decision"]] += 1
+
+            # 배치가 다 끝나야만 결과를 볼 수 있으면 중간에 이상한 값이 나와도
+            # 늦게 알게 되므로, 프레임마다 핵심 판정을 바로 찍는다.
+            print(
+                f"[REVIEW] {row['id']} -> {review['decision']} "
+                f"class={review['predictedClass']} "
+                f"issues={review['issues']} "
+                f"confidence={review['confidence']:.2f} "
+                f"qwenBoxes={len(review['qwenDetections'])}"
+            )
+
+            queueRoot = {
+                "approved": self.approvedRoot,
+                "rejected": self.rejectedRoot,
+                "manualReview": self.manualRoot,
+            }[review["decision"]]
+            queueDirectory = queueRoot / row["video"]
+            queueDirectory.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(
+                row["imagePath"],
+                queueDirectory / f"{row['id']}.jpg",
+            )
+            shutil.copy2(
+                row["annotatedPath"],
+                queueDirectory / f"{row['id']}__annotated.jpg",
+            )
+            shutil.copy2(
+                qwenAnnotatedPath,
+                queueDirectory / f"{row['id']}__qwen.jpg",
+            )
+            shutil.copy2(
+                row["labelPath"],
+                queueDirectory / f"{row['id']}.txt",
+            )
 
         print(f"[REVIEW] {counts}")
 
 
 def reviewLabels(pipeline: ReviewLabelsStage) -> None:
-    """오케스트레이터에서 Qwen-VL 검수 단계를 실행합니다."""
+    """오케스트레이터에서 Qwen-VL 검수 단계를 실행합니다.
+
+    review()가 이제 humanReviewQueue.jsonl까지 프레임마다 바로 채우므로(사람
+    검수 UI 실시간 반영), 배치 전체가 끝난 뒤 다시 훑는 별도
+    exportHumanReviewQueue() 호출은 더 이상 필요 없다 — Qwen의 approved/rejected도
+    오판할 수 있어 모든 결과를 사람 검수로 보내는 정책 자체는 review()의
+    queueRow 구성에 그대로 남아 있다.
+    """
     pipeline.review()
-    # Qwen의 approved/rejected도 오판할 수 있으므로 모든 결과를 사람 검수 큐로 보냅니다.
-    pipeline.exportHumanReviewQueue()
