@@ -1,12 +1,13 @@
 import asyncio
 from datetime import datetime, timezone
 
+from bson.errors import InvalidId
 from fastapi import (
     APIRouter,
     HTTPException,
     Query,
 )
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from schemas.aiDisposalEvent import AiDisposalEvent
 from schemas.binState import BinState, BinStateUpdate
@@ -37,7 +38,7 @@ from schemas.collectionTask import (
     CollectionTaskList,
     CollectionTaskStatus,
 )
-from schemas.visitClip import TrackEndedRequest, TrackStartedRequest
+from schemas.visitClip import TrackEndedRequest, TrackStartedRequest, VisitClipSummary
 from services.binStateService import binStateService
 from services.collectionTaskService import (
     CollectionTaskConflictError,
@@ -226,6 +227,32 @@ async def trackEnded(
     해당 트랙이 속한 visitClip을 재학습 후보(미확정 방문)로 표시한다.
     """
     await visitClipService.registerTrackEnded(request.trackId)
+
+
+@router.get(
+    "/visitClips",
+    response_model=list[VisitClipSummary],
+)
+async def listVisitClips(
+    limit: int = Query(default=60, ge=1, le=200),
+) -> list[VisitClipSummary]:
+    """관리자 웹에서 방문(재학습 후보 포함) 클립을 최신순으로 훑어보기 위한 목록."""
+    return await visitClipService.listRecentClips(limit)
+
+
+@router.get(
+    "/visitClips/{clipId}/media",
+)
+async def getVisitClipMedia(
+    clipId: str,
+) -> Response:
+    try:
+        mediaBytes = await visitClipService.getClipMediaBytes(clipId)
+    except (ValueError, InvalidId) as error:
+        raise HTTPException(status_code=404, detail="잘못된 클립 ID입니다.") from error
+    if mediaBytes is None:
+        raise HTTPException(status_code=404, detail="클립을 찾을 수 없습니다.")
+    return Response(content=mediaBytes, media_type="image/gif")
 
 
 async def _broadcastIfManageMode(

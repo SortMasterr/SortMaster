@@ -1,5 +1,7 @@
 import logging
 
+from bson import ObjectId
+
 from repositories.mongoClient import getMongoDb
 from schemas.event import CameraId
 from schemas.visitClip import VisitClip
@@ -82,6 +84,34 @@ class VisitClipRepository:
             {"imageFileId": 1},
         )
         return document["imageFileId"] if document is not None else None
+
+    async def listRecent(self, limit: int = 60) -> list[dict]:
+        """관리자 웹에서 방문 클립을 최신순으로 훑어보기 위한 목록 조회."""
+        await self.ensureIndexes()
+        cursor = self.collection.find().sort("startedAt", -1).limit(limit)
+        return [
+            {
+                "id": str(document["_id"]),
+                "cameraId": document["cameraId"],
+                "startedAt": document["startedAt"],
+                "endedAt": document["endedAt"],
+                "trackIds": document.get("trackIds", []),
+                "matchedEventIds": document.get("matchedEventIds", []),
+                "unresolvedTrackIds": document.get("unresolvedTrackIds", []),
+            }
+            async for document in cursor
+        ]
+
+    async def findMediaById(self, clipId: str) -> tuple[str, CameraId] | None:
+        """클립의 GridFS 파일 ID와 어느 버킷(카메라)에 있는지 함께 반환한다."""
+        await self.ensureIndexes()
+        document = await self.collection.find_one(
+            {"_id": ObjectId(clipId)},
+            {"imageFileId": 1, "cameraId": 1},
+        )
+        if document is None:
+            return None
+        return document["imageFileId"], CameraId(document["cameraId"])
 
 
 visitClipRepository = VisitClipRepository()

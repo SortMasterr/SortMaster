@@ -36,3 +36,16 @@ class VisitClip(BaseModel):
     trackIds: list[int] = Field(default_factory=list)
     matchedEventIds: list[str] = Field(default_factory=list)
     unresolvedTrackIds: list[int] = Field(default_factory=list)
+
+
+class VisitClipSummary(BaseModel):
+    """관리자 웹의 방문 클립 목록/영상 열람용 응답 스키마(imageFileId는 노출하지 않고
+    /media 하위 경로로만 접근하게 한다)."""
+
+    id: str
+    cameraId: CameraId
+    startedAt: datetime
+    endedAt: datetime
+    trackIds: list[int]
+    matchedEventIds: list[str]
+    unresolvedTrackIds: list[int]
