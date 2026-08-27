@@ -34,10 +34,20 @@ frames:
 
 inference:
   # rgb는 현재 프레임, causal은 t-2/t-1/t를 B/G/R 채널로 결합합니다.
+  # 이 값은 학습 데이터 계약이기도 해서(Publish가 이 모드로 학습 이미지를 만들고
+  # Sync가 같은 모드의 샘플만 가져옵니다) 임의로 바꾸면 안 됩니다.
   inputMode: causal
   imgsz: 416
   confidence: 0.20
   device: 0
+  # Label 단계에서 causal 합성과 단일 BGR 원본을 둘 다 추론해 박스를 합칠지 여부.
+  # 실측(2026-08-27, 후보 60프레임, 같은 임계값 0.20)에서 두 입력은 상보적이었습니다 —
+  # causal만 탐지 14개, 원본만 탐지 7개, 둘 다 탐지 8개. 어느 한쪽만 쓰면 놓치는
+  # 프레임이 많아 사람 검수 부담이 커집니다. teacher 모델에 넣는 입력만 바꾸는
+  # 설정이라 위 inputMode(학습 데이터 계약)에는 영향을 주지 않습니다.
+  labelEnsembleInputModes: true
+  # 같은 물체를 두 입력이 각각 잡았을 때 하나로 합치는 IoU 기준.
+  labelEnsembleIouThreshold: 0.5
 
 qwenVl:
   # 포트는 .env의 LLM_PORT를 사용하며 여기에는 호스트만 기록합니다.

@@ -12,27 +12,209 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from common.pipelineUtilities import ManifestWriter, iterateManifest, manifestHasRows
+from common.pipelineUtilities import ManifestWriter, iterateManifest
 
 
 _PAGE = r'''<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SortMaster 사람 라벨 검수</title><style>
-body{font-family:system-ui,sans-serif;margin:0;background:#111827;color:#e5e7eb}main{max-width:1400px;margin:auto;padding:20px}
-header,.controls,.panel{display:flex;gap:12px;align-items:center}.panel{align-items:flex-start}.images{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;flex:3}.images img{width:100%;max-height:620px;object-fit:contain;background:#030712}.form{flex:1;min-width:320px}textarea,input{box-sizing:border-box;width:100%;padding:9px;margin:5px 0 12px;background:#1f2937;color:#fff;border:1px solid #4b5563}textarea{height:180px;font-family:monospace}button{padding:10px 16px;border:0;border-radius:6px;cursor:pointer}.approve{background:#16a34a;color:#fff}.reject{background:#dc2626;color:#fff}.nav{background:#374151;color:#fff}.meta{white-space:pre-wrap;background:#1f2937;padding:10px;max-height:220px;overflow:auto}.saved{color:#86efac}@media(max-width:1100px){.panel{display:block}.images{grid-template-columns:1fr}.form{min-width:0}}
+body{font-family:system-ui,sans-serif;margin:0;background:#111827;color:#e5e7eb}main{max-width:1500px;margin:auto;padding:20px}
+header,.controls,.panel{display:flex;gap:12px;align-items:center}.panel{align-items:flex-start}.images{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;flex:3}.images img,.images canvas{width:100%;max-height:620px;object-fit:contain;background:#030712;display:block}
+#canvas{cursor:crosshair;touch-action:none}
+.form{flex:1;min-width:340px}textarea,input{box-sizing:border-box;width:100%;padding:9px;margin:5px 0 12px;background:#1f2937;color:#fff;border:1px solid #4b5563}textarea{height:150px;font-family:monospace}
+button{padding:10px 16px;border:0;border-radius:6px;cursor:pointer}.approve{background:#16a34a;color:#fff}.reject{background:#dc2626;color:#fff}.nav{background:#374151;color:#fff}
+.classBtn{background:#374151;color:#fff;padding:7px 12px;margin:0 6px 6px 0;font-size:.9rem}.classBtn.active{background:#22d3ee;color:#0f172a;font-weight:700}
+.tool{background:#4b5563;color:#fff;padding:7px 12px;margin:0 6px 6px 0;font-size:.9rem}
+.meta{white-space:pre-wrap;background:#1f2937;padding:10px;max-height:200px;overflow:auto;font-size:.85rem}.saved{color:#86efac}
+.hint{color:#9ca3af;font-size:.82rem;margin:2px 0 8px}.warn{color:#fca5a5;font-size:.82rem}
+@media(max-width:1100px){.panel{display:block}.images{grid-template-columns:1fr}.form{min-width:0}}
 </style></head><body><main>
 <header><h2>SortMaster 사람 라벨 검수</h2><span id="progress"></span><span id="saved" class="saved"></span></header>
 <div class="controls"><button class="nav" onclick="move(-1)">이전</button><button class="nav" onclick="move(1)">다음</button><button class="nav" onclick="goUndecided()">미검수로 이동</button></div>
-<div class="panel"><div class="images"><figure><figcaption>원본</figcaption><img id="original"></figure><figure><figcaption>YOLO bbox</figcaption><img id="annotated"></figure><figure><figcaption>Qwen 라벨링</figcaption><img id="qwen"></figure></div>
-<section class="form"><div id="meta" class="meta"></div><label>YOLO 라벨 (classId centerX centerY width height)</label><textarea id="label"></textarea><label>검수자</label><input id="reviewer"><label>메모</label><textarea id="notes" style="height:90px"></textarea><button class="approve" onclick="save('approved')">승인 / 수정 승인</button> <button class="reject" onclick="save('rejected')">거절</button></section></div>
+<div class="panel"><div class="images">
+<figure><figcaption>원본 — 드래그해서 박스 그리기</figcaption><canvas id="canvas"></canvas></figure>
+<figure><figcaption>YOLO bbox</figcaption><img id="annotated"></figure>
+<figure><figcaption>Qwen 라벨링 <span class="warn">(위치 부정확 — 참고만)</span></figcaption><img id="qwen"></figure></div>
+<section class="form">
+<div id="meta" class="meta"></div>
+<label>클래스 선택 (숫자키 1~9)</label>
+<div id="classButtons"></div>
+<div>
+  <button class="tool" onclick="deleteSelected()">선택 삭제 (Del)</button>
+  <button class="tool" onclick="clearBoxes()">전체 지우기</button>
+  <button class="tool" onclick="undoBox()">되돌리기 (Ctrl+Z)</button>
+</div>
+<p class="hint">드래그=새 박스 · 박스 안 클릭=선택 · Del=삭제 · 아래 텍스트로 직접 편집도 가능</p>
+<label>YOLO 라벨 (classId centerX centerY width height)</label><textarea id="label" oninput="syncFromText()"></textarea>
+<label>검수자</label><input id="reviewer"><label>메모</label><textarea id="notes" style="height:70px"></textarea>
+<button class="approve" onclick="save('approved')">승인 / 수정 승인</button> <button class="reject" onclick="save('rejected')">거절</button></section></div>
 <script>
-let index=0,total=0,current=null;
-async function summary(){const s=await (await fetch('/api/summary')).json();total=s.total;document.getElementById('saved').textContent=`완료 ${s.decided}/${s.total}`;return s}
-async function load(i){if(!total)await summary();index=Math.max(0,Math.min(i,total-1));current=await (await fetch('/api/item?index='+index)).json();document.getElementById('progress').textContent=`${index+1} / ${total}`;document.getElementById('original').src=`/media?id=${encodeURIComponent(current.id)}&kind=original&t=${Date.now()}`;document.getElementById('annotated').src=`/media?id=${encodeURIComponent(current.id)}&kind=annotated&t=${Date.now()}`;document.getElementById('qwen').src=`/media?id=${encodeURIComponent(current.id)}&kind=qwen&t=${Date.now()}`;document.getElementById('label').value=current.labelText;document.getElementById('reviewer').value=current.decision?.reviewer||'';document.getElementById('notes').value=current.decision?.notes||'';document.getElementById('meta').textContent=JSON.stringify({id:current.id,video:current.video,qwen:current.review,classes:current.classes,previousDecision:current.decision?.decision||null},null,2)}
+let index=0,total=0,current=null,waitTimer=null;
+let boxes=[],classNames=[],currentClass=0,selectedIndex=-1;
+let originalImage=null,dragStart=null,dragCurrent=null;
+const canvas=document.getElementById('canvas');
+const minimumBoxSize=0.01;
+
+function boxesToText(){
+    return boxes.map((box)=>{
+        const centerX=(box.x1+box.x2)/2,centerY=(box.y1+box.y2)/2;
+        const width=box.x2-box.x1,height=box.y2-box.y1;
+        return `${box.classId} ${centerX.toFixed(6)} ${centerY.toFixed(6)} ${width.toFixed(6)} ${height.toFixed(6)}`;
+    }).join('\n')+(boxes.length?'\n':'');
+}
+function textToBoxes(text){
+    const parsed=[];
+    for(const line of String(text||'').split('\n')){
+        const parts=line.trim().split(/\s+/);
+        if(parts.length!==5)continue;
+        const classId=parseInt(parts[0],10);
+        const values=parts.slice(1).map(Number);
+        if(!Number.isInteger(classId)||values.some((value)=>Number.isNaN(value)))continue;
+        const [centerX,centerY,width,height]=values;
+        parsed.push({classId,x1:centerX-width/2,y1:centerY-height/2,x2:centerX+width/2,y2:centerY+height/2});
+    }
+    return parsed;
+}
+function syncToText(){document.getElementById('label').value=boxesToText()}
+function syncFromText(){boxes=textToBoxes(document.getElementById('label').value);selectedIndex=-1;render()}
+
+function render(){
+    if(!canvas.getContext)return;
+    const context=canvas.getContext('2d');
+    context.clearRect(0,0,canvas.width,canvas.height);
+    if(originalImage)context.drawImage(originalImage,0,0,canvas.width,canvas.height);
+    const drawRect=(x1,y1,x2,y2,color,lineWidth,text)=>{
+        const x=x1*canvas.width,y=y1*canvas.height;
+        const width=(x2-x1)*canvas.width,height=(y2-y1)*canvas.height;
+        context.strokeStyle=color;context.lineWidth=lineWidth;context.strokeRect(x,y,width,height);
+        if(text){context.fillStyle=color;context.font='bold 16px system-ui';context.fillText(text,x+4,Math.max(16,y-5))}
+    };
+    boxes.forEach((box,boxIndex)=>{
+        const selected=boxIndex===selectedIndex;
+        drawRect(box.x1,box.y1,box.x2,box.y2,selected?'#facc15':'#22d3ee',selected?4:3,classNames[box.classId]??String(box.classId));
+    });
+    if(dragStart&&dragCurrent){
+        drawRect(Math.min(dragStart.x,dragCurrent.x),Math.min(dragStart.y,dragCurrent.y),
+            Math.max(dragStart.x,dragCurrent.x),Math.max(dragStart.y,dragCurrent.y),'#f472b6',2,null);
+    }
+}
+function canvasPoint(event){
+    const rect=canvas.getBoundingClientRect();
+    return{
+        x:Math.min(1,Math.max(0,(event.clientX-rect.left)/rect.width)),
+        y:Math.min(1,Math.max(0,(event.clientY-rect.top)/rect.height))
+    };
+}
+function findBoxAt(point){
+    let found=-1,smallest=Infinity;
+    boxes.forEach((box,boxIndex)=>{
+        if(point.x<box.x1||point.x>box.x2||point.y<box.y1||point.y>box.y2)return;
+        const area=(box.x2-box.x1)*(box.y2-box.y1);
+        if(area<smallest){smallest=area;found=boxIndex}
+    });
+    return found;
+}
+canvas.addEventListener('pointerdown',(event)=>{
+    if(!originalImage)return;
+    canvas.setPointerCapture(event.pointerId);
+    dragStart=canvasPoint(event);dragCurrent=dragStart;
+});
+canvas.addEventListener('pointermove',(event)=>{if(dragStart){dragCurrent=canvasPoint(event);render()}});
+canvas.addEventListener('pointerup',(event)=>{
+    if(!dragStart)return;
+    const end=canvasPoint(event);
+    const width=Math.abs(end.x-dragStart.x),height=Math.abs(end.y-dragStart.y);
+    if(width<minimumBoxSize||height<minimumBoxSize){
+        // 드래그가 아니라 클릭으로 보고 박스 선택으로 처리한다.
+        selectedIndex=findBoxAt(end);
+    }else{
+        boxes.push({classId:currentClass,
+            x1:Math.min(dragStart.x,end.x),y1:Math.min(dragStart.y,end.y),
+            x2:Math.max(dragStart.x,end.x),y2:Math.max(dragStart.y,end.y)});
+        selectedIndex=boxes.length-1;
+        syncToText();
+    }
+    dragStart=null;dragCurrent=null;render();
+});
+function deleteSelected(){
+    if(selectedIndex<0||selectedIndex>=boxes.length)return;
+    boxes.splice(selectedIndex,1);selectedIndex=-1;syncToText();render();
+}
+function clearBoxes(){boxes=[];selectedIndex=-1;syncToText();render()}
+function undoBox(){if(!boxes.length)return;boxes.pop();selectedIndex=-1;syncToText();render()}
+function setClass(classId){
+    currentClass=classId;
+    if(selectedIndex>=0&&selectedIndex<boxes.length){boxes[selectedIndex].classId=classId;syncToText()}
+    renderClassButtons();render();
+}
+function renderClassButtons(){
+    document.getElementById('classButtons').innerHTML=classNames.map((name,classId)=>
+        `<button class="classBtn${classId===currentClass?' active':''}" onclick="setClass(${classId})">${classId+1}. ${name}</button>`
+    ).join('');
+}
+document.addEventListener('keydown',(event)=>{
+    const tag=(event.target.tagName||'').toLowerCase();
+    if(tag==='textarea'||tag==='input')return;
+    if(event.key==='Delete'||event.key==='Backspace'){deleteSelected();event.preventDefault();return}
+    if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'){undoBox();event.preventDefault();return}
+    const digit=parseInt(event.key,10);
+    if(Number.isInteger(digit)&&digit>=1&&digit<=classNames.length)setClass(digit-1);
+});
+function loadImage(source){
+    return new Promise((resolve,reject)=>{
+        const image=new Image();
+        image.onload=()=>resolve(image);
+        image.onerror=reject;
+        image.src=source;
+    });
+}
+async function summary(){const s=await (await fetch('/api/summary')).json();total=s.total;document.getElementById('saved').textContent=`완료 ${s.decided}/${s.total} (LLM이 계속 만드는 중일 수 있음)`;return s}
+function stopWaiting(){if(waitTimer!==null){clearTimeout(waitTimer);waitTimer=null}}
+async function waitForIndex(i){
+    document.getElementById('progress').textContent='다음 항목을 기다리는 중... (LLM 처리 중)';
+    return new Promise((resolve)=>{
+        const check=async()=>{
+            const s=await summary();
+            if(i<s.total){stopWaiting();resolve();return}
+            waitTimer=setTimeout(check,2000);
+        };
+        check();
+    });
+}
+async function load(i){
+    if(!total)await summary();
+    if(i>=total)await waitForIndex(i);
+    stopWaiting();
+    index=Math.max(0,i);
+    current=await (await fetch('/api/item?index='+index)).json();
+    document.getElementById('progress').textContent=`${index+1} / ${total}`;
+    document.getElementById('annotated').src=`/media?id=${encodeURIComponent(current.id)}&kind=annotated&t=${Date.now()}`;
+    document.getElementById('qwen').src=`/media?id=${encodeURIComponent(current.id)}&kind=qwen&t=${Date.now()}`;
+    document.getElementById('label').value=current.labelText;
+    document.getElementById('reviewer').value=current.decision?.reviewer||'';
+    document.getElementById('notes').value=current.decision?.notes||'';
+    document.getElementById('meta').textContent=JSON.stringify({id:current.id,video:current.video,qwen:current.review,classes:current.classes,previousDecision:current.decision?.decision||null},null,2);
+
+    if(!classNames.length&&Array.isArray(current.classes)){classNames=current.classes;renderClassButtons()}
+    boxes=textToBoxes(current.labelText);
+    selectedIndex=-1;
+    originalImage=null;
+    render();
+    try{
+        const image=await loadImage(`/media?id=${encodeURIComponent(current.id)}&kind=original&t=${Date.now()}`);
+        // 다른 항목으로 이미 넘어갔다면 늦게 도착한 이미지는 버린다.
+        if(current&&image.src.includes(encodeURIComponent(current.id))){
+            originalImage=image;
+            canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
+            render();
+        }
+    }catch(error){console.warn('원본 이미지를 불러오지 못했습니다:',error)}
+}
 function move(step){load(index+step)}
-async function goUndecided(){const s=await summary();load(s.firstUndecidedIndex<0?0:s.firstUndecidedIndex)}
-async function save(decision){const body={id:current.id,decision,reviewer:document.getElementById('reviewer').value.trim(),notes:document.getElementById('notes').value,labelText:document.getElementById('label').value};const response=await fetch('/api/decision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const result=await response.json();if(!response.ok){alert(result.error||'저장 실패');return}if(result.complete){document.getElementById('saved').textContent='완료 '+total+'/'+total+' — 파이프라인을 계속 실행합니다.';return}await summary();if(index+1<total)load(index+1)}
+async function goUndecided(){const s=await summary();load(s.firstUndecidedIndex<0?s.total:s.firstUndecidedIndex)}
+async function save(decision){const body={id:current.id,decision,reviewer:document.getElementById('reviewer').value.trim(),notes:document.getElementById('notes').value,labelText:document.getElementById('label').value};const response=await fetch('/api/decision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const result=await response.json();if(!response.ok){alert(result.error||'저장 실패');return}if(result.complete){document.getElementById('saved').textContent='완료 '+total+'/'+total+' — 파이프라인을 계속 실행합니다.';return}await summary();load(index+1)}
 summary().then(()=>goUndecided()).catch(e=>alert(e));
+setInterval(()=>{if(waitTimer===null)summary()},5000);
 </script></main></body></html>'''
 
 
@@ -68,25 +250,40 @@ class HumanReviewUiStage:
         openBrowser: bool = True,
         stopWhenComplete: bool = False,
     ) -> None:
-        """검수 큐를 제공하며 자동 실행에서는 모든 결정 완료 시 서버를 종료합니다."""
-        if not manifestHasRows(self.humanReviewQueue):
-            raise RuntimeError("먼저 review 단계를 실행해 humanReviewQueue.jsonl을 만드세요.")
+        """검수 큐를 제공한다.
+
+        review 단계가 아직 진행 중이어도(humanReviewQueue.jsonl에 항목이 계속
+        추가되는 중이어도) 시작할 수 있다 — 큐가 비어 있으면 새 항목이 도착할
+        때까지 대기 안내만 보여준다. `_reloadQueue`가 매 요청마다 파일을 다시
+        읽어 새로 도착한 항목을 반영하므로 서버 재시작 없이 실시간으로 늘어난다.
+        """
         if not 1 <= port <= 65535:
             raise ValueError("review UI port는 1~65535 범위여야 합니다.")
 
-        queueRows = list(iterateManifest(self.humanReviewQueue))
-        queueById = {str(row["id"]): row for row in queueRows}
+        queueRows: list[dict[str, Any]] = []
+        queueById: dict[str, dict[str, Any]] = {}
         decisions = {
             str(row["id"]): row
             for row in iterateManifest(self.humanDecisionsManifest)
-            if str(row["id"]) in queueById
         }
-        if stopWhenComplete and all(itemId in decisions for itemId in queueById):
-            print("[HUMAN REVIEW UI] 모든 결정이 이미 저장되어 다음 단계를 계속합니다.")
-            return
         correctedRoot = self.humanReviewRoot / "correctedLabels"
         writeLock = threading.Lock()
         stage = self
+
+        def reloadQueue() -> None:
+            # humanReviewQueue.jsonl은 review 단계가 항목을 처리할 때마다 바로
+            # append하므로(원자적 전체 교체가 아님), 새로 늘어난 줄만 반영한다.
+            with writeLock:
+                for row in iterateManifest(stage.humanReviewQueue):
+                    rowId = str(row["id"])
+                    if rowId not in queueById:
+                        queueRows.append(row)
+                        queueById[rowId] = row
+
+        reloadQueue()
+        if stopWhenComplete and queueById and all(itemId in decisions for itemId in queueById):
+            print("[HUMAN REVIEW UI] 모든 결정이 이미 저장되어 다음 단계를 계속합니다.")
+            return
 
         def persistDecisions() -> None:
             # 파일을 매 요청마다 원자적으로 다시 만들면 브라우저/프로세스 종료 중에도 이전 결정이 보존된다.
@@ -115,9 +312,11 @@ class HumanReviewUiStage:
                     self.send_header("Content-Length", str(len(payload)))
                     self.end_headers(); self.wfile.write(payload); return
                 if parsed.path == "/api/summary":
+                    reloadQueue()
                     undecided = next((i for i,row in enumerate(queueRows) if str(row["id"]) not in decisions), -1)
                     self._json({"total": len(queueRows), "decided": len(decisions), "firstUndecidedIndex": undecided}); return
                 if parsed.path == "/api/item":
+                    reloadQueue()
                     try: row = queueRows[int(query.get("index", ["0"])[0])]
                     except (ValueError, IndexError): self._json({"error":"잘못된 index"},HTTPStatus.BAD_REQUEST); return
                     itemId = str(row["id"]); decision = decisions.get(itemId)
