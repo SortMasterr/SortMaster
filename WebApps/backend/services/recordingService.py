@@ -99,32 +99,6 @@ class RecordingService:
                 expectedCameraId,
             )
 
-    def snapshotRecentFrames(
-        self,
-        cameraId: CameraId,
-        durationSeconds: float,
-    ) -> tuple[list, float]:
-        matchingSessions = [
-            session
-            for session in self.sessions.values()
-            if session.cameraId == cameraId
-            and not session.stopped.is_set()
-        ]
-
-        if not matchingSessions or durationSeconds <= 0:
-            return [], 0.0
-
-        session = max(
-            matchingSessions,
-            key=lambda item: item.startedAt,
-        )
-        frameCount = max(
-            1,
-            int(durationSeconds * session.fps),
-        )
-
-        return list(session.frames[-frameCount:]), session.fps
-
     async def _stop(
         self,
         recordingId: str,

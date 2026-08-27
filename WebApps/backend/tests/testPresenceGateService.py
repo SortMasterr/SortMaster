@@ -1,7 +1,9 @@
 import unittest
-from unittest.mock import AsyncMock, patch
+from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, Mock, patch
 
-from schemas.event import CameraId
+from schemas.event import CameraId, EventCategory
+from schemas.visitClip import VisitClip
 from services.errors import (
     CameraUnavailableError,
     RecordingNotFoundError,
@@ -181,6 +183,62 @@ class PresenceGateServiceTest(unittest.IsolatedAsyncioTestCase):
             await service._handleNoFrame(now=6.0)
 
         self.assertEqual(2, cameraManager.start.await_count)
+
+    async def testSavedVisitClipAttachesDatabasePreviewToEvent(self):
+        service = gateService()
+        event = Mock(
+            eventId="event-1",
+            cameraId=CameraId.ELEVTOP,
+            eventCategory=EventCategory.MISCLASSIFICATION,
+            isMisclassified=True,
+        )
+        endedAt = datetime.now(timezone.utc)
+        visitClip = VisitClip(
+            cameraId=CameraId.ELEVTOP,
+            startedAt=endedAt - timedelta(seconds=8),
+            endedAt=endedAt,
+            imageFileId="visit-file",
+            matchedEventIds=["event-1"],
+        )
+
+        with (
+            patch(
+                "services.presenceGateService.mediaService"
+            ) as mediaService,
+            patch(
+                "services.presenceGateService.eventRepository"
+            ) as eventRepository,
+            patch(
+                "services.presenceGateService.visitClipService"
+            ) as visitClipService,
+            patch(
+                "services.presenceGateService.eventMediaService"
+            ) as eventMediaService,
+        ):
+            mediaService.saveClipAsGif = AsyncMock(
+                return_value="visit-file"
+            )
+            eventRepository.findAll = AsyncMock(
+                return_value=[event]
+            )
+            visitClipService.createClipForVisit = AsyncMock(
+                return_value=visitClip
+            )
+            eventMediaService.attachPreviewFromVisitClip = (
+                AsyncMock()
+            )
+
+            await service._saveVisitClip([object()], 8.0)
+
+        visitClipService.createClipForVisit.assert_awaited_once()
+        self.assertEqual(
+            ["event-1"],
+            visitClipService.createClipForVisit.await_args.args[4],
+        )
+        eventMediaService.attachPreviewFromVisitClip.assert_awaited_once_with(
+            event,
+            visitClip,
+        )
 
 
 if __name__ == "__main__":
