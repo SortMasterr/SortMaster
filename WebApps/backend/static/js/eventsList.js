@@ -33,6 +33,11 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     let data = [];
     let loadErrorMessage = "";
+    let loadRequestId = 0;
+    let liveRefreshTimer = null;
+    let liveRefreshDebounceTimer = null;
+    let liveRefreshInProgress = false;
+    let liveRefreshQueued = false;
 
     function getElement(id) {
         return document.getElementById(id);
@@ -126,6 +131,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             type: typeInfo.name,
             typeClass: typeInfo.className,
 
+            binId: eventData.binId ?? "-",
+
             result: isOverflow
                 ? "넘침 감지"
                 : eventData.isMisclassified
@@ -180,21 +187,41 @@ document.addEventListener("DOMContentLoaded", async () => {
             : "/api/events";
     }
 
-    async function loadEvents() {
+    function rowsHaveChanged(nextData) {
+        if (data.length !== nextData.length) {
+            return true;
+        }
+
+        return nextData.some((nextRow, index) => {
+            const currentRow = data[index];
+
+            return (
+                currentRow?.eventId !== nextRow.eventId ||
+                currentRow?.time.getTime() !==
+                    nextRow.time.getTime() ||
+                currentRow?.area !== nextRow.area ||
+                currentRow?.type !== nextRow.type ||
+                currentRow?.binId !== nextRow.binId ||
+                currentRow?.result !== nextRow.result
+            );
+        });
+    }
+
+    async function loadEvents(showLoading = true) {
         const tableBody =
             getElement("tbody");
 
-        if (tableBody) {
+        if (showLoading && tableBody) {
             tableBody.innerHTML = `
                 <tr class="emptyRow">
-                    <td colspan="4">
+                    <td colspan="5">
                         기록을 불러오는 중입니다.
                     </td>
                 </tr>
             `;
         }
 
-        loadErrorMessage = "";
+        const requestId = ++loadRequestId;
 
         try {
             const response = await fetch(
@@ -216,20 +243,40 @@ document.addEventListener("DOMContentLoaded", async () => {
                 );
             }
 
-            data = events.map(
+            const nextData = events.map(
                 convertEventToRow
             );
+
+            if (requestId !== loadRequestId) {
+                return false;
+            }
+
+            const hasChanged =
+                rowsHaveChanged(nextData);
+
+            data = nextData;
+            loadErrorMessage = "";
+
+            return hasChanged;
         } catch (error) {
+            if (requestId !== loadRequestId) {
+                return false;
+            }
+
             console.error(
                 "이벤트 목록 조회 오류:",
                 error
             );
 
-            data = [];
+            if (showLoading) {
+                data = [];
 
-            loadErrorMessage =
-                "기록을 불러오지 못했습니다. " +
-                "서버 연결을 확인해주세요.";
+                loadErrorMessage =
+                    "기록을 불러오지 못했습니다. " +
+                    "서버 연결을 확인해주세요.";
+            }
+
+            return false;
         }
     }
 
@@ -454,6 +501,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         const modalType =
             getElement("mType");
 
+        const modalBinId =
+            getElement("mBinId");
+
         const modalResult =
             getElement("mResult");
 
@@ -486,6 +536,11 @@ document.addEventListener("DOMContentLoaded", async () => {
                     ${escapeHtml(row.type)}
                 </span>
             `;
+        }
+
+        if (modalBinId) {
+            modalBinId.textContent =
+                row.binId;
         }
 
         if (modalResult) {
@@ -599,10 +654,6 @@ document.addEventListener("DOMContentLoaded", async () => {
             (row) => row.result === "넘침 감지"
         ).length;
 
-        const normalCount = data.filter(
-            (row) => row.result === "정상"
-        ).length;
-
         const statTotal =
             getElement("statTotal");
 
@@ -614,9 +665,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         const statOverflow =
             getElement("statOverflow");
-
-        const statNormal =
-            getElement("statNormal");
 
         if (statTotal) {
             statTotal.innerHTML =
@@ -639,12 +687,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (statOverflow) {
             statOverflow.innerHTML =
                 `${overflowCount}` +
-                "<span>건</span>";
-        }
-
-        if (statNormal) {
-            statNormal.innerHTML =
-                `${normalCount}` +
                 "<span>건</span>";
         }
 
@@ -711,7 +753,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (pageRows.length === 0) {
             tableBody.innerHTML = `
                 <tr class="emptyRow">
-                    <td colspan="4">
+                    <td colspan="5">
                         ${
                             loadErrorMessage ||
                             "조건에 맞는 기록이 없습니다."
@@ -762,6 +804,12 @@ document.addEventListener("DOMContentLoaded", async () => {
                                 </td>
 
                                 <td>
+                                    ${escapeHtml(
+                                        row.binId
+                                    )}
+                                </td>
+
+                                <td>
                                     <span
                                         class="status ${statusClass}"
                                     >
@@ -789,6 +837,63 @@ document.addEventListener("DOMContentLoaded", async () => {
         await loadEvents();
 
         render();
+    }
+
+    async function refreshLiveEvents() {
+        if (document.hidden) {
+            return;
+        }
+
+        if (liveRefreshInProgress) {
+            liveRefreshQueued = true;
+            return;
+        }
+
+        liveRefreshInProgress = true;
+
+        try {
+            do {
+                liveRefreshQueued = false;
+
+                const hasChanged =
+                    await loadEvents(false);
+
+                if (hasChanged) {
+                    state.currentPage = 1;
+                    render();
+                }
+            } while (liveRefreshQueued);
+        } finally {
+            liveRefreshInProgress = false;
+        }
+    }
+
+    function scheduleLiveRefresh(delay = 100) {
+        if (liveRefreshDebounceTimer !== null) {
+            clearTimeout(liveRefreshDebounceTimer);
+        }
+
+        liveRefreshDebounceTimer = setTimeout(
+            () => {
+                liveRefreshDebounceTimer = null;
+                refreshLiveEvents();
+            },
+            delay
+        );
+    }
+
+    function handleWebSocketMessage(event) {
+        const eventType =
+            event.detail?.eventType;
+
+        if (
+            eventType ===
+                "MISCLASSIFICATION_DETECTED" ||
+            eventType ===
+                "BIN_OVERFLOW_DETECTED"
+        ) {
+            scheduleLiveRefresh();
+        }
     }
 
     document
@@ -922,6 +1027,38 @@ document.addEventListener("DOMContentLoaded", async () => {
         (event) => {
             if (event.key === "Escape") {
                 closeModal();
+            }
+        }
+    );
+
+    window.addEventListener(
+        "sortMasterWebSocketMessage",
+        handleWebSocketMessage
+    );
+
+    document.addEventListener(
+        "visibilitychange",
+        () => {
+            if (!document.hidden) {
+                scheduleLiveRefresh(0);
+            }
+        }
+    );
+
+    liveRefreshTimer = setInterval(
+        () => scheduleLiveRefresh(0),
+        5000
+    );
+
+    window.addEventListener(
+        "pagehide",
+        () => {
+            clearInterval(liveRefreshTimer);
+
+            if (liveRefreshDebounceTimer !== null) {
+                clearTimeout(
+                    liveRefreshDebounceTimer
+                );
             }
         }
     );

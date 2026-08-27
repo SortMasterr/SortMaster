@@ -19,7 +19,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
 
     <!-- 이전기록 페이지 CSS -->
-    <link rel="stylesheet" href="/static/css/eventsList.css?v=11">
+    <link rel="stylesheet" href="/static/css/eventsList.css?v=12">
 
     <!-- 공통 사이드바 CSS -->
     <link rel="stylesheet" href="/static/css/sidebar.css?v=9">
@@ -95,16 +95,6 @@
                         </div>
 
                         <div class="statValue" id="statOverflow">
-                            0<span>건</span>
-                        </div>
-                    </div>
-
-                    <div class="statCard cGreen">
-                        <div class="statLabel">
-                            정상
-                        </div>
-
-                        <div class="statValue" id="statNormal">
                             0<span>건</span>
                         </div>
                     </div>
@@ -188,6 +178,11 @@
                                     <i class="fa-solid fa-sort"></i>
                                 </th>
 
+                                <th data-key="binId">
+                                    배출위치
+                                    <i class="fa-solid fa-sort"></i>
+                                </th>
+
                                 <th data-key="result">
                                     결과
                                     <i class="fa-solid fa-sort"></i>
@@ -236,6 +231,11 @@
                 </div>
 
                 <div class="mItem">
+                    <div class="mLabel">배출위치</div>
+                    <div class="mValue" id="mBinId">-</div>
+                </div>
+
+                <div class="mItem">
                     <div class="mLabel">결과</div>
                     <div class="mValue" id="mResult">-</div>
                 </div>
@@ -245,8 +245,8 @@
     </div>
 
     <!-- 공통 JavaScript를 먼저 불러옵니다. -->
-    <script src="/static/js/sidebar.js?v=10"></script>
-    <script src="/static/js/eventsList.js?v=12"></script>
+    <script src="/static/js/sidebar.js?v=11"></script>
+    <script src="/static/js/eventsList.js?v=15"></script>
 </body>
 
 </html>
