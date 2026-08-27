@@ -3,6 +3,8 @@ let isCollectMode =
         "currentMode"
     ) === "COLLECT";
 
+let isModeSynchronized = false;
+
 let sidebarSocket = null;
 let reconnectTimer = null;
 let sidebarWarningTimer = null;
@@ -37,6 +39,11 @@ async function refreshBinFullAlert() {
         return;
     }
 
+    if (!isModeSynchronized || isCollectMode) {
+        setBinFullAlertVisible(false);
+        return;
+    }
+
     try {
         const [openResponse, acknowledgedResponse] =
             await Promise.all([
@@ -66,8 +73,11 @@ async function refreshBinFullAlert() {
             ]);
 
         setBinFullAlertVisible(
-            openTasks.total > 0 ||
-            acknowledgedTasks.total > 0
+            !isCollectMode &&
+            (
+                openTasks.total > 0 ||
+                acknowledgedTasks.total > 0
+            )
         );
     } catch (error) {
         console.warn(
@@ -81,11 +91,18 @@ async function refreshBinFullAlert() {
 function applyMode(mode) {
     isCollectMode =
         mode === "COLLECT";
+    isModeSynchronized = true;
 
     localStorage.setItem(
         "currentMode",
         mode
     );
+
+    if (isCollectMode) {
+        setBinFullAlertVisible(false);
+    } else {
+        refreshBinFullAlert();
+    }
 
     updateSidebarUI();
 }
@@ -218,6 +235,10 @@ function updateActiveMenu() {
 
 
 function showEventWarning() {
+    if (isCollectMode) {
+        return;
+    }
+
     const videoContainer =
         document.getElementById(
             "videoContainer"
@@ -295,6 +316,7 @@ function connectSidebarSocket() {
         }
 
         if (
+            !isCollectMode &&
             message.eventType ===
             "MISCLASSIFICATION_DETECTED"
         ) {
@@ -302,6 +324,7 @@ function connectSidebarSocket() {
         }
 
         if (
+            !isCollectMode &&
             message.eventType ===
             "BIN_OVERFLOW_DETECTED"
         ) {
