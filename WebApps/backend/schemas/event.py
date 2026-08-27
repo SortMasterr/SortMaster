@@ -1,7 +1,17 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+_legacyBinIds = {
+    "bin-side-01": "BIN-GENERAL",
+    "bin-side-1": "BIN-GENERAL",
+}
+
+
+def normalizeBinId(value: str) -> str:
+    return _legacyBinIds.get(value, value)
 
 
 class CameraId(str, Enum):
@@ -56,6 +66,11 @@ class EventCreate(BaseModel):
     overflowDuration: float | None = Field(default=None, ge=0.0)
     overflowThreshold: float | None = Field(default=None, ge=0.0)
     modelVersion: str = Field(min_length=1)
+
+    @field_validator("binId", mode="before")
+    @classmethod
+    def normalizeLegacyBinId(cls, value):
+        return normalizeBinId(value) if isinstance(value, str) else value
 
     @model_validator(mode="after")
     def checkMisclassificationFields(self):
