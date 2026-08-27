@@ -1045,6 +1045,9 @@ GPU 서버의 `models/trashdetect/tracking2.py`가 TOP 카메라 투척을 자�
 GIF는 재학습/방문 기록용으로 유지되며 파생 미리보기와 별도 파일이다. `imagePath`는 GPU 서버
 로컬 경로이므로 사용하지 않는다.
 
+과거 SIDE 넘침 감지기가 사용한 `bin-side-01`/`bin-side-1`은 호환 입력으로만 허용하며,
+백엔드는 이벤트와 통 상태를 현재 물리 통 ID인 `BIN-GENERAL`로 정규화해 저장·응답한다.
+
 ### 요청 예시
 
 ```json

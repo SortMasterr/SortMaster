@@ -105,6 +105,14 @@ class EventRepositoryCompatibilityTest(
         self.assertEqual(DetectedClass.RECYCLABLES, event.detectedClass)
         self.assertEqual(BinType.NORMAL, event.binType)
 
+    def testLegacySideBinIdIsReadAsGeneralBin(self):
+        document = currentDocument()
+        document["binId"] = "bin-side-01"
+
+        event = EventRepository()._fromDocument(document)
+
+        self.assertEqual("BIN-GENERAL", event.binId)
+
     def testCurrentQueryValidatesOptionalFieldTypes(self):
         query = EventRepository()._buildCurrentDocumentQuery()
         optionalFields = {
