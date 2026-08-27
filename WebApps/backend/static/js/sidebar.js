@@ -11,6 +11,13 @@ let sidebarWarningTimer = null;
 let binFullAlertPollTimer = null;
 let currentMisclassificationAlerts = [];
 
+const physicalBinIds = new Set([
+    "BIN-GENERAL",
+    "BIN-PLASTIC-CAN",
+    "BIN-COFFEE-CUP",
+    "BIN-PAPER",
+]);
+
 const acknowledgedAlertsStorageKey =
     "sortMasterAcknowledgedMisclassificationIds";
 
@@ -230,11 +237,37 @@ async function refreshBinFullAlert() {
         }
 
         const binStates = await response.json();
-        const hasFullBin = Array.isArray(binStates) &&
-            binStates.some(
-                (binState) =>
-                    binState.currentState === "FULL"
-            );
+        const latestStateByBinId = new Map();
+
+        if (Array.isArray(binStates)) {
+            binStates.forEach((binState) => {
+                if (!physicalBinIds.has(binState.binId)) {
+                    return;
+                }
+
+                const previous = latestStateByBinId.get(
+                    binState.binId
+                );
+
+                if (
+                    !previous ||
+                    new Date(binState.lastChangedAt) >
+                        new Date(previous.lastChangedAt)
+                ) {
+                    latestStateByBinId.set(
+                        binState.binId,
+                        binState
+                    );
+                }
+            });
+        }
+
+        const hasFullBin = Array.from(
+            latestStateByBinId.values()
+        ).some(
+            (binState) =>
+                binState.currentState === "FULL"
+        );
 
         setBinFullAlertVisible(
             !isCollectMode && hasFullBin
