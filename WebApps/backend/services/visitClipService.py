@@ -184,7 +184,7 @@ class VisitClipService:
         if media is None:
             return None
         imageFileId, cameraId = media
-        return await mediaRepository.getBytes(imageFileId, cameraId)
+        return await mediaRepository.getBytesById(imageFileId, cameraId)
 
 
 visitClipService = VisitClipService()
