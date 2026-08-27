@@ -18,15 +18,156 @@ from common.pipelineUtilities import ManifestWriter, iterateManifest
 _PAGE = r'''<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SortMaster 사람 라벨 검수</title><style>
-body{font-family:system-ui,sans-serif;margin:0;background:#111827;color:#e5e7eb}main{max-width:1400px;margin:auto;padding:20px}
-header,.controls,.panel{display:flex;gap:12px;align-items:center}.panel{align-items:flex-start}.images{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;flex:3}.images img{width:100%;max-height:620px;object-fit:contain;background:#030712}.form{flex:1;min-width:320px}textarea,input{box-sizing:border-box;width:100%;padding:9px;margin:5px 0 12px;background:#1f2937;color:#fff;border:1px solid #4b5563}textarea{height:180px;font-family:monospace}button{padding:10px 16px;border:0;border-radius:6px;cursor:pointer}.approve{background:#16a34a;color:#fff}.reject{background:#dc2626;color:#fff}.nav{background:#374151;color:#fff}.meta{white-space:pre-wrap;background:#1f2937;padding:10px;max-height:220px;overflow:auto}.saved{color:#86efac}@media(max-width:1100px){.panel{display:block}.images{grid-template-columns:1fr}.form{min-width:0}}
+body{font-family:system-ui,sans-serif;margin:0;background:#111827;color:#e5e7eb}main{max-width:1500px;margin:auto;padding:20px}
+header,.controls,.panel{display:flex;gap:12px;align-items:center}.panel{align-items:flex-start}.images{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;flex:3}.images img,.images canvas{width:100%;max-height:620px;object-fit:contain;background:#030712;display:block}
+#canvas{cursor:crosshair;touch-action:none}
+.form{flex:1;min-width:340px}textarea,input{box-sizing:border-box;width:100%;padding:9px;margin:5px 0 12px;background:#1f2937;color:#fff;border:1px solid #4b5563}textarea{height:150px;font-family:monospace}
+button{padding:10px 16px;border:0;border-radius:6px;cursor:pointer}.approve{background:#16a34a;color:#fff}.reject{background:#dc2626;color:#fff}.nav{background:#374151;color:#fff}
+.classBtn{background:#374151;color:#fff;padding:7px 12px;margin:0 6px 6px 0;font-size:.9rem}.classBtn.active{background:#22d3ee;color:#0f172a;font-weight:700}
+.tool{background:#4b5563;color:#fff;padding:7px 12px;margin:0 6px 6px 0;font-size:.9rem}
+.meta{white-space:pre-wrap;background:#1f2937;padding:10px;max-height:200px;overflow:auto;font-size:.85rem}.saved{color:#86efac}
+.hint{color:#9ca3af;font-size:.82rem;margin:2px 0 8px}.warn{color:#fca5a5;font-size:.82rem}
+@media(max-width:1100px){.panel{display:block}.images{grid-template-columns:1fr}.form{min-width:0}}
 </style></head><body><main>
 <header><h2>SortMaster 사람 라벨 검수</h2><span id="progress"></span><span id="saved" class="saved"></span></header>
 <div class="controls"><button class="nav" onclick="move(-1)">이전</button><button class="nav" onclick="move(1)">다음</button><button class="nav" onclick="goUndecided()">미검수로 이동</button></div>
-<div class="panel"><div class="images"><figure><figcaption>원본</figcaption><img id="original"></figure><figure><figcaption>YOLO bbox</figcaption><img id="annotated"></figure><figure><figcaption>Qwen 라벨링</figcaption><img id="qwen"></figure></div>
-<section class="form"><div id="meta" class="meta"></div><label>YOLO 라벨 (classId centerX centerY width height)</label><textarea id="label"></textarea><label>검수자</label><input id="reviewer"><label>메모</label><textarea id="notes" style="height:90px"></textarea><button class="approve" onclick="save('approved')">승인 / 수정 승인</button> <button class="reject" onclick="save('rejected')">거절</button></section></div>
+<div class="panel"><div class="images">
+<figure><figcaption>원본 — 드래그해서 박스 그리기</figcaption><canvas id="canvas"></canvas></figure>
+<figure><figcaption>YOLO bbox</figcaption><img id="annotated"></figure>
+<figure><figcaption>Qwen 라벨링 <span class="warn">(위치 부정확 — 참고만)</span></figcaption><img id="qwen"></figure></div>
+<section class="form">
+<div id="meta" class="meta"></div>
+<label>클래스 선택 (숫자키 1~9)</label>
+<div id="classButtons"></div>
+<div>
+  <button class="tool" onclick="deleteSelected()">선택 삭제 (Del)</button>
+  <button class="tool" onclick="clearBoxes()">전체 지우기</button>
+  <button class="tool" onclick="undoBox()">되돌리기 (Ctrl+Z)</button>
+</div>
+<p class="hint">드래그=새 박스 · 박스 안 클릭=선택 · Del=삭제 · 아래 텍스트로 직접 편집도 가능</p>
+<label>YOLO 라벨 (classId centerX centerY width height)</label><textarea id="label" oninput="syncFromText()"></textarea>
+<label>검수자</label><input id="reviewer"><label>메모</label><textarea id="notes" style="height:70px"></textarea>
+<button class="approve" onclick="save('approved')">승인 / 수정 승인</button> <button class="reject" onclick="save('rejected')">거절</button></section></div>
 <script>
 let index=0,total=0,current=null,waitTimer=null;
+let boxes=[],classNames=[],currentClass=0,selectedIndex=-1;
+let originalImage=null,dragStart=null,dragCurrent=null;
+const canvas=document.getElementById('canvas');
+const minimumBoxSize=0.01;
+
+function boxesToText(){
+    return boxes.map((box)=>{
+        const centerX=(box.x1+box.x2)/2,centerY=(box.y1+box.y2)/2;
+        const width=box.x2-box.x1,height=box.y2-box.y1;
+        return `${box.classId} ${centerX.toFixed(6)} ${centerY.toFixed(6)} ${width.toFixed(6)} ${height.toFixed(6)}`;
+    }).join('\n')+(boxes.length?'\n':'');
+}
+function textToBoxes(text){
+    const parsed=[];
+    for(const line of String(text||'').split('\n')){
+        const parts=line.trim().split(/\s+/);
+        if(parts.length!==5)continue;
+        const classId=parseInt(parts[0],10);
+        const values=parts.slice(1).map(Number);
+        if(!Number.isInteger(classId)||values.some((value)=>Number.isNaN(value)))continue;
+        const [centerX,centerY,width,height]=values;
+        parsed.push({classId,x1:centerX-width/2,y1:centerY-height/2,x2:centerX+width/2,y2:centerY+height/2});
+    }
+    return parsed;
+}
+function syncToText(){document.getElementById('label').value=boxesToText()}
+function syncFromText(){boxes=textToBoxes(document.getElementById('label').value);selectedIndex=-1;render()}
+
+function render(){
+    if(!canvas.getContext)return;
+    const context=canvas.getContext('2d');
+    context.clearRect(0,0,canvas.width,canvas.height);
+    if(originalImage)context.drawImage(originalImage,0,0,canvas.width,canvas.height);
+    const drawRect=(x1,y1,x2,y2,color,lineWidth,text)=>{
+        const x=x1*canvas.width,y=y1*canvas.height;
+        const width=(x2-x1)*canvas.width,height=(y2-y1)*canvas.height;
+        context.strokeStyle=color;context.lineWidth=lineWidth;context.strokeRect(x,y,width,height);
+        if(text){context.fillStyle=color;context.font='bold 16px system-ui';context.fillText(text,x+4,Math.max(16,y-5))}
+    };
+    boxes.forEach((box,boxIndex)=>{
+        const selected=boxIndex===selectedIndex;
+        drawRect(box.x1,box.y1,box.x2,box.y2,selected?'#facc15':'#22d3ee',selected?4:3,classNames[box.classId]??String(box.classId));
+    });
+    if(dragStart&&dragCurrent){
+        drawRect(Math.min(dragStart.x,dragCurrent.x),Math.min(dragStart.y,dragCurrent.y),
+            Math.max(dragStart.x,dragCurrent.x),Math.max(dragStart.y,dragCurrent.y),'#f472b6',2,null);
+    }
+}
+function canvasPoint(event){
+    const rect=canvas.getBoundingClientRect();
+    return{
+        x:Math.min(1,Math.max(0,(event.clientX-rect.left)/rect.width)),
+        y:Math.min(1,Math.max(0,(event.clientY-rect.top)/rect.height))
+    };
+}
+function findBoxAt(point){
+    let found=-1,smallest=Infinity;
+    boxes.forEach((box,boxIndex)=>{
+        if(point.x<box.x1||point.x>box.x2||point.y<box.y1||point.y>box.y2)return;
+        const area=(box.x2-box.x1)*(box.y2-box.y1);
+        if(area<smallest){smallest=area;found=boxIndex}
+    });
+    return found;
+}
+canvas.addEventListener('pointerdown',(event)=>{
+    if(!originalImage)return;
+    canvas.setPointerCapture(event.pointerId);
+    dragStart=canvasPoint(event);dragCurrent=dragStart;
+});
+canvas.addEventListener('pointermove',(event)=>{if(dragStart){dragCurrent=canvasPoint(event);render()}});
+canvas.addEventListener('pointerup',(event)=>{
+    if(!dragStart)return;
+    const end=canvasPoint(event);
+    const width=Math.abs(end.x-dragStart.x),height=Math.abs(end.y-dragStart.y);
+    if(width<minimumBoxSize||height<minimumBoxSize){
+        // 드래그가 아니라 클릭으로 보고 박스 선택으로 처리한다.
+        selectedIndex=findBoxAt(end);
+    }else{
+        boxes.push({classId:currentClass,
+            x1:Math.min(dragStart.x,end.x),y1:Math.min(dragStart.y,end.y),
+            x2:Math.max(dragStart.x,end.x),y2:Math.max(dragStart.y,end.y)});
+        selectedIndex=boxes.length-1;
+        syncToText();
+    }
+    dragStart=null;dragCurrent=null;render();
+});
+function deleteSelected(){
+    if(selectedIndex<0||selectedIndex>=boxes.length)return;
+    boxes.splice(selectedIndex,1);selectedIndex=-1;syncToText();render();
+}
+function clearBoxes(){boxes=[];selectedIndex=-1;syncToText();render()}
+function undoBox(){if(!boxes.length)return;boxes.pop();selectedIndex=-1;syncToText();render()}
+function setClass(classId){
+    currentClass=classId;
+    if(selectedIndex>=0&&selectedIndex<boxes.length){boxes[selectedIndex].classId=classId;syncToText()}
+    renderClassButtons();render();
+}
+function renderClassButtons(){
+    document.getElementById('classButtons').innerHTML=classNames.map((name,classId)=>
+        `<button class="classBtn${classId===currentClass?' active':''}" onclick="setClass(${classId})">${classId+1}. ${name}</button>`
+    ).join('');
+}
+document.addEventListener('keydown',(event)=>{
+    const tag=(event.target.tagName||'').toLowerCase();
+    if(tag==='textarea'||tag==='input')return;
+    if(event.key==='Delete'||event.key==='Backspace'){deleteSelected();event.preventDefault();return}
+    if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'){undoBox();event.preventDefault();return}
+    const digit=parseInt(event.key,10);
+    if(Number.isInteger(digit)&&digit>=1&&digit<=classNames.length)setClass(digit-1);
+});
+function loadImage(source){
+    return new Promise((resolve,reject)=>{
+        const image=new Image();
+        image.onload=()=>resolve(image);
+        image.onerror=reject;
+        image.src=source;
+    });
+}
 async function summary(){const s=await (await fetch('/api/summary')).json();total=s.total;document.getElementById('saved').textContent=`완료 ${s.decided}/${s.total} (LLM이 계속 만드는 중일 수 있음)`;return s}
 function stopWaiting(){if(waitTimer!==null){clearTimeout(waitTimer);waitTimer=null}}
 async function waitForIndex(i){
@@ -47,13 +188,27 @@ async function load(i){
     index=Math.max(0,i);
     current=await (await fetch('/api/item?index='+index)).json();
     document.getElementById('progress').textContent=`${index+1} / ${total}`;
-    document.getElementById('original').src=`/media?id=${encodeURIComponent(current.id)}&kind=original&t=${Date.now()}`;
     document.getElementById('annotated').src=`/media?id=${encodeURIComponent(current.id)}&kind=annotated&t=${Date.now()}`;
     document.getElementById('qwen').src=`/media?id=${encodeURIComponent(current.id)}&kind=qwen&t=${Date.now()}`;
     document.getElementById('label').value=current.labelText;
     document.getElementById('reviewer').value=current.decision?.reviewer||'';
     document.getElementById('notes').value=current.decision?.notes||'';
     document.getElementById('meta').textContent=JSON.stringify({id:current.id,video:current.video,qwen:current.review,classes:current.classes,previousDecision:current.decision?.decision||null},null,2);
+
+    if(!classNames.length&&Array.isArray(current.classes)){classNames=current.classes;renderClassButtons()}
+    boxes=textToBoxes(current.labelText);
+    selectedIndex=-1;
+    originalImage=null;
+    render();
+    try{
+        const image=await loadImage(`/media?id=${encodeURIComponent(current.id)}&kind=original&t=${Date.now()}`);
+        // 다른 항목으로 이미 넘어갔다면 늦게 도착한 이미지는 버린다.
+        if(current&&image.src.includes(encodeURIComponent(current.id))){
+            originalImage=image;
+            canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
+            render();
+        }
+    }catch(error){console.warn('원본 이미지를 불러오지 못했습니다:',error)}
 }
 function move(step){load(index+step)}
 async function goUndecided(){const s=await summary();load(s.firstUndecidedIndex<0?s.total:s.firstUndecidedIndex)}
