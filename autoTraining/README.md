@@ -106,7 +106,7 @@ Deploy는 `runDaily`에 포함되지 않으며 사람의 평가 확인과 배포
 | 단일 명령 전체 실행 | 구현됨 | `runDaily`가 검수 완료를 기다린 뒤 평가까지 자동 진행 |
 | MongoDB 이벤트·미확정 방문 수집 | 구현됨·실DB 미검증 | `events.imageFileId`와 `matchedEventIds: []`인 `visitClips.imageFileId`를 `topMedia`에서 수집 |
 | GPU 방문 트랙 신호 | 미구현 | `tracking2.py`가 `trackStarted`/`trackEnded`를 아직 보내지 않아 시도 후 미확정 트랙을 visitClip에 연결하지 못함 |
-| Qwen-VL 실제 연결 | 연결 확인·멀티모달 신뢰성 문제 | GPU 텍스트 요청 정상, 실제 이미지 요청은 스키마 미준수 폭주를 `max_tokens`로 제한했으나 근본 원인 미해결 |
+| Qwen-VL 실제 연결 | 연결됨·역할 축소 확정 | 프레임 단위 판정에만 사용. **박스 좌표는 쓰지 않음** — 실측 결과 위치 정확도가 사용 불가 수준(IoU 중앙값 0.00, `decisionLog.md` 참고). 스키마 미준수 폭주는 `max_tokens`로 제한 |
 | MongoDB 학습 데이터 Publish | 구현됨·실DB 미검증 | 승인 데이터만 추가, 이미지 중복·계약 충돌 검사 |
 | MongoDB 학습 데이터 Sync | 구현됨·실DB 미검증 | active 데이터 다운로드와 이미지·라벨 해시 검증 |
 | Build | 구현됨 | MongoDB 스냅샷만 사용, 비율·최소 train/val 검사, 원자적 교체 |
@@ -541,7 +541,7 @@ Golden Test 기준을 확정한 뒤 승인된 후보에만 release를 허용하�
 - 배치 상태 파일, 실패 단계 재개, 동일 배치 실행 잠금
 - split별 최소 이미지뿐 아니라 최소 영상·클래스 분포 검증
 - `testRatio` 제거 또는 Golden Test 체계에 맞는 의미 재정의
-- 검수 UI의 마우스 bbox 그리기·크기 조절
+- 검수 UI에서 그린 박스의 크기 조절(핸들 드래그) — 그리기·선택·삭제는 구현됨
 - 독립 `autoTraining` Compose 서비스, 스케줄, 재시도와 알림
 - 배포 승인형 release 명령
 - Deploy 후 `tracking2.py` 재시작·서비스 상태 확인·자동 rollback
