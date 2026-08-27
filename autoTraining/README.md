@@ -17,10 +17,10 @@ MongoDB 학습 데이터 원본에 추가한 뒤 YOLO 모델을 재학습·평�
 ## 전체 흐름
 
 ```text
-MongoDB events + topMedia GridFS
+MongoDB events + visitClips + topMedia GridFS
   ↓
 0. Collect
-   지정 날짜의 ELEV-TOP/misclassification 이벤트 GIF 수집
+   지정 날짜의 ELEV-TOP/misclassification 이벤트와 미확정 방문 GIF 수집
   ↓
 1. Extract
    GIF/영상 프레임 추출
@@ -74,7 +74,7 @@ Deploy 후 `tracking2.py` 재시작·smoke test·실패 시 자동 rollback은 �
 
 | 단계 | 자동화 수준 | 현재 동작 | 사람이 해야 하는 일 |
 |---|---|---|---|
-| 0. Collect | 자동 | MongoDB 이벤트와 GridFS에서 대상 GIF를 수집합니다. | 실행 전 DB 연결과 대상 날짜를 확인합니다. |
+| 0. Collect | 자동 | MongoDB의 확정 오분류 이벤트와 `matchedEventIds`가 빈 미확정 `visitClips`를 조회하고 `topMedia` GridFS에서 대상 GIF를 수집합니다. | 실행 전 DB 연결과 대상 날짜를 확인합니다. |
 | 1. Extract | 자동 | 수집 영상에서 프레임을 추출합니다. | 없음 |
 | 2. Select | 자동 | 간격·선명도·밝기 기준으로 후보 프레임을 선별합니다. | 선별 기준 변경 시 설정값을 조정합니다. |
 | 3. Label | 자동 | 고정한 YOLO 기준 모델로 라벨을 생성합니다. | 없음 |
@@ -95,7 +95,7 @@ Deploy 후 `tracking2.py` 재시작·smoke test·실패 시 자동 rollback은 �
 Deploy는 `runDaily`에 포함되지 않으며 사람의 평가 확인과 배포 승인을 거쳐 각각 별도로 실행합니다.
 ## 현재 구현 상태
 
-2026-08-26 기준 코드 상태입니다.
+2026-08-27 기준 코드 상태입니다.
 
 | 항목 | 상태 | 내용 |
 |---|---|---|
@@ -104,7 +104,8 @@ Deploy는 `runDaily`에 포함되지 않으며 사람의 평가 확인과 배포
 | 사람 검수 UI | 구현됨 | localhost UI, 결정과 수정 라벨 원자적 저장 |
 | 사람 검수 후 자동 구간 | 구현됨 | `HumanReview → Publish → SyncDataset → Build → Train → Evaluate` |
 | 단일 명령 전체 실행 | 구현됨 | `runDaily`가 검수 완료를 기다린 뒤 평가까지 자동 진행 |
-| MongoDB 이벤트 수집 | 구현됨·실DB 미검증 | `events.imageFileId`와 `topMedia` 사용 |
+| MongoDB 이벤트·미확정 방문 수집 | 구현됨·실DB 미검증 | `events.imageFileId`와 `matchedEventIds: []`인 `visitClips.imageFileId`를 `topMedia`에서 수집 |
+| GPU 방문 트랙 신호 | 미구현 | `tracking2.py`가 `trackStarted`/`trackEnded`를 아직 보내지 않아 시도 후 미확정 트랙을 visitClip에 연결하지 못함 |
 | Qwen-VL 실제 연결 | 연결 확인·멀티모달 신뢰성 문제 | GPU 텍스트 요청 정상, 실제 이미지 요청은 스키마 미준수 폭주를 `max_tokens`로 제한했으나 근본 원인 미해결 |
 | MongoDB 학습 데이터 Publish | 구현됨·실DB 미검증 | 승인 데이터만 추가, 이미지 중복·계약 충돌 검사 |
 | MongoDB 학습 데이터 Sync | 구현됨·실DB 미검증 | active 데이터 다운로드와 이미지·라벨 해시 검증 |
@@ -458,14 +459,17 @@ JSONL은 행 단위로 읽고 프로세스별 임시 파일에 기록한 뒤 `fl
 - 라벨링·학습·Golden Test·운영 추론의 색상 채널, `imgsz`, letterbox 방식을 동일하게 적용
 - 계약이 다른 샘플과 모델은 Publish·Sync·Promote 단계에서 차단
 
-### 2순위: 수집 데이터의 편향 완화
+### 2순위: 수집 데이터의 편향 완화와 GPU 트랙 신호 연동
 
-오분류 이벤트만 모으면 이미 감지된 어려운 사례에는 강해질 수 있지만, 모델이 아예 놓친 false negative와
-정상 장면·hard negative는 학습 데이터에 들어오지 않습니다. 이벤트 GIF뿐 아니라 방문 단위 원본 클립을
-수집 후보로 사용하고, 다음 범주를 균형 있게 선별해야 합니다.
+Collect는 오분류 이벤트뿐 아니라 `matchedEventIds`가 빈 `visitClips`도 이미 재학습 후보로 수집합니다.
+따라서 YOLO가 트랙조차 만들지 못한 방문 영상은 확보할 수 있습니다. 다만 현재 `tracking2.py`가
+`trackStarted`/`trackEnded`를 전송하지 않으므로, 트랙을 만들었지만 최종 확정하지 못한 사례를
+`unresolvedTrackIds`로 연결·구분하는 동작은 아직 완성되지 않았습니다. GPU 신호 연동 후 다음 범주를
+균형 있게 선별해야 합니다.
 
 - 오분류와 낮은 confidence 사례
 - 미감지 가능성이 있는 방문 구간
+- 트랙은 생성됐지만 투입을 확정하지 못한 방문 구간
 - 정상 분류 사례의 대표 표본
 - 사람이 없거나 쓰레기가 아닌 hard negative
 
@@ -504,7 +508,7 @@ Golden Test 기준을 확정한 뒤 승인된 후보에만 release를 허용하�
 권장 구현 순서는 다음과 같습니다.
 
 1. 입력 계약 확정 및 전 단계 통일
-2. 방문 클립을 포함한 수집 범위 확장
+2. `tracking2.py`의 `trackStarted`/`trackEnded` 연동과 방문 클립 분류 완성
 3. 기존 데이터 MongoDB 이관 도구
 4. 배치 상태·재개·잠금
 5. 데이터셋 버전과 모델 계보 기록
