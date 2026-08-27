@@ -35,7 +35,7 @@ v0.2(MVP), 구현 기준일 2026-08-25. `DetectedClass`/`BinType`의 `general`�
 | EP-09 | POST /api/detection/stop | 녹화 종료+GIF 업로드+이벤트 저장(탐지 종료 결과 신호) | Body: recordingId, cameraId, eventCategory(생략 시 misclassification), detectionId, binId, binType, modelVersion + 카테고리별 필드 | 200/400/404/422 | misclassification/overflow 공통. EP-02와 동일한 저장·Cooldown·WS 부수효과 적용. recordingId 없으면 404, 캡처된 프레임 없으면 400 |
 | EP-10 | GET /api/binStates | BIN_STATES 전체 조회(binId당 최신 1행, 대시보드용) | 없음 | 200 | 없음 |
 | EP-11 | POST /api/binStates | BIN_STATES 갱신(GPU 서버의 SIDE MobileNet_V3_Small 로직 `sideOverflow.py`가 주기 호출, TOP의 EP-12와 동일 방향) | Body: binId, cameraId(기본 ELEV-SIDE), binType, sessionId, currentState(NORMAL/FULL), confidenceScore, overflowDuration, overflowThreshold?, detectionId, modelVersion | 200/422 | `currentState`가 이전 저장값과 다를 때만 전환 처리. NORMAL→FULL: EP-02와 동일한 `eventService`로 overflow EVENT 생성(detectionId 중복 방지 포함)+`activeOverflowEventId` 기록+MANAGE 모드 시 WS 브로드캐스트. FULL→NORMAL: EVENT 생성 없이 `activeOverflowEventId`만 null로 리셋. 상태 유지 시 값만 갱신 |
-| EP-12 | POST /api/events/aiDisposal | GPU 서버(`models/trashdetect/tracking2.py`)가 투척 완료 판정 시 직접 푸시하는 전용 엔드포인트 | Body: eventId, trackId, timestamp, cameraId("CAM-01" 등 GPU 쪽 값 그대로), detectedClass("normal"/"paper"/"recyclables"/"coffeecup"), binId(detectedClass와 동일 값 체계), result("correct"/"incorrect"/"unknown"), imagePath? | 200/422 | `eventService.createEventFromAiDisposal`이 GPU 쪽 값을 내부 `EventCreate`로 매핑 후 EP-02의 쿨다운/멱등성을 재사용. `incorrect`이면 활성 TOP 방문 녹화 버퍼의 최근 약 5초(5fps, 최대 25프레임)를 별도 GIF로 저장해 `imageFileId`에 연결한다. 프레임이 없으면 이벤트만 저장한다. 전체 방문 GIF는 미리보기 ID를 덮어쓰지 않는다. `imagePath`는 GPU 로컬 경로라 사용하지 않는다. 매핑 실패 또는 `unknown`은 이벤트 미생성 |
+| EP-12 | POST /api/events/aiDisposal | GPU 서버(`models/trashdetect/tracking2.py`)가 투척 완료 판정 시 직접 푸시하는 전용 엔드포인트 | Body: eventId, trackId, timestamp, cameraId("CAM-01" 등 GPU 쪽 값 그대로), detectedClass("normal"/"paper"/"recyclables"/"coffeecup"), binId(detectedClass와 동일 값 체계), result("correct"/"incorrect"/"unknown"), imagePath? | 200/422 | `eventService.createEventFromAiDisposal`이 GPU 쪽 값을 내부 `EventCreate`로 매핑 후 EP-02의 쿨다운/멱등성을 재사용. `incorrect`이면 GridFS/`visitClips`에 저장된 전체 방문 GIF에서 이벤트 직전 약 5초를 파생해 `imageFileId`에 연결한다. 대응 DB 영상이 아직 없으면 방문 종료 저장 단계에서 연결하고, 영상이 먼저 저장됐으면 `trackId` 또는 카메라/시각으로 찾아 즉시 연결한다. 원본이 없으면 이벤트만 저장한다. `imagePath`는 GPU 로컬 경로라 사용하지 않는다. 매핑 실패 또는 `unknown`은 이벤트 미생성 |
 | EP-13 | GET/POST /api/reports/email | 자동 일일·주간 보고서 수신 이메일 조회/저장/해제(즉시 발송 없음) | GET: 없음 / POST Body: recipient(string\|null, 빈 값은 수신 해제) | 200/422/500 | `state/recipientSettings.json`에 주소 또는 명시적 해제 상태를 저장. 해제 상태에서는 환경변수 수신 주소도 폴백하지 않음. Docker에서는 backend와 별도 report-scheduler가 report-state 볼륨 공유. 스케줄러가 매일 09:00 일일, 월요일 09:10 주간 보고서를 자동 발송. 검증된 일일 이벤트 메타데이터를 최근 7일만 임시 저장하고 주간 보고서는 이를 합산하며, 누락 시 발송하지 않음. 전주 비교는 최근 2개 주간 합계만 보존. SMTP 비밀은 서버 설정에만 유지 |
 | EP-14 | GET /api/collectionTasks, POST /api/collectionTasks/{collectionTaskId}/acknowledge, POST /api/collectionTasks/{collectionTaskId}/complete, GET /api/collectionAutomation/status | FULL 감지 기반 수거 작업 조회·확인·완료 및 RPA 상태 조회 | 목록: taskStatus?, limit? / 처리: collectionTaskId | 200/404/409/422 | `RPA_COLLECTION_ENABLED=true`일 때 NORMAL→FULL overflow 이벤트에 활성 수거 작업 1건 생성. 별도 collection-scheduler가 최초 담당자 알림→재알림→관리자 에스컬레이션 순으로 발송. 작업·발송 이력·heartbeat는 MongoDB에 영속화 |
 | EP-17 | GET /api/visitClips | 방문 클립(presence 기반 녹화, 판정 여부 무관) 목록, 최신순 | Query: limit?(기본 60, 1~200) | 200/422 | 관리자 대시보드에는 노출하지 않음(사이드바/페이지 없음) — 필요 시 직접 호출하는 조회 전용 API. `imageFileId`는 응답에 노출하지 않고 EP-18 경로로만 접근 |
@@ -62,8 +62,8 @@ Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory
 `services/detectionService.py`: `recordingService`(녹화)→`mediaService`(GIF 인코딩+GridFS
 업로드)→`eventService.createEvent`(EP-02와 동일 로직, Cooldown 포함)를 그대로 호출하는 HTTP
 연결부. TOP은 `presenceGateService.py`(사람 존재 감지 게이팅)가 EP-08/EP-09를 내부적으로
-  호출해 라이브뷰/DB 클립용 녹화를 시작·종료한다. 오분류 판정 자체는 EP-12로 별도 수신하지만,
-  EP-12의 직전 5초 GIF는 이 활성 녹화 버퍼를 사용한다(`architecture.md`의 "탐지 파이프라인" 참고). 수동
+  호출해 라이브뷰/DB 클립용 녹화를 시작·종료한다. 오분류 판정 자체는 EP-12로 별도 수신하며,
+  EP-12의 직전 5초 GIF는 방문 종료 후 GridFS에 저장된 전체 GIF에서 파생한다. 수동
 검증(`debug/detection/simulateEventPipeline.py`)도 이 두 엔드포인트를 직접 호출한다.
 EP-09는 `eventCategory`에 따라 misclassification/overflow를 모두 처리하며, 기존 호출과의
 호환성을 위해 `eventCategory`를 생략하면 misclassification으로 처리한다. misclassification은
@@ -137,8 +137,8 @@ sidebar.html은 라우트 아님 — 각 페이지에 공통 포함되는 사이
 ## 해결된 TBD
 
 - **`trackStarted`/`trackEnded` 및 방문 클립 연결** → `visitClipService`의 active track과
-  `visitClips` 저장소로 구현. EP-12의 오분류 이벤트는 활성 방문 녹화 버퍼에서 직전 약 5초
-  GIF를 별도로 저장하며, 전체 방문 GIF는 재학습/방문 기록으로 분리 유지
+  `visitClips` 저장소로 구현. EP-12의 오분류 이벤트는 GridFS에 저장된 전체 방문 GIF에서
+  직전 약 5초 GIF를 파생하며, 전체 방문 GIF는 재학습/방문 기록으로 분리 유지
 
 - **GPU↔백엔드 오분류 판정 신호 전달 방식 확정** → 로컬 백엔드가 프레임을 GPU로 보내는
   방향이 아니라, GPU(`models/trashdetect/tracking2.py`)가 자체 판정 후 `POST

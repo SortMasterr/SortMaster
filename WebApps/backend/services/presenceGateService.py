@@ -6,8 +6,8 @@ architecture.md "탐지 파이프라인"의 사람 존재 감지 게이팅을 �
 투척 시작 순간을 놓칠 수 있어 기각됐고(decisionLog.md), 대신 detection/presenceDetector.py의
 배경 차분 전경 비율을 임계값+디바운스로 게이팅한다.
 
-이 녹화는 실제 오분류 판정과 별개로 시작·종료되지만, 활성 프레임 버퍼는 오분류 판정 직전
-5초 미리보기에 사용된다. 오분류 판정 자체는
+이 녹화는 실제 오분류 판정과 별개로 시작·종료된다. 방문 종료 후 전체 GIF를 GridFS에
+저장하고, 오분류 이벤트가 있으면 DB 원본에서 직전 5초 GIF를 파생한다. 오분류 판정 자체는
 GPU 서버의 models/trashdetect/tracking2.py가 TOP 카메라 RTSP를 직접 보면서 자체적으로
 투척 완료를 판단해 controllers/api.py의 POST /events/aiDisposal로 결과를 푸시하는 방식으로
 확정됐다(과거 "로컬 백엔드가 존재 감지 중 프레임을 샘플링해서 GPU 세션 API로 보내는" 설계는
@@ -25,7 +25,8 @@ import cv2
 import numpy as np
 
 from detection.presenceDetector import PersonPresenceDetector
-from schemas.event import CameraId
+from repositories.eventRepository import eventRepository
+from schemas.event import CameraId, EventCategory
 from services.detectionService import detectionService
 from services.errors import (
     CameraUnavailableError,
@@ -34,8 +35,12 @@ from services.errors import (
     RecordingNotFoundError,
 )
 from services.mediaService import mediaService
+from services.eventMediaService import eventMediaService
 from services.recordingService import recordingService
-from services.visitClipService import visitClipService
+from services.visitClipService import (
+    visitClipService,
+    windowBufferSeconds,
+)
 from streaming.cameraManager import cameraManagers
 
 logger = logging.getLogger(__name__)
@@ -278,9 +283,42 @@ class PresenceGateService:
             )
             return
 
-        await visitClipService.createClipForVisit(
-            self.cameraId, startedAt, endedAt, imageFileId
+        candidateEvents = await eventRepository.findAll(
+            fromDate=startedAt,
+            toDate=endedAt + timedelta(
+                seconds=windowBufferSeconds
+            ),
         )
+        matchedEvents = [
+            event
+            for event in candidateEvents
+            if event.cameraId == self.cameraId
+            and event.eventCategory == EventCategory.MISCLASSIFICATION
+            and event.isMisclassified is True
+        ]
+        visitClip = await visitClipService.createClipForVisit(
+            self.cameraId,
+            startedAt,
+            endedAt,
+            imageFileId,
+            [event.eventId for event in matchedEvents],
+        )
+        eventsById = {
+            event.eventId: event
+            for event in matchedEvents
+        }
+
+        for eventId in visitClip.matchedEventIds:
+            event = eventsById.get(eventId)
+
+            if event is None:
+                event = await eventRepository.findById(eventId)
+
+            if event is not None:
+                await eventMediaService.attachPreviewFromVisitClip(
+                    event,
+                    visitClip,
+                )
 
 
 presenceGateService = PresenceGateService(CameraId.ELEVTOP, cameraManagers)

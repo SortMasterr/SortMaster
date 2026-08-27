@@ -369,6 +369,23 @@ class EventRepository:
             {"$set": {"imageFileId": imageFileId}},
         )
 
+    async def updateImageFileIdIfMissing(
+        self,
+        eventId: str,
+        imageFileId: str,
+    ) -> bool:
+        result = await self.collection.update_one(
+            {
+                "eventId": eventId,
+                "$or": [
+                    {"imageFileId": None},
+                    {"imageFileId": {"$exists": False}},
+                ],
+            },
+            {"$set": {"imageFileId": imageFileId}},
+        )
+        return result.modified_count > 0
+
     def _buildCurrentDocumentQuery(self) -> dict:
         return {
             "eventId": {"$type": "string", "$ne": ""},

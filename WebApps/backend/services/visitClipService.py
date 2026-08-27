@@ -10,8 +10,8 @@ presenceGateService.py 참고) — 여기서는 "이미 저장하기로 확정�
 연결한다. 보통 트랙은 사람이 아직 통 앞에 있는 동안 확정되므로(방문 녹화가 끝나기 전에
 aiDisposal/trackEnded가 먼저 도착), clip은 클립을 만드는 시점에 이 메모리를 스캔해서
 trackIds/matchedEventIds/unresolvedTrackIds를 채운다. clip이 이미 만들어진 "뒤"에
-결과가 도착하는 드문 순서는 repositories/visitClipRepository.py의 DB 폴백(trackIds 배열
-포함 쿼리)으로 처리한다.
+결과가 도착하는 드문 순서는 repositories/visitClipRepository.py에서 trackId를 먼저 찾고,
+GPU가 trackStarted를 보내지 않은 환경에서는 cameraId와 이벤트 시각으로 DB 폴백 매칭한다.
 """
 from __future__ import annotations
 
@@ -81,7 +81,9 @@ class VisitClipService:
         self,
         trackId: int,
         eventId: str | None,
-    ) -> None:
+        cameraId: CameraId,
+        timestamp: datetime,
+    ) -> VisitClip | None:
         """aiDisposal이 correct/incorrect로 확정될 때 호출한다.
 
         eventId는 실제로 EVENT가 저장된 경우(incorrect)에만 전달하고, correct처럼
@@ -96,20 +98,33 @@ class VisitClipService:
         if active is not None:
             active.resolved = True
             active.matchedEventId = eventId
-            return
+            return None
 
         if eventId is None:
-            return
+            return None
 
-        matched = await visitClipRepository.addMatchedEvent(trackId, eventId)
+        clip = await visitClipRepository.addMatchedEvent(
+            trackId,
+            eventId,
+        )
 
-        if not matched:
+        if clip is None:
+            clip = await visitClipRepository.addMatchedEventByTimestamp(
+                cameraId,
+                _normalizeToUtc(timestamp),
+                eventId,
+                windowBufferSeconds,
+            )
+
+        if clip is None:
             logger.warning(
                 "[visitClipService] aiDisposal에 대응하는 visitClip을 찾지 못함: "
                 "trackId=%s",
                 trackId,
             )
-            return
+            return None
+
+        return clip
 
     async def registerTrackEnded(self, trackId: int) -> None:
         if trackId in self._activeTracks:
@@ -135,11 +150,13 @@ class VisitClipService:
         startedAt: datetime,
         endedAt: datetime,
         imageFileId: str,
-    ) -> None:
+        additionalMatchedEventIds: list[str] | None = None,
+    ) -> VisitClip:
         """presence 이탈로 녹화가 끝날 때마다 무조건 호출 — 판정 여부와 무관하게 저장한다.
 
         전체 방문 GIF는 VisitClip.imageFileId에만 저장한다. matchedEventIds는 관련
-        이벤트를 찾기 위한 연결 정보이며 Event.imageFileId를 백필하지 않는다.
+        이벤트를 찾기 위한 연결 정보다. 저장이 끝난 뒤 전체 방문 GIF에서 이벤트 직전
+        5초를 파생해 Event.imageFileId에 별도 파일로 연결한다.
         """
         matchedTrackIds = [
             trackId
@@ -151,11 +168,14 @@ class VisitClipService:
             (trackId, self._activeTracks.pop(trackId)) for trackId in matchedTrackIds
         ]
 
-        matchedEventIds = [
-            active.matchedEventId
-            for _trackId, active in matchedTracks
-            if active.matchedEventId is not None
-        ]
+        matchedEventIds = list(dict.fromkeys([
+            *(
+                active.matchedEventId
+                for _trackId, active in matchedTracks
+                if active.matchedEventId is not None
+            ),
+            *(additionalMatchedEventIds or []),
+        ]))
         unresolvedTrackIds = [
             trackId for trackId, active in matchedTracks if not active.resolved
         ]
@@ -171,7 +191,7 @@ class VisitClipService:
         )
         await visitClipRepository.save(clip)
 
-        return matchedEventIds
+        return clip
 
     async def listRecentClips(self, limit: int = 60) -> list[VisitClipSummary]:
         """관리자 웹에서 최신 방문 클립을 훑어보기 위한 목록."""

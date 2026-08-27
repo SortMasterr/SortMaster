@@ -89,6 +89,7 @@ class TrainingPipeline(
         self.trainingResult = self.workspace / "trainingResult.json"
         self.evaluationResult = self.workspace / "evaluation.json"
         self.deploymentResult = self.workspace / "deployment.json"
+        self.smokeTestResult = self.workspace / "smokeTest.json"
         self.cycleManifest = self.workspace / "cycleModel.json"
 
     def pinActiveModel(self):
@@ -105,12 +106,13 @@ def parseArgs() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=[
         "collect", "extract", "select", "label", "review", "reviewUi", "humanReview", "build", "train",
-        "publish", "syncDataset", "evaluate", "promote", "deploy", "rollback", "prepareDailyBatch",
+        "publish", "syncDataset", "evaluate", "promote", "deploy", "smokeTest", "rollback", "prepareDailyBatch",
         "continueAfterHumanReview", "runDaily",
     ])
     parser.add_argument("--config", type=Path, default=defaultConfig)
     parser.add_argument("--batchId", default=date.today().isoformat())
     parser.add_argument("--version", help="rollback할 registry 모델 버전")
+    parser.add_argument("--smokeDevice", help="smoke test 장치 override (예: cpu, 0)")
     parser.add_argument("--reviewHost", default="127.0.0.1", help="사람 검수 UI bind host")
     parser.add_argument("--reviewPort", type=int, default=8765, help="사람 검수 UI port")
     parser.add_argument("--noBrowser", action="store_true", help="검수 UI 브라우저 자동 열기 비활성화")
@@ -153,6 +155,9 @@ def main() -> None:
         for stageName in groupedStages["continueAfterHumanReview"]:
             print(f"\n===== {stageName.upper()} batchId={args.batchId} =====")
             stageHandlers[stageName](pipeline)
+        return
+    if args.stage == "smokeTest":
+        pipeline.smokeTest(device=args.smokeDevice)
         return
     if args.stage == "rollback":
         if not args.version:

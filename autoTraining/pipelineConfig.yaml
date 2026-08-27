@@ -86,3 +86,6 @@ promotion:
 deployment:
   # tracking2.py가 기본으로 읽는 운영 파일명. Promote와 Deploy는 의도적으로 분리합니다.
   targetModel: WebApps/backend/models/trashdetect/bestTop.pt
+  # 카메라 없이 모델 로드·클래스 계약·더미 프레임 추론을 검증합니다.
+  smokeImageSize: 416
+  smokeDevice: cpu
