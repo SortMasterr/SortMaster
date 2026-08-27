@@ -85,5 +85,15 @@ class MediaService:
             cameraId,
         )
 
+    async def getClip(
+        self,
+        fileId: str,
+        cameraId: CameraId,
+    ) -> bytes | None:
+        return await self.repository.getBytesById(
+            fileId,
+            cameraId,
+        )
+
 
 mediaService = MediaService(mediaRepository)

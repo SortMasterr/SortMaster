@@ -6,6 +6,14 @@ import main
 
 
 class ApplicationLifecycleTest(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.ensureVisitClipIndexes = patch.object(
+            main.visitClipRepository,
+            "ensureIndexes",
+            AsyncMock(),
+        ).start()
+        self.addCleanup(patch.stopall)
+
     async def testLifespanChecksDatabaseAndReleasesResources(self):
         cameraManager = Mock()
         cameraManager.stop = AsyncMock()
@@ -60,6 +68,7 @@ class ApplicationLifecycleTest(unittest.IsolatedAsyncioTestCase):
                 pingMongo.assert_awaited_once_with()
                 ensureIndexes.assert_awaited_once_with()
                 ensureBinStateIndexes.assert_awaited_once_with()
+                self.ensureVisitClipIndexes.assert_awaited_once_with()
                 ensureCollectionTaskIndexes.assert_awaited_once_with()
                 startPresenceGate.assert_awaited_once_with()
 

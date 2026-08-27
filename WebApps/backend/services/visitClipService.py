@@ -81,26 +81,25 @@ class VisitClipService:
         self,
         trackId: int,
         eventId: str | None,
-    ) -> str | None:
+    ) -> None:
         """aiDisposal이 correct/incorrect로 확정될 때 호출한다.
 
         eventId는 실제로 EVENT가 저장된 경우(incorrect)에만 전달하고, correct처럼
         EVENT가 저장되지 않는 경우는 None으로 호출한다(그래도 방문 자체는 "해결됨"으로
         표시해야 재학습 후보에서 제외된다).
 
-        반환값은 즉시 채워야 할 imageFileId — clip이 이미 만들어진 뒤에 도착한 드문
-        경우에만 값이 있고, 보통(clip이 아직 안 만들어진 경우)은 None을 반환하며 clip
-        생성 시점에 한꺼번에 채워진다(createClipForVisit의 반환값 참고).
+        eventId는 visitClip의 matchedEventIds 연결에만 사용한다. Event.imageFileId에는
+        오분류 직전 5초 전용 GIF만 저장하므로 전체 방문 GIF를 반환하지 않는다.
         """
         active = self._activeTracks.get(trackId)
 
         if active is not None:
             active.resolved = True
             active.matchedEventId = eventId
-            return None
+            return
 
         if eventId is None:
-            return None
+            return
 
         matched = await visitClipRepository.addMatchedEvent(trackId, eventId)
 
@@ -110,9 +109,7 @@ class VisitClipService:
                 "trackId=%s",
                 trackId,
             )
-            return None
-
-        return await visitClipRepository.getImageFileId(trackId)
+            return
 
     async def registerTrackEnded(self, trackId: int) -> None:
         if trackId in self._activeTracks:
@@ -138,12 +135,11 @@ class VisitClipService:
         startedAt: datetime,
         endedAt: datetime,
         imageFileId: str,
-    ) -> list[str]:
+    ) -> None:
         """presence 이탈로 녹화가 끝날 때마다 무조건 호출 — 판정 여부와 무관하게 저장한다.
 
-        반환값은 imageFileId를 뒤늦게 채워야 할 eventId 목록(호출자가
-        eventRepository.updateImageFileId로 백필해야 함) — correct 판정처럼 애초에
-        EVENT가 없는 트랙은 여기 안 나온다.
+        전체 방문 GIF는 VisitClip.imageFileId에만 저장한다. matchedEventIds는 관련
+        이벤트를 찾기 위한 연결 정보이며 Event.imageFileId를 백필하지 않는다.
         """
         matchedTrackIds = [
             trackId
@@ -188,7 +184,7 @@ class VisitClipService:
         if media is None:
             return None
         imageFileId, cameraId = media
-        return await mediaRepository.getBytes(imageFileId, cameraId)
+        return await mediaRepository.getBytesById(imageFileId, cameraId)
 
 
 visitClipService = VisitClipService()

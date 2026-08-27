@@ -240,13 +240,66 @@
                     <div class="mValue" id="mResult">-</div>
                 </div>
 
+                <div class="mItem mMediaItem">
+                    <div class="mLabel">
+                        이벤트 영상 · 직전 약 5초
+                    </div>
+
+                    <button
+                        id="eventMediaThumbnailBtn"
+                        class="eventMediaThumbnailBtn"
+                        type="button"
+                        aria-label="이벤트 GIF 확대 재생"
+                        hidden
+                    >
+                        <img
+                            id="eventMediaThumbnail"
+                            alt="오분류 직전 이벤트 영상"
+                        >
+                        <span class="eventMediaPlayIcon">
+                            <i class="fa-solid fa-expand"></i>
+                        </span>
+                    </button>
+
+                    <div
+                        id="eventMediaEmpty"
+                        class="eventMediaEmpty"
+                    >
+                        <i class="fa-regular fa-image"></i>
+                        <span>저장된 영상 없음</span>
+                    </div>
+                </div>
+
             </div>
+        </div>
+
+        <div
+            id="eventMediaViewer"
+            class="eventMediaViewer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="이벤트 GIF 확대 재생"
+            hidden
+        >
+            <button
+                id="eventMediaViewerClose"
+                class="eventMediaViewerClose"
+                type="button"
+                aria-label="영상 닫기"
+            >
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+
+            <img
+                id="eventMediaViewerImage"
+                alt="오분류 직전 5초 GIF"
+            >
         </div>
     </div>
 
     <!-- 공통 JavaScript를 먼저 불러옵니다. -->
     <script src="/static/js/sidebar.js?v=13"></script>
-    <script src="/static/js/eventsList.js?v=16"></script>
+    <script src="/static/js/eventsList.js?v=17"></script>
 </body>
 
 </html>
