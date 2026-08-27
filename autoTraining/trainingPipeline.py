@@ -65,6 +65,7 @@ class TrainingPipeline(
         self.candidatesRoot = self.workspace / "candidates"
         self.autoLabelsRoot = self.workspace / "autoLabels"
         self.annotatedRoot = self.workspace / "annotated"
+        self.qwenAnnotatedRoot = self.workspace / "qwenAnnotated"
         self.humanReviewRoot = self.workspace / "humanReview"
         # Qwen 분류별 사본은 검수 편의를 위한 뷰이며 Build의 승인 근거는 humanReviews.jsonl이다.
         self.approvedRoot = self.humanReviewRoot / "qwenApproved"
