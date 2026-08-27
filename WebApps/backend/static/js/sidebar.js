@@ -9,6 +9,180 @@ let sidebarSocket = null;
 let reconnectTimer = null;
 let sidebarWarningTimer = null;
 let collectionAlertPollTimer = null;
+let currentMisclassificationAlerts = [];
+
+const acknowledgedAlertsStorageKey =
+    "sortMasterAcknowledgedMisclassificationIds";
+
+
+function getAcknowledgedAlertIds() {
+    try {
+        const storedValue = JSON.parse(
+            localStorage.getItem(
+                acknowledgedAlertsStorageKey
+            ) || "[]"
+        );
+
+        return new Set(
+            Array.isArray(storedValue)
+                ? storedValue
+                : []
+        );
+    } catch (error) {
+        console.warn(
+            "미확인 알림 저장값을 읽지 못했습니다:",
+            error
+        );
+
+        return new Set();
+    }
+}
+
+
+function saveAcknowledgedAlertIds(alertIds) {
+    const recentAlertIds =
+        Array.from(alertIds).slice(-500);
+
+    localStorage.setItem(
+        acknowledgedAlertsStorageKey,
+        JSON.stringify(recentAlertIds)
+    );
+}
+
+
+function updateMisclassificationAlertBadge(count) {
+    const badge = document.getElementById(
+        "misclassificationAlertBadge"
+    );
+
+    if (!badge) {
+        return;
+    }
+
+    badge.hidden = count === 0;
+    badge.textContent = count > 99
+        ? "99+"
+        : String(count);
+    badge.setAttribute(
+        "aria-label",
+        `미확인 오분류 ${count}건`
+    );
+}
+
+
+function publishMisclassificationAlerts(alerts) {
+    currentMisclassificationAlerts = alerts;
+    window.sortMasterMisclassificationAlerts = alerts;
+
+    updateMisclassificationAlertBadge(
+        alerts.length
+    );
+
+    window.dispatchEvent(
+        new CustomEvent(
+            "sortMasterMisclassificationAlertsUpdated",
+            {
+                detail: {
+                    alerts,
+                },
+            }
+        )
+    );
+}
+
+
+function getTodayStartIso() {
+    const today = new Date();
+
+    today.setHours(0, 0, 0, 0);
+
+    return today.toISOString();
+}
+
+
+async function refreshMisclassificationAlerts() {
+    try {
+        const parameters = new URLSearchParams({
+            from: getTodayStartIso(),
+        });
+
+        const response = await fetch(
+            `/api/events?${parameters.toString()}`
+        );
+
+        if (!response.ok) {
+            throw new Error(
+                `오분류 알림 조회 실패: ${response.status}`
+            );
+        }
+
+        const acknowledgedIds =
+            getAcknowledgedAlertIds();
+        const events = await response.json();
+        const alerts = events
+            .filter((eventData) => {
+                return (
+                    eventData.eventCategory ===
+                        "misclassification" &&
+                    eventData.isMisclassified === true &&
+                    eventData.actionTaken !== "none" &&
+                    !acknowledgedIds.has(
+                        eventData.eventId
+                    )
+                );
+            })
+            .sort((left, right) => {
+                return new Date(right.timestamp) -
+                    new Date(left.timestamp);
+            });
+
+        publishMisclassificationAlerts(alerts);
+    } catch (error) {
+        console.warn(
+            "미확인 오분류 알림을 갱신하지 못했습니다:",
+            error
+        );
+    }
+}
+
+
+function acknowledgeMisclassificationAlert(eventId) {
+    const acknowledgedIds =
+        getAcknowledgedAlertIds();
+
+    acknowledgedIds.add(eventId);
+    saveAcknowledgedAlertIds(acknowledgedIds);
+
+    publishMisclassificationAlerts(
+        currentMisclassificationAlerts.filter(
+            (alertData) =>
+                alertData.eventId !== eventId
+        )
+    );
+}
+
+
+function acknowledgeAllMisclassificationAlerts() {
+    const acknowledgedIds =
+        getAcknowledgedAlertIds();
+
+    currentMisclassificationAlerts.forEach(
+        (alertData) => {
+            acknowledgedIds.add(
+                alertData.eventId
+            );
+        }
+    );
+
+    saveAcknowledgedAlertIds(acknowledgedIds);
+    publishMisclassificationAlerts([]);
+}
+
+
+window.acknowledgeMisclassificationAlert =
+    acknowledgeMisclassificationAlert;
+window.acknowledgeAllMisclassificationAlerts =
+    acknowledgeAllMisclassificationAlerts;
 
 
 function setBinFullAlertVisible(isVisible) {
@@ -293,6 +467,10 @@ function connectSidebarSocket() {
         "/ws/events"
     );
 
+    sidebarSocket.onopen = () => {
+        refreshMisclassificationAlerts();
+    };
+
     sidebarSocket.onmessage = (
         event
     ) => {
@@ -321,6 +499,7 @@ function connectSidebarSocket() {
             "MISCLASSIFICATION_DETECTED"
         ) {
             showEventWarning();
+            refreshMisclassificationAlerts();
         }
 
         if (
@@ -423,6 +602,7 @@ function initSidebarEvents() {
     updateSidebarUI();
     connectSidebarSocket();
     refreshBinFullAlert();
+    refreshMisclassificationAlerts();
 
     collectionAlertPollTimer =
         setInterval(
@@ -449,6 +629,16 @@ function initSidebarEvents() {
 window.addEventListener(
     "collectionTasksChanged",
     refreshBinFullAlert
+);
+
+
+document.addEventListener(
+    "visibilitychange",
+    () => {
+        if (!document.hidden) {
+            refreshMisclassificationAlerts();
+        }
+    }
 );
 
 

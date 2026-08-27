@@ -12,6 +12,249 @@ document.addEventListener(
 function initMainEvents() {
     initContainerFullscreen();
     initVideoPaneFullscreen();
+    initMisclassificationAlerts();
+}
+
+
+const alertTypeNameByClass = {
+    normal: "일반쓰레기",
+    paper: "종이",
+    recyclables: "플라스틱·캔",
+    coffeeCup: "커피 컵",
+};
+
+const alertBinNameByType = {
+    normal: "일반쓰레기통",
+    paper: "종이 수거함",
+    recyclables: "재활용 수거함",
+    coffeeCup: "커피 컵 수거함",
+};
+
+const alertCameraNameById = {
+    "ELEV-TOP": "엘리베이터 위 카메라",
+    "ELEV-SIDE": "엘리베이터 옆 카메라",
+    "REST-4F-01": "4층 휴게실",
+};
+
+
+function formatAlertTime(timestamp) {
+    const date = new Date(timestamp);
+
+    if (Number.isNaN(date.getTime())) {
+        return "시간 미상";
+    }
+
+    return date.toLocaleTimeString(
+        "ko-KR",
+        {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false,
+        }
+    );
+}
+
+
+function buildAlertDetail(alertData) {
+    const detectedName =
+        alertTypeNameByClass[
+            alertData.detectedClass
+        ] ?? alertData.detectedClass ?? "미분류";
+    const binName =
+        alertBinNameByType[
+            alertData.binType
+        ] ?? alertData.binType ?? "수거함 미상";
+    const details = [
+        `감지: ${detectedName}`,
+        `투입 위치: ${binName}`,
+    ];
+
+    if (
+        typeof alertData.confidenceScore ===
+        "number"
+    ) {
+        details.push(
+            `신뢰도: ${Math.round(
+                alertData.confidenceScore * 100
+            )}%`
+        );
+    }
+
+    return details.join(" · ");
+}
+
+
+function createAlertIcon(className) {
+    const icon = document.createElement("i");
+
+    icon.className = className;
+    icon.setAttribute("aria-hidden", "true");
+
+    return icon;
+}
+
+
+function createMisclassificationAlertItem(
+    alertData
+) {
+    const item = document.createElement("article");
+    const top = document.createElement("div");
+    const title = document.createElement("span");
+    const time = document.createElement("time");
+    const camera = document.createElement("p");
+    const detail = document.createElement("p");
+    const actions = document.createElement("div");
+    const recordLink = document.createElement("a");
+    const acknowledgeButton =
+        document.createElement("button");
+
+    item.className = "eventAlertItem";
+    item.setAttribute("role", "listitem");
+
+    top.className = "eventAlertItemTop";
+    title.className = "eventAlertItemTitle";
+    title.textContent = "오분류 감지";
+
+    time.className = "eventAlertTime";
+    time.dateTime = alertData.timestamp;
+    time.textContent = formatAlertTime(
+        alertData.timestamp
+    );
+
+    top.append(title, time);
+
+    camera.className = "eventAlertCamera";
+    camera.textContent =
+        alertCameraNameById[
+            alertData.cameraId
+        ] ?? alertData.cameraId;
+
+    detail.className = "eventAlertDetail";
+    detail.textContent = buildAlertDetail(
+        alertData
+    );
+
+    actions.className = "eventAlertActions";
+
+    recordLink.className = "alertRecordLink";
+    recordLink.href =
+        `/events?eventId=${encodeURIComponent(
+            alertData.eventId
+        )}`;
+    recordLink.append(
+        createAlertIcon(
+            "fa-solid fa-arrow-up-right-from-square"
+        ),
+        document.createTextNode("기록 보기")
+    );
+
+    acknowledgeButton.className =
+        "alertAcknowledgeBtn";
+    acknowledgeButton.type = "button";
+    acknowledgeButton.append(
+        createAlertIcon("fa-solid fa-check"),
+        document.createTextNode("확인")
+    );
+    acknowledgeButton.addEventListener(
+        "click",
+        () => {
+            window
+                .acknowledgeMisclassificationAlert?.(
+                    alertData.eventId
+                );
+        }
+    );
+
+    actions.append(
+        recordLink,
+        acknowledgeButton
+    );
+    item.append(
+        top,
+        camera,
+        detail,
+        actions
+    );
+
+    return item;
+}
+
+
+function renderMisclassificationAlerts(alerts) {
+    const alertList = document.getElementById(
+        "eventAlertList"
+    );
+    const emptyState = document.getElementById(
+        "eventAlertEmpty"
+    );
+    const countBadge = document.getElementById(
+        "eventAlertCount"
+    );
+    const acknowledgeAllButton =
+        document.getElementById(
+            "acknowledgeAllAlertsBtn"
+        );
+
+    if (
+        !alertList ||
+        !emptyState ||
+        !countBadge ||
+        !acknowledgeAllButton
+    ) {
+        return;
+    }
+
+    const safeAlerts = Array.isArray(alerts)
+        ? alerts
+        : [];
+    const count = safeAlerts.length;
+
+    alertList.replaceChildren(
+        ...safeAlerts.map(
+            createMisclassificationAlertItem
+        )
+    );
+
+    countBadge.textContent = count > 99
+        ? "99+"
+        : String(count);
+    countBadge.classList.toggle(
+        "isEmpty",
+        count === 0
+    );
+    emptyState.hidden = count > 0;
+    alertList.hidden = count === 0;
+    acknowledgeAllButton.hidden = count === 0;
+}
+
+
+function initMisclassificationAlerts() {
+    renderMisclassificationAlerts(
+        window.sortMasterMisclassificationAlerts ??
+            []
+    );
+
+    window.addEventListener(
+        "sortMasterMisclassificationAlertsUpdated",
+        (event) => {
+            renderMisclassificationAlerts(
+                event.detail?.alerts
+            );
+        }
+    );
+
+    document
+        .getElementById(
+            "acknowledgeAllAlertsBtn"
+        )
+        ?.addEventListener(
+            "click",
+            () => {
+                window
+                    .acknowledgeAllMisclassificationAlerts?.();
+            }
+        );
 }
 
 
