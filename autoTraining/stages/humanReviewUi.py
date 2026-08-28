@@ -27,6 +27,7 @@ button{padding:10px 16px;border:0;border-radius:6px;cursor:pointer}.approve{back
 .tool{background:#4b5563;color:#fff;padding:7px 12px;margin:0 6px 6px 0;font-size:.9rem}
 .meta{background:#1f2937;padding:10px;max-height:200px;overflow:auto;font-size:.9rem;line-height:1.7}
 .meta b{color:#9ca3af;font-weight:600;margin-right:6px}.meta .dim{color:#6b7280;font-size:.8rem;word-break:break-all}
+.agree{color:#86efac;margin-right:10px}.disagree{color:#fca5a5;font-weight:600;margin-right:10px}
 .saved{color:#86efac}
 .hint{color:#9ca3af;font-size:.82rem;margin:2px 0 8px}
 @media(max-width:1100px){.panel{display:block}.images{grid-template-columns:1fr}.form{min-width:0}}
@@ -200,6 +201,17 @@ function escapeHtml(value){
     return holder.innerHTML;
 }
 
+// YOLO 라벨과 Qwen 판정을 박스 순서대로 나란히 보여준다. 둘이 다른 박스만 눈에
+// 띄어야 검수자가 어디를 고칠지 바로 안다.
+function renderBoxComparison(comparison){
+    if(!Array.isArray(comparison)||!comparison.length)return '<span class="dim">박스 없음</span>';
+    return comparison.map((item,i)=>{
+        const same=item.yolo===item.qwen;
+        const text=same?escapeHtml(item.yolo):`${escapeHtml(item.yolo)} → ${escapeHtml(item.qwen)}`;
+        return `<span class="${same?'agree':'disagree'}">${i+1}. ${text}</span>`;
+    }).join(' ');
+}
+
 function renderMeta(){
     const review=current.review||{};
     const issues=(review.issues||[]).map((issue)=>issueLabels[issue]||issue).join(' · ')||'-';
@@ -208,7 +220,8 @@ function renderMeta(){
     document.getElementById('meta').innerHTML=
         `<div><b>Qwen 판정</b> ${escapeHtml(decisionLabels[review.decision]||review.decision||'-')}`
         +` <span class="dim">(신뢰도 ${confidence})</span></div>`
-        +`<div><b>Qwen 추정 클래스</b> ${escapeHtml(review.predictedClass||'-')}</div>`
+        +`<div><b>박스별 판정</b> ${renderBoxComparison(review.boxComparison)}</div>`
+        +`<div><b>놓친 쓰레기</b> ${review.hasMissedTrash?'있다고 봄':'없다고 봄'}</div>`
         +`<div><b>지적 사항</b> ${escapeHtml(issues)}</div>`
         +(previous?`<div class="saved"><b>이전 결정</b> ${escapeHtml(decisionLabels[previous]||previous)}</div>`:'')
         +`<div class="dim">${escapeHtml(current.video||'')} / ${escapeHtml(current.id||'')}</div>`;

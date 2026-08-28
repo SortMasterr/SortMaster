@@ -106,7 +106,7 @@ Deploy는 `runDaily`에 포함되지 않으며 사람의 평가 확인과 배포
 | 단일 명령 전체 실행 | 구현됨 | `runDaily`가 검수 완료를 기다린 뒤 평가까지 자동 진행 |
 | MongoDB 이벤트·미확정 방문 수집 | 구현됨·실DB 미검증 | `events.imageFileId`와 `matchedEventIds: []`인 `visitClips.imageFileId`를 `topMedia`에서 수집 |
 | GPU 방문 트랙 신호 | 구현됨·실기기 미검증 | `tracking2.py`가 새 트랙 발견 즉시 `POST /api/events/trackStarted`, 통에 못 들어가고 만료(`TRACK_EXPIRE_FRAMES`)되면 `POST /api/events/trackEnded(unresolved)`를 보내 시도 후 미확정 트랙을 visitClip에 연결. 통에 확정 투입된 트랙은 기존 `aiDisposal`의 `trackId`로 연결(추가 신호 불필요). fragment-duplicate로 스킵되는 트랙(같은 통에 ID가 바뀐 것으로 판단되는 극히 드문 경우)은 trackEnded를 보내지 않음 — 실제 이벤트가 다른 trackId로 이미 확정됐기 때문 |
-| Qwen-VL 실제 연결 | 연결됨·역할 축소 완료 | 프레임 단위 **분류 검증에만** 사용. 응답 스키마에서 **박스 좌표를 아예 제거함**(2026-08-28) — 위치 정확도가 사용 불가 수준(IoU 중앙값 0.00)인 데다, 박스를 요구하면 없는 물체를 confidence 0.95로 만들어내는 환각까지 나왔다. `confidence`는 신뢰 신호로 쓸 수 없다. 스키마 미준수 폭주는 배열 `maxItems`가 구조적으로 차단(`decisionLog.md` 참고) |
+| Qwen-VL 실제 연결 | 연결됨·박스별 검증으로 확정 | **YOLO 박스마다 `actualClass`를 하나씩 답하게 하는 닫힌 검증**(`boxVerdicts`, 배열 길이를 탐지 개수에 고정)과 `hasMissedTrash`/`confidence`만 받는다. **좌표는 요구하지 않음**(환각·IoU 중앙값 0.00). `issues`/`decision`은 모델이 아니라 파이프라인이 YOLO 라벨과 대조해 도출. 좌표 요구 → 프레임 단위 단일 클래스 → 지금 구조로 두 번 뒤집힌 경위는 `decisionLog.md` 참고 |
 | `llm` 서비스 자동 기동·종료 | 구현됨 | `review` 단계가 vLLM 미응답 시 `docker compose --profile llm up -d llm`을 자동 실행하고 준비를 대기(`qwenVl.startupTimeoutSeconds`), 끝나면 **자기가 띄운 경우에만** 자동 종료. 원래 떠 있던 컨테이너는 건드리지 않음 |
 | MongoDB 학습 데이터 Publish | 구현됨·실DB 미검증 | 승인 데이터만 추가, 이미지 중복·계약 충돌 검사 |
 | MongoDB 학습 데이터 Sync | 구현됨·실DB 미검증 | active 데이터 다운로드와 이미지·라벨 해시 검증 |
@@ -354,9 +354,11 @@ python autoTraining\trainingPipeline.py reviewUi --batchId <YYYY-MM-DD> --noBrow
 `--reviewPort`로 바꿀 수 있으며, GPU 서버에서는 팀 공유 규칙상 99로 끝나는 포트를 씁니다.
 모든 큐 ID에 승인 또는 거절 결정이 있어야 다음 단계로 진행할 수 있습니다.
 
-화면은 **원본(드래그해서 박스 그리기)** 과 **YOLO bbox** 두 이미지, 그리고 Qwen 판정·지적
-사항을 보여줍니다. 단축키: `←`/`→` 이전·다음 프레임, 숫자 `1~9` 클래스 선택, `Del` 선택 박스
-삭제, `Ctrl+Z` 되돌리기.
+화면은 **원본(드래그해서 박스 그리기)** 과 **YOLO bbox** 두 이미지, 그리고 Qwen의 **박스별
+판정**을 보여줍니다. 박스별 판정은 `1. TrashCoffeecup → notTrash` 형태로 YOLO 라벨과 Qwen
+판단을 나란히 놓고, 둘이 **다른 박스만 빨간색**으로 표시해 어디를 고칠지 바로 보이게 합니다.
+단축키: `←`/`→` 이전·다음 프레임, 숫자 `1~9` 클래스 선택, `Del` 선택 박스 삭제,
+`Ctrl+Z` 되돌리기.
 
 > **Review를 재실행했다면 UI를 껐다 켜야 합니다** — 큐를 다시 읽을 때 새 id만 추가하는
 > append-only 구조라, 같은 id의 갱신된 판정은 반영되지 않습니다.
