@@ -17,6 +17,10 @@ from common.pipelineUtilities import (
     manifestHasRows,
 )
 
+# 박스 안에 쓰레기가 아예 없다(YOLO 오탐)는 뜻으로 모델이 고를 수 있는 값.
+# dataset.classes와 섞이지 않도록 별도 상수로 둔다.
+notTrashClass = "notTrash"
+
 
 class ReviewLabelsStage:
     """Qwen-VL 요청, 응답 검증, 검수 결과 분류를 담당합니다."""
@@ -183,46 +187,54 @@ class ReviewLabelsStage:
         print(f"[QWEN-VL] 자동 선택 모델: {qwenVlModels[0]}")
         return qwenVlModels[0]
 
-    def _reviewSchema(self) -> dict[str, Any]:
+    def _reviewSchema(self, detectionCount: int) -> dict[str, Any]:
         """Qwen-VL이 반환해야 하는 camelCase JSON 구조를 정의합니다.
 
-        좌표(bbox)는 요구하지 않습니다 — 2026-08-28 실측에서 Qwen이 없는 물체를
-        confidence 0.95로 만들어내는 환각이 확인됐고, 정밀 로컬라이제이션은 VLM의
-        구조적 약점이라 판단해 YOLO 결과에 대한 분류 검증만 맡기는 범위로 되돌렸습니다
-        (`architecture.md`의 "LLM 활용"이 원래 정의한 검증/보정 범위). 박스 작성은
-        사람 검수 UI의 드래그 기능이 담당합니다.
+        **모델에게는 "박스별 닫힌 검증"만 시킨다.** YOLO가 그린 박스마다 그 안에 실제로
+        무엇이 있는지 하나씩 답하게 하고(`boxVerdicts`), 배열 길이를 탐지 개수에 정확히
+        고정해(`minItems == maxItems == detectionCount`) 빈 배열로 회피할 수 없게 한다.
+
+        이 구조에 이르기까지의 경위(2026-08-28 실측):
+        - 좌표(bbox)를 요구했더니 없는 물체를 confidence 0.95로 만들어내는 환각이 나왔다.
+          정밀 로컬라이제이션은 VLM의 구조적 약점이라 좌표는 아예 받지 않는다.
+        - 그다음 프레임 단위 `decision`/`predictedClass` 하나만 받도록 축소했더니 2,796건
+          전부 `predictedClass=none`, `issues=[]`로 동일한 무의미 출력이 나왔다. 원인은
+          (a) 프레임에 박스가 여럿인데 클래스 필드가 하나뿐이라 "1번은 맞고 2번은 틀렸다"를
+          표현할 수 없었고, (b) `decision`/`none`이 모델에게 판단 보류라는 탈출구를 준 것.
+          `decision`은 어차피 아래 `review()`가 신뢰도·이슈로 다시 계산하므로 제거했다.
+        - 별도 실측에서 모델이 이미지를 정확히 묘사하는 것은 확인됐고(인지 능력은 충분),
+          같은 프롬프트를 스키마 없이 물었을 때와 답이 일치해 guided decoding 자체는
+          원인이 아니었다.
+
+        `issues`와 `decision`은 모델에게 묻지 않고 `review()`가 YOLO 라벨과 이 응답을
+        비교해 직접 도출한다.
         """
         classes = self.config["dataset"]["classes"]
         return {
             "type": "object",
             "properties": {
-                "decision": {
-                    "type": "string",
-                    "enum": ["approved", "rejected", "manualReview"],
-                },
-                "predictedClass": {
-                    "type": "string",
-                    "enum": classes + ["none", "multiple"],
-                },
-                "issues": {
+                "boxVerdicts": {
                     "type": "array",
-                    # 허용값이 8종뿐인데 상한이 없으면 guided decoding 문법상 같은 값을
-                    # 무한히 반복할 수 있고, 그러면 모델이 멈추지 못해 잘린 JSON이
-                    # 나온다(2026-08-26 실제 발생). 원소 수를 묶어 구조적으로 막는다.
-                    "maxItems": 8,
+                    "description": (
+                        "YOLO 박스와 같은 순서·같은 개수로, 각 박스 안에 실제로 있는 것."
+                    ),
+                    "minItems": detectionCount,
+                    "maxItems": detectionCount,
                     "items": {
-                        "type": "string",
-                        "enum": [
-                            "none",
-                            "wrongClass",
-                            "missingObject",
-                            "extraBox",
-                            "badBbox",
-                            "tooBlurry",
-                            "tooDark",
-                            "multipleObjects",
-                        ],
+                        "type": "object",
+                        "properties": {
+                            "actualClass": {
+                                "type": "string",
+                                "enum": classes + [notTrashClass],
+                            },
+                        },
+                        "required": ["actualClass"],
+                        "additionalProperties": False,
                     },
+                },
+                "hasMissedTrash": {
+                    "type": "boolean",
+                    "description": "YOLO가 잡지 못한 쓰레기가 원본에 있으면 true.",
                 },
                 "confidence": {
                     "type": "number",
@@ -230,32 +242,35 @@ class ReviewLabelsStage:
                     "maximum": 1,
                 },
             },
-            "required": [
-                "decision",
-                "predictedClass",
-                "issues",
-                "confidence",
-            ],
+            "required": ["boxVerdicts", "hasMissedTrash", "confidence"],
             "additionalProperties": False,
         }
 
-    def _validateReview(self, content: str) -> dict[str, Any]:
+    def _validateReview(self, content: str, detectionCount: int) -> dict[str, Any]:
         """Qwen-VL 응답의 JSON 형식과 허용값을 후속 처리 전에 검증합니다."""
         if chinesePattern.search(content):
             raise ValueError("Qwen-VL 응답에 허용하지 않는 중국어 문자가 있습니다.")
 
         review = json.loads(content)
-        schema = self._reviewSchema()
-        properties = schema["properties"]
-        if review.get("decision") not in properties["decision"]["enum"]:
-            raise ValueError("허용되지 않는 decision입니다.")
-        if review.get("predictedClass") not in properties["predictedClass"]["enum"]:
-            raise ValueError("허용되지 않는 predictedClass입니다.")
+        schema = self._reviewSchema(detectionCount)
+        allowedClasses = set(
+            schema["properties"]["boxVerdicts"]["items"]["properties"]["actualClass"]["enum"]
+        )
 
-        allowedIssues = set(properties["issues"]["items"]["enum"])
-        issues = review.get("issues")
-        if not isinstance(issues, list) or not set(issues) <= allowedIssues:
-            raise ValueError("허용되지 않는 issues입니다.")
+        verdicts = review.get("boxVerdicts")
+        if not isinstance(verdicts, list):
+            raise ValueError("boxVerdicts는 배열이어야 합니다.")
+        # 길이가 어긋나면 어느 판정이 어느 박스인지 알 수 없으므로 응답 전체를 버린다.
+        if len(verdicts) != detectionCount:
+            raise ValueError(
+                f"boxVerdicts는 YOLO 탐지 개수({detectionCount})와 같아야 합니다: {len(verdicts)}"
+            )
+        for verdict in verdicts:
+            if verdict.get("actualClass") not in allowedClasses:
+                raise ValueError("boxVerdicts에 허용되지 않는 actualClass가 있습니다.")
+
+        if not isinstance(review.get("hasMissedTrash"), bool):
+            raise ValueError("hasMissedTrash는 불리언이어야 합니다.")
 
         confidence = float(review.get("confidence", -1))
         if not 0 <= confidence <= 1:
@@ -263,42 +278,62 @@ class ReviewLabelsStage:
         review["confidence"] = confidence
         return review
 
+    def _yoloClasses(self, row: dict[str, Any]) -> list[str]:
+        """한 프레임의 YOLO 탐지를 클래스명 리스트로 바꿉니다(박스 순서 유지)."""
+        classes = self.config["dataset"]["classes"]
+        return [classes[item["classId"]] for item in row["detections"]]
+
+    @staticmethod
+    def _deriveIssues(
+        yoloClasses: list[str],
+        review: dict[str, Any],
+    ) -> tuple[list[str], list[dict[str, str]]]:
+        """모델의 박스별 판정을 YOLO 라벨과 대조해 기존 `issues` 어휘로 옮깁니다.
+
+        모델에게 `issues`를 직접 묻지 않는 이유는 `_reviewSchema` 참고 — 판단 보류
+        탈출구를 주지 않으려고 닫힌 질문만 하고, 해석은 이쪽에서 한다. 사람 검수 UI가
+        바로 쓸 수 있도록 YOLO와 모델 답을 나란히 둔 비교표도 같이 만든다.
+        """
+        verdicts = [verdict["actualClass"] for verdict in review["boxVerdicts"]]
+        comparison = [
+            {"yolo": yoloClass, "qwen": verdict}
+            for yoloClass, verdict in zip(yoloClasses, verdicts)
+        ]
+        issues = []
+        if any(verdict == notTrashClass for verdict in verdicts):
+            issues.append("extraBox")
+        if any(
+            verdict != notTrashClass and verdict != yoloClass
+            for yoloClass, verdict in zip(yoloClasses, verdicts)
+        ):
+            issues.append("wrongClass")
+        if review["hasMissedTrash"]:
+            issues.append("missingObject")
+        return (issues or ["none"]), comparison
+
     def _reviewOne(
         self,
         qwenVlModel: str,
         row: dict[str, Any],
     ) -> dict[str, Any]:
         """원본과 bbox 표시 이미지를 Qwen-VL에 보내 한 프레임을 검수합니다."""
-        classes = self.config["dataset"]["classes"]
-        detections = [
-            {
-                "class": classes[item["classId"]],
-                "confidence": round(item["confidence"], 4),
-                "xyxy": [round(value, 1) for value in item["xyxy"]],
-            }
-            for item in row["detections"]
-        ]
-        # 좌표를 요구하지 않는다 — 박스를 내놓으라고 압박했을 때 없는 물체를 높은
-        # confidence로 만들어내는 환각이 실측으로 확인됐다(2026-08-28). 판단을 YOLO
-        # 결과에 대한 검증으로 한정하고, 확신이 없으면 manualReview로 넘기도록 명시한다.
+        yoloClasses = self._yoloClasses(row)
+        # "이 프레임에 뭐가 있나"(열린 생성)가 아니라 "이 박스가 맞나"(닫힌 검증)를 묻는다 —
+        # VLM은 생성보다 검증을 잘하고, 열린 질문으로 물었을 때는 전 프레임이 같은 답으로
+        # 무너졌다(2026-08-28, 자세한 경위는 _reviewSchema 참고).
         prompt = (
-            "첫 번째 이미지는 원본 CCTV 프레임이고 두 번째 이미지는 "
-            "YOLO bbox 표시 이미지다. 다음 두 가지를 모두 확인하라. "
-            "(1) YOLO가 이미 찾은 각 객체의 클래스와 bbox가 실제로 맞는지 "
-            "검증하라 — 틀렸으면 issues에 wrongClass/badBbox 등으로 표시하라. "
-            "(2) 원본 이미지를 직접 보고, YOLO가 놓친 쓰레기(허용 클래스 중 하나)가 "
-            "있는지 확인하라 — YOLO 결과가 비어 있어도 원본에 실제로 쓰레기가 "
-            "명확히 보이면 issues에 missingObject를 표시하고 predictedClass에 그 "
-            "클래스를 적어라. "
-            "매우 중요: 확실히 보이는 것만 보고하라. 있을 법하다고 추측해서 "
-            "없는 물체를 만들어내지 마라. 쓰레기가 안 보이면 predictedClass를 "
-            "none으로 두고, 판단이 애매하면 decision을 manualReview로 하고 "
-            "confidence를 낮게 매겨라 — 억지로 결론을 내는 것보다 사람에게 "
-            "넘기는 편이 낫다. 위치나 좌표는 보고하지 않는다(박스 작성은 사람이 한다). "
+            "첫 번째 이미지는 원본 CCTV 프레임이고, 두 번째 이미지는 YOLO가 찾은 박스를 "
+            "그려 넣은 같은 프레임이다. YOLO가 잡은 박스 목록은 아래 순서와 같다. "
+            "각 박스마다 그 안에 실제로 무엇이 있는지 보고 actualClass를 정하라 — "
+            "YOLO 라벨이 맞으면 같은 값을, 틀렸으면 올바른 클래스를, 애초에 쓰레기가 "
+            f"아니면 {notTrashClass}를 적어라. 반드시 박스 개수만큼 같은 순서로 답하라. "
+            "또 원본 이미지에서 YOLO가 아예 놓친 쓰레기가 보이면 hasMissedTrash를 "
+            "true로 하라. 확실히 보이는 것만 근거로 판단하고, 없는 물체를 추측해서 "
+            "만들어내지 마라. 위치나 좌표는 답하지 않는다(박스 작성은 사람이 한다). "
             "쓰레기통 자체는 검수 대상이 아니다. 반드시 제공된 JSON schema만 "
             "출력하고 중국어와 자연어 설명은 출력하지 마라. "
-            f"허용 클래스: {classes}. YOLO 결과: "
-            f"{json.dumps(detections, ensure_ascii=False)}"
+            f"허용 클래스: {self.config['dataset']['classes']}. "
+            f"YOLO 박스 순서: {json.dumps(yoloClasses, ensure_ascii=False)}"
         )
         imageContents = []
         for imagePathValue in (row["imagePath"], row["annotatedPath"]):
@@ -321,12 +356,15 @@ class ReviewLabelsStage:
                 "json_schema": {
                     "name": "labelReview",
                     "strict": True,
-                    "schema": self._reviewSchema(),
+                    "schema": self._reviewSchema(len(yoloClasses)),
                 },
             },
         }
         response = self._requestQwenVl("POST", "/v1/chat/completions", payload)
-        return self._validateReview(response["choices"][0]["message"]["content"])
+        return self._validateReview(
+            response["choices"][0]["message"]["content"],
+            len(yoloClasses),
+        )
 
     @staticmethod
     def _appendJsonLine(path: Path, row: dict[str, Any]) -> None:
@@ -392,11 +430,18 @@ class ReviewLabelsStage:
             # 서버 오류나 잘못된 응답은 자동 승인하지 않고 사람 검수로 보냅니다.
             if review is None:
                 review = {
-                    "decision": "manualReview",
-                    "predictedClass": "none",
-                    "issues": ["badBbox"],
+                    "boxVerdicts": [],
+                    "hasMissedTrash": False,
                     "confidence": 0.0,
+                    "issues": ["badBbox"],
+                    "boxComparison": [],
                 }
+            else:
+                # issues/decision은 모델이 아니라 여기서 도출한다(_reviewSchema 참고).
+                issues, comparison = self._deriveIssues(self._yoloClasses(row), review)
+                review["issues"] = issues
+                review["boxComparison"] = comparison
+
             riskyIssues = {
                 "wrongClass",
                 "badBbox",
@@ -404,14 +449,12 @@ class ReviewLabelsStage:
                 "extraBox",
                 "multipleObjects",
             }
-            if (
-                review["confidence"] < minimumConfidence
-                or any(
-                    issue in riskyIssues
-                    for issue in review["issues"]
-                )
-            ):
-                review["decision"] = "manualReview"
+            hasRiskyIssue = any(issue in riskyIssues for issue in review["issues"])
+            review["decision"] = (
+                "manualReview"
+                if review["confidence"] < minimumConfidence or hasRiskyIssue
+                else "approved"
+            )
 
             output = dict(row)
             output.update({
@@ -432,9 +475,15 @@ class ReviewLabelsStage:
 
             # 배치가 다 끝나야만 결과를 볼 수 있으면 중간에 이상한 값이 나와도
             # 늦게 알게 되므로, 프레임마다 핵심 판정을 바로 찍는다.
+            boxSummary = ", ".join(
+                item["yolo"] if item["yolo"] == item["qwen"]
+                else f"{item['yolo']}->{item['qwen']}"
+                for item in review["boxComparison"]
+            ) or "(박스 없음)"
             print(
                 f"[REVIEW] {row['id']} -> {review['decision']} "
-                f"class={review['predictedClass']} "
+                f"boxes=[{boxSummary}] "
+                f"missed={review['hasMissedTrash']} "
                 f"issues={review['issues']} "
                 f"confidence={review['confidence']:.2f}"
             )

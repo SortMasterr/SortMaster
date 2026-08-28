@@ -27,12 +27,13 @@ button{padding:10px 16px;border:0;border-radius:6px;cursor:pointer}.approve{back
 .tool{background:#4b5563;color:#fff;padding:7px 12px;margin:0 6px 6px 0;font-size:.9rem}
 .meta{background:#1f2937;padding:10px;max-height:200px;overflow:auto;font-size:.9rem;line-height:1.7}
 .meta b{color:#9ca3af;font-weight:600;margin-right:6px}.meta .dim{color:#6b7280;font-size:.8rem;word-break:break-all}
+.agree{color:#86efac;margin-right:10px}.disagree{color:#fca5a5;font-weight:600;margin-right:10px}
 .saved{color:#86efac}
 .hint{color:#9ca3af;font-size:.82rem;margin:2px 0 8px}
 @media(max-width:1100px){.panel{display:block}.images{grid-template-columns:1fr}.form{min-width:0}}
 </style></head><body><main>
 <header><h2>SortMaster 사람 라벨 검수</h2><span id="progress"></span><span id="saved" class="saved"></span></header>
-<div class="controls"><button class="nav" onclick="move(-1)">이전</button><button class="nav" onclick="move(1)">다음</button><button class="nav" onclick="goUndecided()">미검수로 이동</button></div>
+<div class="controls"><button class="nav" onclick="move(-1)">← 이전</button><button class="nav" onclick="move(1)">다음 →</button><button class="nav" onclick="goUndecided()">미검수로 이동</button><span class="hint" style="margin:0">← → 화살표로 이동</span></div>
 <div class="panel"><div class="images">
 <figure><figcaption>원본 — 드래그해서 박스 그리기</figcaption><canvas id="canvas"></canvas></figure>
 <figure><figcaption>YOLO bbox</figcaption><img id="annotated"></figure></div>
@@ -45,7 +46,7 @@ button{padding:10px 16px;border:0;border-radius:6px;cursor:pointer}.approve{back
   <button class="tool" onclick="clearBoxes()">전체 지우기</button>
   <button class="tool" onclick="undoBox()">되돌리기 (Ctrl+Z)</button>
 </div>
-<p class="hint">드래그=새 박스 · 박스 안 클릭=선택 · Del=삭제 · 아래 텍스트로 직접 편집도 가능</p>
+<p class="hint">드래그=새 박스 · 박스 안 클릭=선택 · Del=삭제 · ← →=이전/다음 프레임 · 아래 텍스트로 직접 편집도 가능</p>
 <label>YOLO 라벨 (classId centerX centerY width height)</label><textarea id="label" oninput="syncFromText()"></textarea>
 <label>검수자</label><input id="reviewer"><label>메모</label><textarea id="notes" style="height:70px"></textarea>
 <button class="approve" onclick="save('approved')">승인 / 수정 승인</button> <button class="reject" onclick="save('rejected')">거절</button></section></div>
@@ -158,6 +159,11 @@ document.addEventListener('keydown',(event)=>{
     if(tag==='textarea'||tag==='input')return;
     if(event.key==='Delete'||event.key==='Backspace'){deleteSelected();event.preventDefault();return}
     if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'){undoBox();event.preventDefault();return}
+    // 좌우 화살표로 프레임 이동 — 수백 장을 넘겨보는 동안 매번 버튼을 누르지 않도록.
+    // preventDefault로 페이지 스크롤을 막는다. index 0에서 왼쪽은 load()가 0으로
+    // 잘라내므로 별도 처리가 필요 없다.
+    if(event.key==='ArrowLeft'){move(-1);event.preventDefault();return}
+    if(event.key==='ArrowRight'){move(1);event.preventDefault();return}
     const digit=parseInt(event.key,10);
     if(Number.isInteger(digit)&&digit>=1&&digit<=classNames.length)setClass(digit-1);
 });
@@ -195,6 +201,17 @@ function escapeHtml(value){
     return holder.innerHTML;
 }
 
+// YOLO 라벨과 Qwen 판정을 박스 순서대로 나란히 보여준다. 둘이 다른 박스만 눈에
+// 띄어야 검수자가 어디를 고칠지 바로 안다.
+function renderBoxComparison(comparison){
+    if(!Array.isArray(comparison)||!comparison.length)return '<span class="dim">박스 없음</span>';
+    return comparison.map((item,i)=>{
+        const same=item.yolo===item.qwen;
+        const text=same?escapeHtml(item.yolo):`${escapeHtml(item.yolo)} → ${escapeHtml(item.qwen)}`;
+        return `<span class="${same?'agree':'disagree'}">${i+1}. ${text}</span>`;
+    }).join(' ');
+}
+
 function renderMeta(){
     const review=current.review||{};
     const issues=(review.issues||[]).map((issue)=>issueLabels[issue]||issue).join(' · ')||'-';
@@ -203,7 +220,8 @@ function renderMeta(){
     document.getElementById('meta').innerHTML=
         `<div><b>Qwen 판정</b> ${escapeHtml(decisionLabels[review.decision]||review.decision||'-')}`
         +` <span class="dim">(신뢰도 ${confidence})</span></div>`
-        +`<div><b>Qwen 추정 클래스</b> ${escapeHtml(review.predictedClass||'-')}</div>`
+        +`<div><b>박스별 판정</b> ${renderBoxComparison(review.boxComparison)}</div>`
+        +`<div><b>놓친 쓰레기</b> ${review.hasMissedTrash?'있다고 봄':'없다고 봄'}</div>`
         +`<div><b>지적 사항</b> ${escapeHtml(issues)}</div>`
         +(previous?`<div class="saved"><b>이전 결정</b> ${escapeHtml(decisionLabels[previous]||previous)}</div>`:'')
         +`<div class="dim">${escapeHtml(current.video||'')} / ${escapeHtml(current.id||'')}</div>`;

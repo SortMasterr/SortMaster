@@ -78,8 +78,8 @@ Deploy는 모델 교체 전에 로드·클래스 계약·더미 프레임 추론
 | 1. Extract | 자동 | 수집 영상에서 프레임을 추출합니다. | 없음 |
 | 2. Select | 자동 | 간격·선명도·밝기 기준으로 후보 프레임을 선별합니다. | 선별 기준 변경 시 설정값을 조정합니다. |
 | 3. Label | 자동 | 고정한 YOLO 기준 모델로 라벨을 생성합니다. | 없음 |
-| 4. Review | 자동 | Qwen-VL이 라벨을 검토하고 모든 항목을 검수 큐로 보냅니다. | Qwen 장애나 비정상 응답을 확인합니다. |
-| 사람 검수 UI | 수동 | 시스템이 이미지·YOLO 라벨·Qwen 의견을 표시하고 결정을 저장합니다. | 각 항목을 승인, 라벨 수정 승인 또는 거절합니다. |
+| 4. Review | 자동 | 필요하면 `llm` 서비스를 자동 기동한 뒤 Qwen-VL이 라벨의 **클래스를 검증**하고(좌표는 다루지 않음) 모든 항목을 검수 큐로 보냅니다. 끝나면 자기가 띄운 `llm`은 자동 종료합니다. | Qwen 장애나 비정상 응답을 확인합니다. |
+| 사람 검수 UI | 수동 | 원본(박스 드래그용)과 YOLO bbox 두 이미지, Qwen 의견(판정·지적 사항 텍스트)을 표시하고 결정을 저장합니다. | 각 항목을 승인, 라벨 수정 승인 또는 거절합니다. Qwen 의견은 참고용이며 최종 판단은 사람이 합니다. |
 | 5. HumanReview | 반자동 | 코드가 사람 결정의 누락·중복·허용값과 라벨 파일을 검증합니다. | 앞 단계에서 모든 항목의 최종 결정을 내려야 합니다. |
 | 6. Publish | 자동 | 사람 승인 데이터만 MongoDB 학습 데이터 원본에 추가합니다. | 운영 DB 쓰기 전 대상 배치를 확인합니다. |
 | 7. SyncDataset | 자동 | 계약에 맞는 전체 active 데이터를 고정 로컬 스냅샷으로 동기화합니다. | 없음 |
@@ -106,16 +106,17 @@ Deploy는 `runDaily`에 포함되지 않으며 사람의 평가 확인과 배포
 | 단일 명령 전체 실행 | 구현됨 | `runDaily`가 검수 완료를 기다린 뒤 평가까지 자동 진행 |
 | MongoDB 이벤트·미확정 방문 수집 | 구현됨·실DB 미검증 | `events.imageFileId`와 `matchedEventIds: []`인 `visitClips.imageFileId`를 `topMedia`에서 수집 |
 | GPU 방문 트랙 신호 | 구현됨·실기기 미검증 | `tracking2.py`가 새 트랙 발견 즉시 `POST /api/events/trackStarted`, 통에 못 들어가고 만료(`TRACK_EXPIRE_FRAMES`)되면 `POST /api/events/trackEnded(unresolved)`를 보내 시도 후 미확정 트랙을 visitClip에 연결. 통에 확정 투입된 트랙은 기존 `aiDisposal`의 `trackId`로 연결(추가 신호 불필요). fragment-duplicate로 스킵되는 트랙(같은 통에 ID가 바뀐 것으로 판단되는 극히 드문 경우)은 trackEnded를 보내지 않음 — 실제 이벤트가 다른 trackId로 이미 확정됐기 때문 |
-| Qwen-VL 실제 연결 | 연결됨·역할 축소 확정 | 프레임 단위 판정에만 사용. **박스 좌표는 쓰지 않음** — 실측 결과 위치 정확도가 사용 불가 수준(IoU 중앙값 0.00, `decisionLog.md` 참고). 스키마 미준수 폭주는 `max_tokens`로 제한 |
+| Qwen-VL 실제 연결 | 연결됨·박스별 검증으로 확정 | **YOLO 박스마다 `actualClass`를 하나씩 답하게 하는 닫힌 검증**(`boxVerdicts`, 배열 길이를 탐지 개수에 고정)과 `hasMissedTrash`/`confidence`만 받는다. **좌표는 요구하지 않음**(환각·IoU 중앙값 0.00). `issues`/`decision`은 모델이 아니라 파이프라인이 YOLO 라벨과 대조해 도출. 좌표 요구 → 프레임 단위 단일 클래스 → 지금 구조로 두 번 뒤집힌 경위는 `decisionLog.md` 참고 |
+| `llm` 서비스 자동 기동·종료 | 구현됨 | `review` 단계가 vLLM 미응답 시 `docker compose --profile llm up -d llm`을 자동 실행하고 준비를 대기(`qwenVl.startupTimeoutSeconds`), 끝나면 **자기가 띄운 경우에만** 자동 종료. 원래 떠 있던 컨테이너는 건드리지 않음 |
 | MongoDB 학습 데이터 Publish | 구현됨·실DB 미검증 | 승인 데이터만 추가, 이미지 중복·계약 충돌 검사 |
 | MongoDB 학습 데이터 Sync | 구현됨·실DB 미검증 | active 데이터 다운로드와 이미지·라벨 해시 검증 |
 | Build | 구현됨 | MongoDB 스냅샷만 사용, 비율·최소 train/val 검사, 원자적 교체 |
 | 모델 학습·평가 | 구현됨·E2E 미검증 | 실제 Golden Test와 GPU 학습 필요 |
 | 모델 registry·배포 | 구현됨 | 해시 검증, 불변 후보/registry, 원자적 파일 교체, 수동 rollback |
 | Python 환경 | 확인됨 | Conda `env_py311`, Python 3.11, compile/import 통과 |
-| bootstrap 모델 | 존재 | `models/bootstrap/best.pt` |
-| 활성 모델 포인터 | 초기 상태 | `models/current.json` 없음 |
-| 일일 입력 | 없음 | `inputVideos` 파일 없음 |
+| bootstrap 모델 | 존재·비활성 | `models/bootstrap/best.pt`. `current.json`이 생긴 뒤로는 폴백 경로로만 남음(불변 baseline) |
+| 활성 모델 포인터 | 사용 중 | `models/current.json`이 registry 모델을 가리킴(2026-08-28, 모델팀 수동 학습 산출물을 `promoteToRegistry`로 등록). Label/Train과 운영 `bestTop.pt`가 같은 모델을 사용 |
+| 일일 입력 | 있음 | `inputVideos/` 아래 날짜별 배치 |
 | MongoDB 배치 스냅샷 | 없음 | 실제 Publish/Sync 실행 전 |
 | Golden Test | 없음 | `goldenTest` 디렉터리 없음 |
 | 모델 smoke test | 구현됨 | Deploy·Rollback 전 자동 실행, 독립 `smokeTest` 명령 제공 |
@@ -268,6 +269,15 @@ inference:
   confidence: 0.20
   device: 0
 
+qwenVl:
+  apiHost: http://127.0.0.1   # 포트는 .env의 LLM_PORT
+  model: auto                 # 설치 모델 중 qwen+vl 포함 첫 모델
+  timeoutSeconds: 180
+  startupTimeoutSeconds: 180  # llm 자동 기동 후 준비를 기다리는 시간
+  retries: 2
+  minimumReviewConfidence: 0.70
+  maxResponseTokens: 300
+
 dataset:
   trainRatio: 0.80
   valRatio: 0.10
@@ -339,8 +349,19 @@ python autoTraining\trainingPipeline.py reviewUi --batchId <YYYY-MM-DD>
 python autoTraining\trainingPipeline.py reviewUi --batchId <YYYY-MM-DD> --noBrowser
 ```
 
-기본 주소는 `http://127.0.0.1:8765`입니다. UI는 localhost에만 바인딩합니다. 모든 큐 ID에
-승인 또는 거절 결정이 있어야 다음 단계로 진행할 수 있습니다.
+기본 주소는 `http://127.0.0.1:8765`입니다. UI는 localhost에만 바인딩하므로, GPU 서버에서
+띄운 것을 로컬 브라우저로 보려면 SSH 터널이 필요합니다(`gpuServerOps.md`). 포트는
+`--reviewPort`로 바꿀 수 있으며, GPU 서버에서는 팀 공유 규칙상 99로 끝나는 포트를 씁니다.
+모든 큐 ID에 승인 또는 거절 결정이 있어야 다음 단계로 진행할 수 있습니다.
+
+화면은 **원본(드래그해서 박스 그리기)** 과 **YOLO bbox** 두 이미지, 그리고 Qwen의 **박스별
+판정**을 보여줍니다. 박스별 판정은 `1. TrashCoffeecup → notTrash` 형태로 YOLO 라벨과 Qwen
+판단을 나란히 놓고, 둘이 **다른 박스만 빨간색**으로 표시해 어디를 고칠지 바로 보이게 합니다.
+단축키: `←`/`→` 이전·다음 프레임, 숫자 `1~9` 클래스 선택, `Del` 선택 박스 삭제,
+`Ctrl+Z` 되돌리기.
+
+> **Review를 재실행했다면 UI를 껐다 켜야 합니다** — 큐를 다시 읽을 때 새 id만 추가하는
+> append-only 구조라, 같은 id의 갱신된 판정은 반영되지 않습니다.
 
 ### 2차 자동 구간
 
@@ -453,7 +474,8 @@ JSONL은 행 단위로 읽고 프로세스별 임시 파일에 기록한 뒤 `fl
 3. Golden Test 준비
 4. bootstrap 체크포인트 신원과 클래스 계약
 5. `rgb/causal` 및 416/640 입력 계약
-6. GPU 서버 vLLM `/v1/models`와 멀티모달 응답
+6. GPU 서버 vLLM `/v1/models`와 멀티모달 응답 — `review`가 자동 기동하지만, 모델 가중치가
+   아직 캐시되지 않았다면 최초 1회는 수동으로 띄워 다운로드를 끝내둘 것(`gpuServerOps.md`)
 7. 실제 이벤트의 `imageFileId`와 `topMedia` GIF
 8. 학습·Qwen·실시간 추론 동시 실행 시 GPU/VRAM 경합
 
@@ -536,8 +558,10 @@ Golden Test 기준을 확정한 뒤 승인된 후보에만 release를 허용하�
 - `tracking2.py`의 `trackStarted`/`trackEnded` 신호 전송 연동
 - 기존 로컬 데이터셋을 MongoDB 계약으로 안전하게 최초 이관하는 관리자 도구
 - MongoDB Publish/Sync의 mock 기반 단위 테스트와 운영 DB 소규모 통합 테스트
-- Qwen 응답 JSON Schema의 객체·필수 타입·추가 필드 완전 검증
-- Review 재실행 전 상태별 참고 폴더 정리
+- Review 재실행 시 검수 UI가 갱신된 판정을 반영하지 못함 — `reloadQueue`가 새 id만 추가하는
+  append-only 구조라, 재실행 후에는 UI를 껐다 켜야 한다
+- 좌표 제거 후에도 `wrongClass`가 계속 남발되는지 일반 배치(미확정 방문만 모은 배치가 아닌)
+  에서 재측정 — 여전하면 Grounding DINO 또는 파인튜닝 검토(`decisionLog.md`)
 - 배치 상태 파일, 실패 단계 재개, 동일 배치 실행 잠금
 - split별 최소 이미지뿐 아니라 최소 영상·클래스 분포 검증
 - `testRatio` 제거 또는 Golden Test 체계에 맞는 의미 재정의

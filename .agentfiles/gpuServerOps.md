@@ -90,6 +90,13 @@ pip install opencv-python-headless ultralytics requests torch torchvision numpy
 학습 준비 단계 자동 라벨링 검증에서만 이 서비스의 vLLM OpenAI 호환 API를 호출한다. **로컬 PC
 (Windows)엔 GPU가 없어 `llm` 컨테이너는 반드시 GPU 서버에서 띄운다.**
 
+> **평소엔 아래 명령을 직접 칠 필요 없음** — `review` 단계가 시작할 때 `llm`이 응답하지 않으면
+> `reviewLabels.py`가 `docker compose --profile llm up -d llm`을 자동 실행하고 준비될 때까지
+> 기다린다(`qwenVl.startupTimeoutSeconds`, 기본 180초). 끝나면 **자기가 띄운 경우에만** 자동으로
+> 내린다 — 원래 떠 있던 컨테이너는 건드리지 않으므로, 누가 쓰는 중이면 그대로 유지된다.
+> 아래 절차는 (1) 최초 기동이라 가중치 다운로드가 자동 기동 타임아웃보다 오래 걸릴 때
+> (2) 문제를 직접 진단할 때 필요하다.
+
 ### 기동 전 확인
 
 1. 카드 배정: `.env`의 `GPU_DEVICE_ID`가 우리 팀에 할당된 인덱스인지 `nvidia-smi`로 재확인(다른
@@ -111,6 +118,8 @@ docker compose logs -f llm
 
 첫 기동은 모델 가중치 다운로드(수 GB~수십 GB, `llm-model-cache` 볼륨에 캐시돼 재기동부터는
 생략됨)로 수 분~수십 분 걸릴 수 있음 — vLLM의 서버 기동 완료 로그가 뜰 때까지 대기.
+**캐시가 없는 상태에서 `review`를 바로 돌리면 자동 기동이 타임아웃으로 실패할 수 있으므로,
+최초 1회는 이렇게 수동으로 띄워 다운로드를 끝내두는 게 안전하다.**
 
 ### 연결 검증 (GPU 서버 안에서)
 
@@ -141,7 +150,9 @@ docker compose --profile llm down
 ```
 
 `training`과 마찬가지로 상시 기동 서비스가 아니라 자동 라벨링 검증 돌릴 때만 띄우는 온디맨드
-서비스 — 다 쓰면 바로 내려서 VRAM을 다른 팀/워크로드에 돌려줄 것.
+서비스 — 다 쓰면 바로 내려서 VRAM을 다른 팀/워크로드에 돌려줄 것. `review`가 자동으로 띄운
+경우엔 끝날 때 스스로 내리므로 이 명령이 필요 없고, **위 "기동"으로 직접 띄웠거나 자동 종료가
+실패했을 때만** 수동으로 내리면 된다(`docker compose --profile llm ps`로 확인).
 
 ## 외부 접속 — SSH 터널 (2222 외 포트포워딩 불가)
 

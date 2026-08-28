@@ -17,7 +17,7 @@
 
 - Use camelCase for project-defined variable names, function and method names, configuration keys, internal JSON fields, manifest fields, and generated artifact names unless an external contract requires another form.
 - Use PascalCase for class names.
-- Preserve names required by Python special methods, standard-library APIs, third-party libraries, model class labels, database schemas, existing public APIs, protocols, and file formats. Examples include `__init__`, Ultralytics arguments such as `save_txt`, and established YOLO class names such as `trashNormal`.
+- Preserve names required by Python special methods, standard-library APIs, third-party libraries, model class labels, database schemas, existing public APIs, protocols, and file formats. Examples include `__init__`, Ultralytics arguments such as `save_txt`, and the YOLO class names the active checkpoint actually emits — currently `TrashNormal`/`TrashPaper`/`TrashRecyclables`/`TrashCoffeecup`. Verify these against `model.names` rather than assuming a case convention; see `.agentfiles/naming.md`.
 - Do not rename an established external API or database field solely to satisfy this convention. Follow the relevant specification and update its documentation when an authorized schema change is made.
 - When changing a project-defined name, update all related code comments, configuration examples, manifests, and README documentation in the same change.
 
@@ -25,7 +25,7 @@
 
 - JSON fields use camelCase. WebSocket `eventType` values use UPPER_SNAKE_CASE.
 - API or schema changes require CTO review and corresponding updates to `Docs/API_SPEC.md` and `.agentfiles/apiSpec.md`.
-- Never assume that `detectionId`, `trackingId`, `binId`, `binType`, `modelVersion`, `BIN_STATES`, or camera-specific GridFS buckets are already implemented; `Docs/ERD.md` currently marks these as designed but not fully reflected in code.
+- `detectionId`, `trackingId`, `binId`, `binType`, `modelVersion`, `BIN_STATES`, and the camera-specific GridFS buckets are now implemented — `Docs/ERD.md` marks them as reflected in code. Still confirm the current status in `Docs/ERD.md` before relying on any schema field, and never present a planned field as implemented.
 - Keep development and production database configuration separate. Do not start a local MongoDB or write to the production database without explicit user direction.
 
 ## Verification
