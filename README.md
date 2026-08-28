@@ -67,7 +67,7 @@ python -m pytest
 ```
 
 `pytest`는 `infra/checkEnv.py`가 설치한다(별도 설치 불필요). 테스트 파일명이 프로젝트
-컨벤션대로 camelCase(`testEventService.py`)라 pytest 기본 탐색 패턴(`test_*.py`)에 안 걸리므로,
+컨벤션대로 camelCase(`testEventMediaService.py`)라 pytest 기본 탐색 패턴(`test_*.py`)에 안 걸리므로,
 `WebApps/backend/pytest.ini`가 `python_files`/`python_classes`를 재정의한다 — **반드시
 `WebApps/backend`에서 실행할 것**(다른 위치에서 돌리면 `no tests ran`이 뜨거나 `schemas`
 import가 깨진다). MongoDB 없이 전부 mock으로 도는 단위 테스트라 DB를 띄울 필요는 없다.

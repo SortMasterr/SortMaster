@@ -41,7 +41,7 @@ requiredPackages = [
     # Asia/Seoul KST↔UTC 기간 변환에 사용한다.
     ("tzdata==2025.2", "tzdata"),
     # 백엔드/RPA 단위 테스트 실행용(WebApps/backend/tests, RPAs/reportAutomation/tests).
-    # 테스트 파일명이 camelCase(testEventService.py)라 pytest 기본 탐색 패턴(test_*.py)에
+    # 테스트 파일명이 camelCase(testEventMediaService.py)라 pytest 기본 탐색 패턴(test_*.py)에
     # 안 걸리므로 WebApps/backend/pytest.ini가 python_files를 재정의한다.
     ("pytest==9.1.1", "pytest"),
     # torch/torchvision은 여기 없음 — SIDE(ELEV-SIDE) 넘침 판정이 로컬 백엔드 CPU 추론에서
