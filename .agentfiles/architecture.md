@@ -374,7 +374,7 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
   `training`(GPU 서버)이 학습 때마다 로컬(`<LOCAL_BACKEND_IP>`) GridFS에 네트워크로 직접 접속.
   역방향 SSH 터널 필요(아래 "배포 전략" 참고)
 
-## 재학습용 미확정 방문 캡처 (백엔드 구현 완료, GPU 연동만 남음)
+## 재학습용 미확정 방문 캡처 (백엔드·GPU 코드 구현 완료, 실기기 검증만 남음)
 
 > **2026-08-26 설계 확정** — LLM review 파이프라인 실제 검증 중(`autoTraining/README.md`
 > 참고) "지금 구조로는 YOLO가 못 잡은 실패 사례 영상이 재학습 데이터로 하나도 안 남는다"는
@@ -428,6 +428,23 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 같은 통에 ID가 바뀐 것으로 판단해 이벤트를 스킵하는 fragment-duplicate 트랙(극히 드묾)도
 실제로는 다른 trackId로 이미 확정됐으므로 `trackEnded`를 보내지 않는다 — 이 두 경우까지
 `unresolved`로 보내면 정상 처리된 방문이 재학습 후보로 잘못 잡힌다.
+
+**오분류 `EVENT`에 영상 연결 — 구현 완료(2026-08-27)**: 위 `visitClips`가 저장되기
+시작하면서, 오분류 `EVENT`의 `imageFileId`가 계속 null이던 문제도 같이 해결됨. 원인은
+`createEventFromAiDisposal`이 "직전 5초" 프레임을 활성 녹화 버퍼
+(`recordingService.snapshotRecentFrames`)에서 꺼내려 했는데, presence 기반 녹화는 사람
+이탈 직후 세션을 삭제하는 반면 GPU 판정은 그보다 늦게 도착해 꺼낼 세션이 이미 없었던 것.
+검토했던 두 해법 중 **(2) 이벤트 시각과 겹치는 `visitClip` 영상을 재사용하는 쪽으로 확정**
+(더 저렴) — 방문 종료 시 GridFS에 저장된 **전체 방문 GIF를 다시 읽어** 이벤트 직전 약 5초
+구간만 별도 GIF로 파생하고 그 ID를 `imageFileId`에 연결한다
+(`services/eventMediaService.py`의 `attachPreviewFromVisitClip`, 실제 파생은
+`mediaService.saveStoredClipSegmentAsGif`). 이벤트가 방문 영상 저장보다 **늦게 도착해도**
+`trackId`로, 그것도 없으면 `cameraId`+이벤트 시각으로 기존 `visitClip`을 찾아 같은 처리를
+한다(`visitClipService`). 전체 방문 GIF는 재학습/방문 기록용으로 그대로 유지되며 파생
+미리보기와는 별도 파일이다. 대응 방문 영상이나 원본을 못 찾으면 이벤트만 저장하고
+`imageFileId`는 null로 남는다(파생 실패 시 만들다 만 GridFS 파일은 보상 삭제).
+`recordingService.snapshotRecentFrames`는 이 전환으로 **제거됨** — 더 이상 호출부 없음.
+API 형식은 `.agentfiles/apiSpec.md`의 EP-12 참고.
 
 **아직 안 된 것**: 위 GPU 쪽 코드는 이번에 작성됐지만 **실제 GPU 서버에서 트랙 신호가
 백엔드에 정상 도달하는지 실기기 검증은 아직 안 됨**(그 전까지 검증된 건 스키마 파싱 확인
@@ -521,15 +538,12 @@ Detect → Create Event → Save Event → Check mode
   MJPEG 스트림(TOP 카메라 1개 분량)을 구독하는 구조라 예전 우려("TOP 라즈베리파이→GPU
   서버 RTSP 상시 스트리밍을 GPU가 직접 수신")보다는 부담이 가벼울 것으로 예상 — 그래도
   실측은 메인보드 입고 후 필요
-- **오분류 `EVENT`에 영상이 안 붙음(`imageFileId`가 계속 null)** — 위의 "`tracking2.py`가
-  자체 저장하는 이미지(`waste_events/*.jpg`)를 GridFS와 연동" 항목과는 **원인이 다른 별개
-  문제**. `createEventFromAiDisposal`이 오분류 확정 시 "직전 5초" 프레임을 GIF로 만들려고
-  `recordingService.snapshotRecentFrames`를 호출하는데, presence 기반 녹화가 사람 이탈 후
-  세션을 즉시 삭제(`recordingService.stop`)하는 반면 GPU 판정은 그보다 늦게 도착해서
-  꺼낼 세션이 이미 없음 → 프레임 0개 → GIF 생성 자체가 스킵됨. 2026-08-27 확인 시 최근
-  오분류 이벤트 10건 전부 `imageFileId`가 null이었음. **방문 전체 영상(`visitClips`)은
-  정상 저장되고 있으므로**, (1) 녹화 세션을 stop 후 짧게 유지하거나 (2) 이벤트 시각과
-  겹치는 `visitClip`의 영상을 대신 보여주는 두 가지 해법이 있음(후자가 더 저렴)
+- **오분류 `EVENT`에 영상이 붙는지 실기기 확인 필요** — 위 "재학습용 미확정 방문 캡처"의
+  "오분류 영상 연결"로 **코드는 구현 완료**(2026-08-27, `visitClip` 영상에서 직전 5초를
+  파생). 단, 2026-08-27에 null 10건이 확인된 뒤의 구현이라 **실제 운영에서 `imageFileId`가
+  채워지는지 재확인은 아직 안 됨** — 특히 지연 도착 이벤트의 `cameraId`+시각 폴백 경로는
+  단위 테스트로만 검증됨. (`tracking2.py`가 자체 저장하는 `waste_events/*.jpg`를 GridFS와
+  연동하는 위 항목은 여전히 **원인이 다른 별개 미착수 과제**)
 - **GPU 판정 지연이 현장 알림 지연으로 이어지는 문제** — RPA 알림은 `EVENT` 생성 시점에
   트리거되는데 그 생성이 GPU의 `aiDisposal` 도착을 기다리므로, GPU가 느리면 전구/경고음도
   같이 늦어짐. 위 "RPA 정책"의 "오분류 시 즉시 자동 트리거"와 충돌. 2026-08-27 측정에서

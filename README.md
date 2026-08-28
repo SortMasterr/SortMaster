@@ -84,6 +84,10 @@ docker compose --profile local up --build
   등 산출물은 `.gitignore`에 이미 제외 설정됨 — 별도 저장 방식은 TBD).
   **주의**: JupyterLab은 진짜 멀티유저(JupyterHub)가 아니라 커널 하나를 공유하는
   구조라, 팀원 여러 명이 동시에 같은 셀을 실행하면 충돌할 수 있음 — 번갈아 쓰는 걸 권장
+- **초기 데이터셋 준비 스크립트**: `training/` 폴더에 모델팀이 초기 학습 데이터를 만들 때
+  쓴 유틸(프레임 추출·자동 라벨링·증강·분할·클래스 집계)이 들어있음 — 개인 PC 절대경로가
+  하드코딩된 수동 실행용이고, 운영 자동 재학습(`autoTraining/`)과는 별개다.
+  상세는 `training/README.md` 참고
 
 ## 현재 상태 (고도화 진행 중)
 
@@ -126,6 +130,28 @@ docker compose --profile local up --build
 - **GIF 인코딩/GridFS 업로드**: 구현됨. `services/mediaService.py`(OpenCV 프레임 →
   애니메이션 GIF, Pillow) + `repositories/mediaRepository.py`(GridFS 업로드) —
   결과 파일 ID가 `Event.imageFileId`에 저장됨.
+- **사람 존재 감지 게이팅**: 구현됨. `detection/presenceDetector.py`(`cv2`
+  배경 차분으로 프레임별 전경 픽셀 비율 계산) + `services/presenceGateService.py`
+  (임계값+디바운스 ABSENT/PRESENT 상태 머신)가 TOP 녹화 시작/종료 타이밍을 결정. YOLO를
+  쓰지 않는 경량 방식이며, **GPU 판정과는 완전히 독립**(GPU에 프레임을 보내거나 응답을
+  기다리지 않음). 임계값/디바운스 수치는 실측 튜닝 TBD.
+- **방문 클립(`visitClips`) 저장**: 구현됨. 사람 감지 구간마다 판정 여부와 **무관하게**
+  전체 방문 GIF를 GridFS에 저장하고 `visitClips` 문서를 생성 —
+  `schemas/visitClip.py`/`repositories/visitClipRepository.py`/`services/visitClipService.py`
+  + `POST /api/events/trackStarted`·`trackEnded`. GPU가 못 잡은 방문까지 남겨 재학습
+  후보(`matchedEventIds`가 빈 문서)로 쓰기 위한 것 — 상세 설계는
+  `.agentfiles/architecture.md`의 "재학습용 미확정 방문 캡처" 참고. GPU 쪽 트랙 신호 전송도
+  구현 완료지만 **실기기 도달 검증은 아직**.
+- **오분류 이벤트 영상 연결**: 구현됨. `services/eventMediaService.py` — 오분류 확정 시
+  위 방문 GIF에서 이벤트 직전 약 5초를 파생해 `Event.imageFileId`에 연결한다. 이벤트가 방문
+  영상보다 늦게 도착해도 `trackId`, 없으면 `cameraId`+시각으로 찾아 연결. 이전의 "활성 녹화
+  버퍼에서 직전 5초를 꺼내는" 방식(`recordingService.snapshotRecentFrames`)은 세션이 이미
+  삭제된 뒤라 항상 실패해서 **제거됨**. 실제 운영에서 채워지는지 재확인은 아직 TBD.
+- **GPU 하트비트(헬스체크)**: 구현됨. `tracking2.py`/`sideOverflow.py`가 판정 이벤트와
+  무관하게 30초 주기로 `POST /api/gpuHeartbeats`를 보내고, 백엔드는 `cameraId`당 마지막
+  수신 시각만 저장(`gpuHeartbeats` 컬렉션) — ONLINE/OFFLINE은 조회 시점에 임계값(90초)과
+  비교해 계산. `/statistics`는 평소엔 아무것도 안 띄우다가 OFFLINE일 때만 상단 배너로
+  안내하며, "GPU"·스크립트명 같은 내부 용어는 노출하지 않음. 두 수치는 실측 튜닝 TBD.
 - **API/저장소**: `controllers/api.py` — 이벤트 CRUD(`/api/events`), 통계
   (`GET /api/statistics`), 모드 전환(`POST /api/mode`, MANAGE/COLLECT) 구현됨.
   `repositories/eventRepository.py`는 motor 기반 MongoDB 연동으로 전환 완료(In-memory
