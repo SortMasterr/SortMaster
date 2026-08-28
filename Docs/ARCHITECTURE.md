@@ -151,6 +151,9 @@ API 상세는 `Docs/API_SPEC.md`, DB 스키마는 `Docs/ERD.md` 참고.
 
 ## LLM 활용
 
+이 절은 **LLM이 파이프라인에서 맡는 역할**을 다룬다. 어떤 모델을 왜 골랐고 vLLM으로 어떻게
+띄우는지(모델 크기·FP8·`--gpu-memory-utilization` 등 설정 근거)는 `Docs/LLM.md` 참고.
+
 Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" 참고) — **학습/데이터 준비
 단계에서만** 사용:
 

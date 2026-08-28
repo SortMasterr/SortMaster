@@ -453,3 +453,28 @@
   - **남은 검증**: 사람이 검수한 결과와 대조해 `actualClass` 정확도를 실측해야 한다. 강제로
     답하게 만든 구조라 "아무렇게나 찍는" 위험이 있고, 표본 6건으로는 판단할 수 없다. 이게
     안 되면 그때는 Grounding DINO 또는 파인튜닝으로 넘어간다(위 항목 참고)
+
+- **LLM 서빙 런타임은 vLLM으로 확정**(2026-08-28) → 그동안 `docker-compose.yml`에 vLLM이
+  들어가 있었을 뿐 **왜 그걸 골랐는지가 어디에도 기록돼 있지 않아서**, 코드가 실제로 요구하는
+  조건을 근거로 사후 확정했다. Ollama·llama.cpp·TGI 등 대안을 **실제로 띄워 비교한 적은 없다** —
+  아래는 요구사항 분석이지 벤치마크 결과가 아니다.
+  - **결정적 요구사항은 (1) 엄격한 JSON Schema 강제와 (2) VRAM 상한 지정** 두 가지다.
+    (1) 검수 요청이 `response_format: json_schema` + `strict: true`로 `boxVerdicts` 배열
+    길이를 `minItems == maxItems`로 못박는데(위 "박스별 닫힌 검증" 항목), 이건 프롬프트로
+    부탁할 게 아니라 디코딩 단계에서 강제돼야 하고 응답 폭주를 막는 안전장치이기도 하다.
+    (2) 같은 카드에서 `training`이 돌기 때문에 런타임이 메모리를 자체 관리하면 안 되고
+    `--gpu-memory-utilization 0.5`처럼 **사람이 상한을 숫자로 지정**할 수 있어야 한다
+  - 나머지 조건: 한 요청에 이미지 2장(원본+YOLO bbox)을 넣는 멀티모달, 수천 건 배치 처리량
+    (실측 배치 2,796건), OpenAI 호환 HTTP API(클라이언트가 SDK 없이 `urllib`만 씀)
+  - **Ollama를 기각한 이유가 "JSON을 못 뽑아서"는 아니다** — Ollama도 JSON Schema structured
+    output과 비전 모델을 지원한다. 갈리는 건 용도 지향점이고, 특히 위 (2)가 학원 공유 GPU
+    환경에서 타협하기 어렵다. 다만 `minItems`/`maxItems` 강제 수준과 Qwen3-VL 지원 시점은
+    **확인하지 않았다**
+  - **감수한 비용**: vLLM은 첫 기동에 가중치 다운로드로 수 분~수십 분이 걸려 자동 기동
+    타임아웃(180초)을 넘길 수 있다. 최초 1회는 수동으로 띄워 캐시를 채우라고
+    `gpuServerOps.md`에 적어뒀다. 이 부분은 Ollama가 더 매끄러웠을 것이다
+  - 모델은 `Qwen/Qwen3-VL-8B-Instruct-FP8`. 8B인 이유는 카드 1장(L40S 48GB)을 `training`과
+    나눠 써서 32B/235B가 비현실적이기 때문이고, FP8인 이유는 L40S(Ada)가 FP8을 네이티브로
+    처리해 VRAM을 아낄 수 있어서다
+  - **재검토 조건**: `--gpu-memory-utilization 0.5`/`--max-model-len 8192`는 실측 없이 정한
+    값이라 `training`과의 실제 경합을 측정한 뒤 조정해야 한다. 상세는 `Docs/LLM.md` 참고
