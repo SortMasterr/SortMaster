@@ -53,10 +53,11 @@
 
 ## 알려진 문제
 
-- **`data_split.py`에 같은 이름의 함수 `split_yolo_dataset`가 두 번 정의돼 있다**(8행, 185행).
-  Python은 나중 정의가 앞을 덮으므로 **185행 버전만 실제로 호출된다**(시그니처도 다름:
-  8행은 `dataset_dir`만, 185행은 `source_dir`+`dataset_dir`). 8행 버전을 쓰려면 이름을
-  분리해야 한다.
+- **`data_split.py`에 분할 함수가 두 버전 들어있다**: 8행 `split_yolo_dataset1(dataset_dir,
+  val_count=10, test_count=20)`(초기 버전)과 185행 `split_yolo_dataset2(source_dir,
+  dataset_dir, test_count=200, val_count=100)`(val:100/test:200로 늘린 버전). 함수명이
+  달라 서로 덮어쓰지 않으며, 둘 다 파일 하단에서 자동 실행되지 않으므로 사람이 필요한 쪽을
+  골라 직접 호출해야 한다.
 - 파일 하단의 실행부가 주석 처리돼 있거나(`data_split.py`) 모듈 로드 시 바로 실행되는
   형태(`classnum_count.py`, `frame_extraction.py`)로 제각각이다.
 

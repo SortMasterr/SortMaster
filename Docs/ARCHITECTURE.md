@@ -21,9 +21,11 @@ API 상세는 `Docs/API_SPEC.md`, DB 스키마는 `Docs/ERD.md` 참고.
 - [배포 전략](#배포-전략)
 - [웹캠 시뮬레이션 (메인보드 입고 전) — 구현됨](#웹캠-시뮬레이션-메인보드-입고-전--구현됨)
 - [메인보드(라즈베리파이) 엣지 코드 (실기기 초기 셋업 완료, RTSP 송신 검증됨)](#메인보드라즈베리파이-엣지-코드-실기기-초기-셋업-완료-rtsp-송신-검증됨)
+- [RPA 정책](#rpa-정책)
 - [자동 통계 보고서](#자동-통계-보고서)
 - [수거 업무 자동화 RPA](#수거-업무-자동화-rpa)
 - [이벤트 적재](#이벤트-적재)
+- [Event Flow](#event-flow)
 - [재학습용 미확정 방문 캡처 (백엔드·GPU 코드 구현 완료, 실기기 검증만 남음)](#재학습용-미확정-방문-캡처-백엔드gpu-코드-구현-완료-실기기-검증만-남음)
 - [DB 접속 (팀 공유 vs 로컬)](#db-접속-팀-공유-vs-로컬)
 - [TBD](#tbd)
@@ -41,7 +43,7 @@ API 상세는 `Docs/API_SPEC.md`, DB 스키마는 `Docs/ERD.md` 참고.
 | 카메라 구성 | **"카메라 1대 = 지점 1개 = `CameraId` 1개 = 독립 라즈베리파이 1대" 규칙 유지**(안 깨짐). 설치 위치 1곳(12층 엘리베이터 앞)에 지점 2개(위+옆). `.env` 키는 기존 하이픈 제거 규칙 그대로 `CAMERA_SOURCE_ELEVTOP`/`CAMERA_SOURCE_ELEVSIDE` |
 | 카메라 스펙 | 웹캠 실촬영 해상도 **640×480**(약 30만 화소). YOLO 입력 전처리는 **640×640**으로 통일(레터박스 패딩 방식 — 비율 유지, 단순 리사이즈 아님). TOP 카메라는 YOLO26 혼자 분류까지 끝내서 별도 모델로 좌표를 넘길 일이 없음(LLM에 좌표 넘기는 보정은 후순위 재검토 항목) |
 | 배포 구조 | 지점별(카메라별) 독립 메인보드+카메라 1대 — 설치 위치 1곳에 지점(=메인보드+카메라 세트) 2개 |
-| 클래스 | normal, paper, recyclables(플라스틱+캔 통합), coffeeCup — 총 4종. `mixed`/`uncertain`은 제외 확정 |
+| 클래스 | normal, paper, recyclables(플라스틱+캔 통합), coffeecup — 총 4종. `mixed`/`uncertain`은 제외 확정 |
 
 ## 탐지 파이프라인
 
@@ -111,7 +113,7 @@ API 상세는 `Docs/API_SPEC.md`, DB 스키마는 `Docs/ERD.md` 참고.
      무시(로그만 남김)
   4. **쓰레기 종류는 4종(normal/paper/recyclables/coffeecup)으로 축소 확정** — 모델이
      plastic/can을 구분 못 해서 `DetectedClass.RECYCLABLES` 하나로 통합(물리적으로도 같은
-     통에 버려서 실용상 문제없다고 판단). `normal`/`paper`/`recyclables`/`coffeeCup` 총 4종
+     통에 버려서 실용상 문제없다고 판단). `normal`/`paper`/`recyclables`/`coffeecup` 총 4종
   - **GPU 서버 → 로컬 백엔드 실제 푸시 검증 완료**(데모 영상 기준 + **실제 TOP MJPEG
     스트림 기준 둘 다**) — GPU 서버에서 `tracking2.py` 실행 → 로컬 백엔드가 상시 서빙 중인
     `GET /api/stream/ELEV-TOP`을 SSH 역터널(포트는 팀 공유 규칙상 99로 끝나야 해서 `8299`
@@ -355,6 +357,17 @@ GPU 1장(48GB) 내 진행. 파인튜닝 후 4/8bit 양자화해 추론 시 VRAM 
 라즈베리파이(Raspberry Pi OS)는 표준 최신 Python(3.11+)을 쓸 수 있어 `WebApps/backend`와
 문법 호환성 문제 없음 — 과거 Jetson Nano 4GB의 Python 3.6 제약 이슈는 애초에 해당 없음.
 
+## RPA 정책
+
+- 오분류 시 전구+경고음 즉시 자동 트리거(재전파 없음)
+- `COLLECT` 모드: 알림 전부 Mute, 탐지 로직은 계속 동작(통계만 갱신)
+
+**구현 상태: 미착수.** 위는 목표 설계이고, 실제로 전구/스피커를 트리거하는 코드
+(`services/rpaService.py`)는 아직 없다(README "현재 상태" 표의 "RPA(전구/경고음)" 항목
+참고). `POST /api/mode`로 모드 전환 자체는 되지만, 그 전환이 실제 GPIO/스피커 출력으로
+이어지는 경로는 아직 구현되지 않았다 — 메인보드 쪽 GPIO/스피커 출력 코드는 위 "메인보드
+(라즈베리파이) 엣지 코드"의 3번 항목 참고.
+
 ## 자동 통계 보고서
 
 - `/statistics`의 **이메일 설정**은 보고서를 즉시 보내지 않고 자동 보고서 수신 주소 한 개를
@@ -413,6 +426,18 @@ GPU 1장(48GB) 내 진행. 파인튜닝 후 4/8bit 양자화해 추론 시 VRAM 
 - **학습용 원본 이미지는 로컬 GridFS 재사용으로 확정**(GPU 서버 로컬 디스크 축적 방식은 기각) —
   `training`(GPU 서버)이 학습 때마다 로컬(`<LOCAL_BACKEND_IP>`) GridFS에 네트워크로 직접 접속.
   역방향 SSH 터널 필요(아래 "배포 전략" 참고)
+
+## Event Flow
+
+```
+Detect → Create Event → Save Event → Check mode
+  ├─ COLLECT: 통계만 갱신
+  └─ MANAGE: WS Broadcast + RPA 트리거 → 통계 갱신
+```
+
+`RPA 트리거` 단계는 위 "RPA 정책"에서 설명한 목표 설계를 가리키는 것으로, 실제 GPIO/스피커
+연동 코드가 붙기 전까지는 이 화살표가 현재 아무 동작도 하지 않는다(WS Broadcast만 실제로
+일어남).
 
 ## 재학습용 미확정 방문 캡처 (백엔드·GPU 코드 구현 완료, 실기기 검증만 남음)
 

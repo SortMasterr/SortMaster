@@ -106,6 +106,9 @@ systemd 자동 기동까지 검증 완료, GPIO 전구 연동은 미착수.
 
 - 오분류 시 전구+경고음 즉시 자동 트리거(재전파 없음)
 - `COLLECT` 모드: 알림 전부 Mute, 탐지 로직은 계속 동작(통계만 갱신)
+- **구현 상태: 미착수**(`services/rpaService.py` 없음) — 이 절은 목표 설계
+
+→ 상세: `Docs/ARCHITECTURE.md`의 "RPA 정책"
 
 ## 자동 통계 보고서
 
@@ -149,11 +152,13 @@ Detect → Create Event → Save Event → Check mode
   └─ MANAGE: WS Broadcast + RPA 트리거 → 통계 갱신
 ```
 
+→ 상세: `Docs/ARCHITECTURE.md`의 "Event Flow"
+
 ## 포트
 
 | 항목 | 값 |
 |---|---|
-| 백엔드 | 8047 (기본값 8000 대신, 타 팀 충돌 방지) |
+| 백엔드 | 8047 |
 | MongoDB 호스트 | 27020 (컨테이너 내부 27017) |
 
 ## DB 접속 (팀 공유 vs 로컬)

@@ -140,7 +140,7 @@ docker compose --profile local up --build
 | 수거 업무 자동화 RPA | 구현됨(기본 비활성). **배포 전 CTO 검토 필요** | `RPAs/collectionAutomation/`, `services/collectionTaskService.py` | `RPA_COLLECTION_ENABLED=true`일 때만 동작 |
 | **RPA(전구/경고음)** | **미착수** — `services/rpaService.py` 없음 | — | 모드 전환 API는 있으나 실제 트리거로 이어지는 코드가 없음 |
 | LLM 자동 라벨링 검증 | 사용 중(베이스 모델+프롬프트). **파인튜닝·통 모양 인식 데이터 생성 미착수** | `autoTraining/stages/reviewLabels.py` | `Docs/LLM.md`, ARCHITECTURE "LLM 활용" |
-| 이벤트 파이프라인 데모 스텁 | 남아 있음(운영 경로 아님) | `services/detectionService.py` | 수동 HTTP로 DB에 이벤트를 채우는 용도. `recordingService.start`/`stop` → `mediaService.saveClipAsGif` → `eventService.createEvent` 체인을 그대로 호출한다. 검증은 `debug/detection/simulateEventPipeline.py` |
+| 이벤트 파이프라인 데모 스텁 | 남아 있음(수동 HTTP 경로 자체는 운영 아님) | `services/detectionService.py` | 수동 HTTP로 DB에 이벤트를 채우는 용도로 만들어졌으나, `startDetection` 함수는 `services/presenceGateService.py`가 TOP 카메라 운영 흐름에서도 그대로 재사용 중(모듈 docstring에도 이 재사용이 명시돼 있음). `recordingService.start`/`stop` → `mediaService.saveClipAsGif` → `eventService.createEvent` 체인을 그대로 호출한다. 검증은 `debug/detection/simulateEventPipeline.py` |
 | DB | 구현됨 | `repositories/mongoClient.py` | `events` 컬렉션 + GridFS 버킷 2개(`topMedia`/`sideMedia`). `Docs/ERD.md` |
 
 이벤트는 `misclassification`(투기)/`overflow`(넘침) 두 카테고리다(`schemas/event.py`의

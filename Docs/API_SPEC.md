@@ -41,28 +41,28 @@
 * `BIN_STATES` 스키마·저장소·상태 갱신/조회 API(EP-10/EP-11) — `binId`당 최신 상태 1행을
   upsert로 유지하고, `NORMAL`→`FULL` 전환 순간에만 overflow 이벤트를 생성한다
   (`schemas/binState.py`, `repositories/binStateRepository.py`, `services/binStateService.py`)
+* AI 탐지 모델 연동 — GPU 서버의 `models/trashdetect/tracking2.py`가 투척 완료를 자체
+  판정해 `POST /api/events/aiDisposal`(EP-12)로 결과를 푸시하는 방식으로 구현 완료
+  (데모 영상 기준 end-to-end 검증 성공). `bestTop.pt`가 쓰레기 `plastic`/`can`을
+  `recyclables` 하나로 합친 4클래스(쓰레기만, 통은 미포함)인 건 재학습 대신 API 계약을
+  4종(plastic/can 통합)으로 바꾸는 쪽으로 CTO 승인받아 해소(`decisionLog.md` 참고) —
+  아래 `DetectedClass` 정의도 이에 맞춰 갱신됨. 통 위치는 모델이 아니라 룰 베이스(고정
+  ROI)로 판정(SIDE의 `roi.json`과 같은 패턴, `tracking2.py`의 `RULE_BASED_BIN_ROIS`).
+  `tracking2.py` 자체는 아직 데모 영상 대상 로컬 스크립트 상태라 실제 TOP RTSP 연결+상시
+  서비스화는 TBD(EP-12/AI-01 참고).
 
 ### 현재 Mock 또는 미구현
 
 * 서버 재시작 시 모드 상태 초기화(이벤트는 이제 MongoDB에 영속화되어 재시작에도 유지됨)
 * 실제 RPA 전구·경고음 장치 연동 미구현
-* AI 탐지 모델 연동 — GPU 서버의 `models/trashdetect/tracking2.py`가 투척 완료를 자체
-  판정해 `POST /api/events/aiDisposal`(EP-12)로 결과를 푸시하는 방식으로 **구현 완료**
-  (데모 영상 기준 end-to-end 검증 성공). `bestTop.pt`가 쓰레기 `plastic`/`can`을
-  `recyclables` 하나로 합친 4클래스(쓰레기만, 통은 미포함)인 건 재학습 대신 **API 계약을
-  4종(plastic/can 통합)으로 바꾸는 쪽으로 CTO 승인**받아 해소(`decisionLog.md` 참고) —
-  아래 `DetectedClass` 정의도 이에 맞춰 갱신됨. 통 위치는 모델이 아니라 **룰 베이스(고정
-  ROI)**로 판정(SIDE의 `roi.json`과 같은 패턴, `tracking2.py`의 `RULE_BASED_BIN_ROIS`).
-  `tracking2.py` 자체는 아직 데모 영상 대상 로컬 스크립트 상태라 실제 TOP RTSP 연결+상시
-  서비스화는 TBD.
 * 카메라 연결 해제 및 시스템 오류 WebSocket 이벤트 미구현
 * 이벤트 상세 페이지 미구현
 * 인증 및 권한 미구현
 * EP-02/EP-09로 직접 만드는 overflow 이벤트는 여전히 `BIN_STATES` 전환 검증을 거치지 않는다
-  (호출자가 유효한 스키마+새 `detectionId`만 보내면 바로 저장). 로컬 백엔드의 SIDE
-  GPU 서버의 MobileNet_V3_Small 로직이 상태 전환 기준으로 overflow를 만들 때는 EP-11(`POST
-  /api/binStates`)을 쓰는 쪽이 확정 설계와 일치한다 — EP-02/EP-09는 수동/디버그 경로로
-  계속 남겨둔다.
+  (호출자가 유효한 스키마+새 `detectionId`만 보내면 바로 저장). GPU 서버의 SIDE
+  MobileNet_V3_Small 로직(`sideOverflow.py`)이 상태 전환 기준으로 overflow를 만들 때는
+  EP-11(`POST /api/binStates`)을 쓰는 쪽이 확정 설계와 일치한다 — EP-02/EP-09는 수동/디버그
+  경로로 계속 남겨둔다.
 
 ---
 
@@ -1551,7 +1551,7 @@ camelCase를 유지한다.
 | PG-03   | 통계 대시보드               | 구현됨             |
 | DB-01   | MongoDB 이벤트 저장 및 중복 방지 | 구현됨          |
 | DB-02   | 카메라별 GridFS 영상 저장     | 구현됨             |
-| AI-01   | YOLO 탐지 연동            | 미구현             |
+| AI-01   | YOLO 탐지 연동(EP-12 `aiDisposal` 수신) | 구현됨(`tracking2.py` 상시 서비스화는 TBD) |
 | EVT-01  | Overflow 이벤트 저장·통계    | 구현됨             |
 | BIN-01  | BIN_STATES 상태 관리       | 구현됨             |
 | RPA-01  | 실제 전구·경고음 연동          | 미구현             |

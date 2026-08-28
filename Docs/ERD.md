@@ -243,9 +243,9 @@ erDiagram
   시점만 저장"(`architecture.md`) 원칙 유지 — 복귀는 문제 상황이 아니라 정상 회복이라
   `BIN_STATES.currentState`만 갱신, `activeOverflowEventId`는 이때 `null`로 리셋
 - **`detectionId` 생성 방식 확정** → 감지 시점에 UUID 생성(`eventId`와 동일 방식) —
-  misclassification은 GPU 서버 `tracking2.py`, overflow는 로컬 백엔드(현재는
-  MobileNet_V3_Small, 판정 방식 재전환 이력은 `decisionLog.md` 참고)가 생성.
-  `cameraId`+`trackingId` 조합안은 `trackingId`가 세션 종속이라 배제
+  misclassification은 GPU 서버 `tracking2.py`, overflow는 GPU 서버(현재는
+  MobileNet_V3_Small, `sideOverflow.py`. 판정 방식 재전환 이력은 `decisionLog.md` 참고)가
+  생성. `cameraId`+`trackingId` 조합안은 `trackingId`가 세션 종속이라 배제
 - **통계에서 `overflow`는 별도 필드로 분리 집계 확정** → `detectedClass`별 집계와 안 섞음
   (`overflow`엔 애초에 `detectedClass`가 없어서)
 

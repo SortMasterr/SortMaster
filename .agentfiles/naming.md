@@ -17,6 +17,11 @@
 - Enum 멤버 식별자(`CameraId.ELEVTOP`), 값은 `"ELEV-TOP"` 고정
 - 환경변수 키(`.env`의 `MONGO_HOST` 등)는 SCREAMING_SNAKE_CASE 유지
 - Docker 이미지/컨테이너 이름은 케밥케이스(`sortmaster-backend`) — Docker 이미지 이름은 대문자 자체가 불가능(소문자+`.`/`_`/`-`만 허용)하고, Docker 생태계 관례와도 일치
+- `WebApps/backend/models/`(GPU 서버 추론 스크립트) 안의 모듈 전역 상수는 camelCase 대신
+  SCREAMING_SNAKE_CASE를 허용(`tracking2.py`의 `CONFIDENCE`/`NEW_TRASH_CONFIDENCE`/
+  `RULE_BASED_BIN_ROIS`, `sideOverflow.py`의 `CONFIDENCE_THRESHOLD` 등) — 위 "폴더 구조"
+  표에 있듯 이 폴더는 백엔드 프로세스가 import하지 않는 별도 실행 단위라 레이어 규칙과
+  마찬가지로 이 네이밍 규칙도 적용 대상이 아니다
 - GPU 서버 스크립트 및 학습 파이프라인과 연동되는 모델 가중치·산출물 파일명은 Python·학습 도구
   관례와 기존 연동을 우선해 snake_case도 허용. 다만 **현재 저장소의 가중치는 전부 camelCase**다
   — TOP은 `bestTop.pt`, SIDE는 `bestSide.pt`, registry는 `model-*.pt`, bootstrap은
