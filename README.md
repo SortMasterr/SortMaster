@@ -128,7 +128,7 @@ docker compose --profile local up --build
 |---|---|---|---|
 | 영상 소스(MJPEG 스트리밍) | 구현됨 | `streaming/cameraManager.py` | ARCHITECTURE "웹캠 시뮬레이션". 입고 후 `.env`의 `CAMERA_SOURCE_<CameraId>`만 RTSP URL로 교체(코드 불변) |
 | 탐지 — TOP(오분류) | GPU→백엔드 end-to-end 검증 완료(2026-08-25). **상시 서비스화·실제 통 위치 ROI 재보정 TBD** | `models/trashdetect/tracking2.py` | ARCHITECTURE "탐지 파이프라인" |
-| 탐지 — SIDE(넘침) | 위와 동일 구조·동일 검증 상태 | `models/trashoverflow/sideOverflow.py` | 〃 |
+| 탐지 — SIDE(넘침) | 위와 동일 구조·동일 검증 상태 | `models/trashoverflow/sideOverflow.py` | 〃. 가중치 `bestSide.pt`는 `.gitignore` 대상이라 레포에 없음 — 팀원에게 받아 GPU 서버의 `models/trashoverflow/`에 둬야 추론 테스트 가능 |
 | 이벤트 트리거 녹화 | 구현됨 | `services/recordingService.py` | 상시 녹화 아님. 시작/종료 신호 사이 실제 구간(최대 30초 안전 캡) |
 | GIF 인코딩·GridFS 업로드 | 구현됨 | `services/mediaService.py`, `repositories/mediaRepository.py` | 결과 ID가 `Event.imageFileId` |
 | 사람 존재 감지 게이팅 | 구현됨. **임계값·디바운스 실측 튜닝 TBD** | `detection/presenceDetector.py`, `services/presenceGateService.py` | TOP 전용. GPU 판정과 완전 독립 |
@@ -140,6 +140,7 @@ docker compose --profile local up --build
 | 수거 업무 자동화 RPA | 구현됨(기본 비활성). **배포 전 CTO 검토 필요** | `RPAs/collectionAutomation/`, `services/collectionTaskService.py` | `RPA_COLLECTION_ENABLED=true`일 때만 동작 |
 | **RPA(전구/경고음)** | **미착수** — `services/rpaService.py` 없음 | — | 모드 전환 API는 있으나 실제 트리거로 이어지는 코드가 없음 |
 | LLM 자동 라벨링 검증 | 사용 중(베이스 모델+프롬프트). **파인튜닝·통 모양 인식 데이터 생성 미착수** | `autoTraining/stages/reviewLabels.py` | `Docs/LLM.md`, ARCHITECTURE "LLM 활용" |
+| 이벤트 파이프라인 데모 스텁 | 남아 있음(운영 경로 아님) | `services/detectionService.py` | 수동 HTTP로 DB에 이벤트를 채우는 용도. `recordingService.start`/`stop` → `mediaService.saveClipAsGif` → `eventService.createEvent` 체인을 그대로 호출한다. 검증은 `debug/detection/simulateEventPipeline.py` |
 | DB | 구현됨 | `repositories/mongoClient.py` | `events` 컬렉션 + GridFS 버킷 2개(`topMedia`/`sideMedia`). `Docs/ERD.md` |
 
 이벤트는 `misclassification`(투기)/`overflow`(넘침) 두 카테고리다(`schemas/event.py`의
@@ -183,55 +184,16 @@ RTSP는 **로컬 백엔드로만** 보낸다(라즈베리파이는 GPU 서버와
 설계 배경: `Docs/ARCHITECTURE.md`의 "메인보드(라즈베리파이) 엣지 코드"
 
 
-## 메인보드 입고 후 개발할 부분
-
-1. ~~`streaming/cameraManager.py`~~ **완료** — 카메라 1대당 독립 지점(`CameraId`), `/api/stream/{cameraId}`
-   MJPEG 송출 구현됨. 메인보드 입고 후엔 `CAMERA_SOURCE_<CameraId>`를
-   RTSP URL로 교체만 하면 됨(코드 변경 불필요). 저장/DB 연동은 아래 항목들이 선행돼야 함
-2. `services/detectionService.py` — **데모용 임시 스텁**(`debug/detection/`의 스크립트로
-   수동 HTTP 요청을 보내 DB에 이벤트 데이터를 채워 넣는 용도)은 계속 남아있지만, **TOP의
-   실제 연동은 이 스텁을 대체하는 게 아니라 별도 경로로 이미 구현·검증됨** —
-   `services/eventService.py`의 `createEventFromAiDisposal`이 GPU 서버
-   `models/trashdetect/tracking2.py`(YOLO26, `inference` Docker 서비스로 정의됨 — 2026-08-25에
-   GPU 서버 실제 기동을 처음 시도해 `network_mode: host`로 수정까지 반영됐고, 수정 후
-   재기동 최종 재검증은 아직 TBD)가
-   자체적으로 감지+추적+분류+정상/오분류 판정까지 끝내고 `POST /api/events/aiDisposal`로
-   보내는 결과를 받아 통 상태/쿨다운과 종합해 저장(2026-08-25 실제 스트림 기준 end-to-end
-   검증됨, `.agentfiles/architecture.md` 참고). **SIDE도 이제 완전히 같은 패턴** —
-   `models/trashoverflow/sideOverflow.py`(GPU 서버, 독립 스크립트)가 MobileNet_V3_Small로
-   자체 판정 후 `POST /api/binStates`로 결과를 푸시(로컬 백엔드가 SIDE를 호출하지 않음) —
-   TOP과 마찬가지로 실제 GPU 서버 배포/실행+end-to-end 검증 완료(2026-08-25, `overflow`
-   전환 시 `POST /api/binStates -> 200` 확인, `decisionLog.md` 참고). Qwen3-VL-8B(LLM)는
-   실시간 경로엔 안 들어감, 학습 준비 단계
-   자동 라벨링 검증에만 사용. 지금 스텁(`services/detectionService.py`)도 이벤트 시작/종료
-   시점마다 아래 3~5번 파이프라인(`recordingService.start`/`stop` →
-   `mediaService.saveClipAsGif` → `eventService.createEvent`)을 그대로 호출함(수동 검증은
-   `debug/detection/simulateEventPipeline.py` 또는 `testDetectionApi.http` 참고). SIDE
-   모델 가중치(`bestSide.pt`)는 `.gitignore` 대상이라 레포에 없음 — 실제 추론 테스트는
-   가중치 파일을 팀원에게 받아 GPU 서버의 `models/trashoverflow/`에 둬야 가능
-3. ~~**이벤트 트리거 녹화**~~ **완료** — `services/recordingService.py`. 탐지 서비스가
-   아직 없어서 고정 10초 대신, 시작/종료 두 신호(향후 탐지 파이프라인이 전달) 사이의
-   실제 구간을 캡처하는 구조로 미리 구현. 2번이 없는 지금은 디버그 스크립트로 신호를
-   흉내내서 검증
-4. ~~**GridFS 업로드**~~ **완료** — `services/mediaService.py`(GIF 인코딩) +
-   `repositories/mediaRepository.py`(GridFS 저장), 파일 ID 발급까지 구현됨
-5. ~~`repositories/eventRepository.py`~~ **완료** — motor 기반 MongoDB 연동으로 교체,
-   4번의 GridFS 파일 ID를 `imageFileId`로 같이 저장
-6. `services/rpaService.py` — 아직 미작성. 실제 GPIO/HW 연동(`RPAs/` 참고, 라즈베리파이
-   쪽으로 이전 검토 중)
-
 ## TBD (팀 논의 필요)
 
-- 오탐 confidence threshold — `mixed`/`uncertain` 클래스는 제외로 확정됐지만
-  (`.agentfiles/architecture.md` 참고), 신뢰도 임계값 자체는 여전히 TBD. **`.env`로
-  빼놓은 값이 아니라 GPU 스크립트 안의 상수**라 바꾸려면 GPU 서버 쪽 파일을 고쳐야 한다:
-  SIDE는 `models/trashoverflow/sideOverflow.py`의 `CONFIDENCE_THRESHOLD`(0.70),
-  TOP은 `models/trashdetect/tracking2.py`의 `CONFIDENCE`(0.05, BoT-SORT가 약한 탐지까지
-  재활용하도록 낮게)와 `NEW_TRASH_CONFIDENCE`(0.45, 새 트랙을 이벤트로 등록하는 하한)로
-  나뉘어 있음
-- MongoDB 버전, Docker/Compose 버전 (개발 환경 표 참고)
-- 통계 대시보드 세부 지표
-- 안면인식(투기자 식별) 포함 여부 — 기본 제외
-- 라즈베리파이↔중앙 백엔드(RPA 트리거) 신호 전달 방식(MQTT/HTTP/WebSocket, 미정 — GPU
-  서버↔중앙 백엔드의 판정 결과 전달은 HTTP POST로 이미 확정+검증됨, `.agentfiles/architecture.md`
-  참고)
+미해결 항목은 **`Docs/ARCHITECTURE.md`의 "TBD"** 한 곳에서 관리한다(여기 옮겨 적으면 갈라진다).
+
+이 README 범위에서 특히 자주 묻는 것만:
+
+- **오탐 confidence threshold** — `.env` 값이 아니라 GPU 스크립트 안의 상수다
+  (`sideOverflow.py`의 `CONFIDENCE_THRESHOLD`, `tracking2.py`의
+  `CONFIDENCE`/`NEW_TRASH_CONFIDENCE`)
+- **`services/rpaService.py` 미작성** — 실제 전구/경고음 GPIO 연동은 아직 없다(위 상태 표)
+
+MongoDB·Docker/Compose 버전은 **더 이상 TBD가 아니다** — 위 "개발 환경" 표에서 확정됐다
+(`mongo:7.0`, Compose V2).

@@ -246,7 +246,7 @@ GPU 1장(48GB) 내 진행. 파인튜닝 후 4/8bit 양자화해 추론 시 VRAM 
   있을 때만 상단에 경고 배너를 띄운다 — "GPU"나 스크립트명 같은 내부 인프라 용어는 절대
   노출하지 않고 "오분류 자동 감지"/"쓰레기통 넘침 자동 감지" 기능이 중단됐다는 식으로만
   안내(항상 보이는 상태 카드로 갔다가 고객 화면에 안 맞다고 판단해 배너로 변경). 90초
-  임계값은 README의 confidence threshold와 같은 성격의 실측 후 조정 대상(아래 TBD 참고)
+  임계값은 아래 TBD의 "오탐 confidence threshold"와 같은 성격의 실측 후 조정 대상
 
 ## 배포 전략
 
@@ -526,7 +526,7 @@ API 형식은 `.agentfiles/apiSpec.md`의 EP-12 참고.
   참고). 단, 전경 비율 임계값(`PRESENCE_FOREGROUND_RATIO_THRESHOLD`)/진입 확인 시간
   (`PRESENCE_ENTRY_CONFIRM_SECONDS`)/이탈 유예 시간(`PRESENCE_EXIT_GRACE_SECONDS`,
   스펙상 3초) 수치 자체는 실제 TOP 카메라 설치 위치/거리 기준 실측 후 조정 필요 —
-  `README.md`의 "오탐 confidence threshold"와 같은 성격의 수치 튜닝 TBD.
+  아래 "오탐 confidence threshold"와 같은 성격의 수치 튜닝 TBD.
   **단, 배경 모델 수렴 시간은 이미 실기기로 원인을 잡아 고정했다**(튜닝 대상 아님):
   `cv2.createBackgroundSubtractorMOG2`의 기본 `history=500`은 30fps 기준(약 16초)이라
   우리 폴링 주기(`PRESENCE_POLL_INTERVAL_SECONDS`, 기본 0.2초)로는 100초가 걸려서,
@@ -563,6 +563,13 @@ API 형식은 `.agentfiles/apiSpec.md`의 EP-12 참고.
 - 경고 전구 HW/GPIO 연동 상세, 라즈베리파이↔중앙 백엔드(RPA 트리거) 신호 전달 방식
   (MQTT/HTTP/WS 중 미정, GPU 서버↔백엔드는 HTTP POST로 확정됨 — 위 "탐지 파이프라인" 참고)
 - 안면인식 레포 포함 여부
+- **오탐 confidence threshold** — `mixed`/`uncertain` 클래스 제외는 확정됐지만(위 "설치 환경")
+  신뢰도 임계값 자체는 여전히 미정. **`.env`로 빼놓은 값이 아니라 GPU 스크립트 안의 상수**라
+  바꾸려면 GPU 서버 쪽 파일을 고쳐야 한다 — SIDE는 `sideOverflow.py`의
+  `CONFIDENCE_THRESHOLD`(0.70), TOP은 `tracking2.py`의 `CONFIDENCE`(0.05, BoT-SORT가 약한
+  탐지까지 재활용하도록 낮게)와 `NEW_TRASH_CONFIDENCE`(0.45, 새 트랙을 이벤트로 등록하는
+  하한)로 나뉘어 있다
+- 통계 대시보드 세부 지표
 - **GPU 서버 CPU/디스크/네트워크 병목 실측**: GPU(VRAM)는 팀별 카드 분리로 경합 없음
   확인됨(아래 "해결된 TBD" 참고). CPU(192스레드)/디스크(2.8GB/s)는 여유 있어 보이지만
   다른 팀과 공유라 완전히 보장은 안 됨. **네트워크**는 GPU가 SSH 역터널로 로컬 백엔드의

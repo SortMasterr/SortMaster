@@ -179,6 +179,8 @@ Detect → Create Event → Save Event → Check mode
 - misclassification Cooldown 5초 조정 여부
 - 경고 전구 HW/GPIO 연동 상세, 라즈베리파이↔백엔드 신호 전달 방식
 - 안면인식 레포 포함 여부
+- 오탐 confidence threshold(GPU 스크립트 안의 상수, `.env` 아님)
+- 통계 대시보드 세부 지표
 - GPU 서버 CPU/디스크/네트워크 병목 실측
 - 오분류 `EVENT`에 영상이 붙는지 실기기 확인
 - GPU 판정 지연이 현장 알림 지연으로 이어지는 문제
