@@ -196,6 +196,19 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
   `host.docker.internal` crash loop를 발견 → `network_mode: host`로 수정(`06f3d0d`)까지
   반영됨 — **단, 수정 후 재기동해서 정상 동작하는지 최종 재검증은 아직 안 됨**, 그 전까지는
   사람이 SSH 세션에서 직접 실행 중
+- **GPU 하트비트(헬스체크) — 구현 완료**: 판정 이벤트(`aiDisposal`/`binStates`)만으로는
+  "아무 일도 없어서 조용한 것"과 "스크립트 크래시/SSH 터널 끊김으로 판정 자체가 안 되는
+  것"을 백엔드가 구분할 수 없었던 문제를 해결. `tracking2.py`/`sideOverflow.py` 둘 다
+  판정 이벤트와 무관하게 30초 주기로 `POST /api/gpuHeartbeats`(EP-19, 기존 판정용
+  역터널 그대로 재사용)를 호출하고, 백엔드는 `cameraId`당 마지막 수신 시각만 upsert
+  저장(`gpuHeartbeats` 컬렉션, `Docs/ERD.md`의 `GPU_HEARTBEAT` 참고) — ONLINE/OFFLINE
+  자체는 저장하지 않고 `GET /api/gpuHeartbeats` 조회 시점마다 임계값(90초)과 비교해
+  계산한다(임계값 조정 시 재계산만 하면 되도록). `/statistics`는 실제로 고객(행정직원)이
+  보는 화면이라 평소엔 아무것도 표시하지 않다가, 20초 주기 폴링에서 OFFLINE인 카메라가
+  있을 때만 상단에 경고 배너를 띄운다 — "GPU"나 스크립트명 같은 내부 인프라 용어는 절대
+  노출하지 않고 "오분류 자동 감지"/"쓰레기통 넘침 자동 감지" 기능이 중단됐다는 식으로만
+  안내(항상 보이는 상태 카드로 갔다가 고객 화면에 안 맞다고 판단해 배너로 변경). 90초
+  임계값은 README의 confidence threshold와 같은 성격의 실측 후 조정 대상(아래 TBD 참고)
 
 ## 배포 전략
 
@@ -361,7 +374,7 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
   `training`(GPU 서버)이 학습 때마다 로컬(`<LOCAL_BACKEND_IP>`) GridFS에 네트워크로 직접 접속.
   역방향 SSH 터널 필요(아래 "배포 전략" 참고)
 
-## 재학습용 미확정 방문 캡처 (백엔드 구현 완료, GPU 연동만 남음)
+## 재학습용 미확정 방문 캡처 (백엔드·GPU 코드 구현 완료, 실기기 검증만 남음)
 
 > **2026-08-26 설계 확정** — LLM review 파이프라인 실제 검증 중(`autoTraining/README.md`
 > 참고) "지금 구조로는 YOLO가 못 잡은 실패 사례 영상이 재학습 데이터로 하나도 안 남는다"는
@@ -386,7 +399,7 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
   → visitClips 컬렉션에 문서 생성: {cameraId, startedAt, endedAt, imageFileId,
     trackIds: [], matchedEventIds: [], unresolvedTrackIds: []}
 
-[GPU: tracking2.py, 신규 신호 2종 추가 필요]
+[GPU: tracking2.py, 신호 2종 구현 완료]
 트랙을 새로 발견하는 즉시 → POST /api/events/trackStarted {trackId, cameraId, timestamp}
   → 백엔드가 activeTracks에 임시 저장(사람 등장 시점과 거의 동시라 시간 오차 작음)
 트랙 종료 시 둘 중 하나:
@@ -408,13 +421,35 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
 전부 반영됨. `autoTraining/stages/collectEventMedia.py`도 `matchedEventIds`가 비어있는
 `visitClip`을 재학습 후보(`eventCategory: unresolvedVisit`)로 수집하는 경로가 추가됨(진행
 중 — 아래 참고). 상세 필드는 `Docs/ERD.md`의 `VISIT_CLIP`, API 형식은
-`.agentfiles/apiSpec.md`의 EP-14/EP-15 참고.
+`.agentfiles/apiSpec.md`의 EP-14/EP-15 참고. **`tracking2.py`(GPU)의 `trackStarted`/
+`trackEnded` 전송도 구현 완료** — 새 트랙을 등록하는 즉시 `trackStarted`를, 어느 통에도
+못 들어가고 만료(`TRACK_EXPIRE_FRAMES`)되면 `trackEnded(unresolved)`를 보낸다. 통에 확정
+투입된 트랙은 기존 `aiDisposal`의 `trackId`로만 연결하고 별도 `trackEnded`는 보내지 않으며,
+같은 통에 ID가 바뀐 것으로 판단해 이벤트를 스킵하는 fragment-duplicate 트랙(극히 드묾)도
+실제로는 다른 trackId로 이미 확정됐으므로 `trackEnded`를 보내지 않는다 — 이 두 경우까지
+`unresolved`로 보내면 정상 처리된 방문이 재학습 후보로 잘못 잡힌다.
 
-**아직 안 된 것**: **`tracking2.py`(GPU)가 `trackStarted`/`trackEnded`를 아직 안 보냄**(모델팀
-코드 수정 필요) — 이 신호가 없으면 `visitClip.trackIds`가 항상 비어있어서, 지금
-`collectEventMedia.py`가 수집하는 후보는 전부 "YOLO가 트랙조차 시작 안 한 케이스"로만
-채워진다(트랙 시도 후 실패한 케이스는 신호 연동 전까지 구분 불가). 이 신호가 붙기 전까지는
-`unresolvedTrackIds` 기반 분류도 사실상 동작하지 않는 상태.
+**오분류 `EVENT`에 영상 연결 — 구현 완료(2026-08-27)**: 위 `visitClips`가 저장되기
+시작하면서, 오분류 `EVENT`의 `imageFileId`가 계속 null이던 문제도 같이 해결됨. 원인은
+`createEventFromAiDisposal`이 "직전 5초" 프레임을 활성 녹화 버퍼
+(`recordingService.snapshotRecentFrames`)에서 꺼내려 했는데, presence 기반 녹화는 사람
+이탈 직후 세션을 삭제하는 반면 GPU 판정은 그보다 늦게 도착해 꺼낼 세션이 이미 없었던 것.
+검토했던 두 해법 중 **(2) 이벤트 시각과 겹치는 `visitClip` 영상을 재사용하는 쪽으로 확정**
+(더 저렴) — 방문 종료 시 GridFS에 저장된 **전체 방문 GIF를 다시 읽어** 이벤트 직전 약 5초
+구간만 별도 GIF로 파생하고 그 ID를 `imageFileId`에 연결한다
+(`services/eventMediaService.py`의 `attachPreviewFromVisitClip`, 실제 파생은
+`mediaService.saveStoredClipSegmentAsGif`). 이벤트가 방문 영상 저장보다 **늦게 도착해도**
+`trackId`로, 그것도 없으면 `cameraId`+이벤트 시각으로 기존 `visitClip`을 찾아 같은 처리를
+한다(`visitClipService`). 전체 방문 GIF는 재학습/방문 기록용으로 그대로 유지되며 파생
+미리보기와는 별도 파일이다. 대응 방문 영상이나 원본을 못 찾으면 이벤트만 저장하고
+`imageFileId`는 null로 남는다(파생 실패 시 만들다 만 GridFS 파일은 보상 삭제).
+`recordingService.snapshotRecentFrames`는 이 전환으로 **제거됨** — 더 이상 호출부 없음.
+API 형식은 `.agentfiles/apiSpec.md`의 EP-12 참고.
+
+**아직 안 된 것**: 위 GPU 쪽 코드는 이번에 작성됐지만 **실제 GPU 서버에서 트랙 신호가
+백엔드에 정상 도달하는지 실기기 검증은 아직 안 됨**(그 전까지 검증된 건 스키마 파싱 확인
+수준). 실기기 검증 전까지는 `unresolvedTrackIds` 기반 재학습 후보 분류도 실측으로 확인된
+상태는 아님.
 
 ## Event Flow
 
@@ -450,9 +485,6 @@ Detect → Create Event → Save Event → Check mode
 
 ## TBD
 
-- **재학습용 미확정 방문 캡처 구현** — 설계는 확정됨(위 "재학습용 미확정 방문 캡처" 절
-  참고), `tracking2.py`의 `trackStarted`/`trackEnded` 신호 추가와 `visitClips` 저장소/API
-  구현은 아직 안 됨
 - **로컬 백엔드와 라즈베리파이의 네트워크 세그먼트 일치 여부** — RTSP 수신(로컬 백엔드↔
   라즈베리파이)은 mDNS(`.local`) 이름 해석에 의존 중인데, 이건 **같은 네트워크 세그먼트
   안에서만** 동작함(멀티캐스트가 세그먼트를 못 넘어감). 실제 설치 위치(12층 엘리베이터
@@ -470,6 +502,10 @@ Detect → Create Event → Save Event → Check mode
   (`PRESENCE_ENTRY_CONFIRM_SECONDS`)/이탈 유예 시간(`PRESENCE_EXIT_GRACE_SECONDS`,
   스펙상 3초) 수치 자체는 실제 TOP 카메라 설치 위치/거리 기준 실측 후 조정 필요 —
   `README.md`의 "오탐 confidence threshold"와 같은 성격의 수치 튜닝 TBD
+- **GPU 하트비트 주기(30초)/OFFLINE 임계값(90초) 실측 튜닝** — 구현 방식 자체는 확정+구현
+  완료(위 "추론 인프라"의 "GPU 하트비트(헬스체크)" 참고). 단, 두 수치 자체는 실측 없이
+  임의로 정한 값(위 "사람 존재 감지 임계값"과 같은 성격) — 정상 판정 지연(GPU가 바빠서
+  하트비트가 늦어지는 경우)과 실제 장애를 구분하기에 90초가 충분한지 실측 필요
 - **GPU→로컬 백엔드 연결 방식/재연결 전략** — SSH 역터널(`-R`)이 필요한 건 확정됐지만
   (위 "배포 전략" 참고), 끊겼을 때 자동 재연결(`autossh` 등) 필요 여부는 미정 — 끊기면
   그 동안 오분류(TOP)/넘침(SIDE) 이벤트가 둘 다 유실되지만 라이브뷰/녹화는 영향 없음
@@ -483,12 +519,6 @@ Detect → Create Event → Save Event → Check mode
   `python` 실행 기준). SSH 역터널 자체의 상시 유지(`autossh`, 로컬 배포 서버 쪽에 필요 —
   아래 "GPU→로컬 백엔드 연결 방식" 항목과 동일 이슈)는 별개로 여전히 TBD — Docker화해도
   터널이 안 살아있으면 둘 다 그냥 재연결 대기 상태로 남음
-- **GPU 쪽 헬스체크/하트비트 부재** — 지금 구조는 GPU가 오분류/넘침을 감지했을 때만
-  백엔드로 푸시하는 방식이라, "아무 일도 없어서 조용한 것"과 "GPU 스크립트 크래시/SSH 터널
-  끊김으로 아예 판정 자체가 안 되는 것"이 백엔드 입장에서 구분이 안 됨(둘 다 그냥 이벤트가
-  안 옴, TOP/SIDE 둘 다 해당). 판정 이벤트와 별개로 GPU가 일정 주기(예: 30초~1분)마다
-  "살아있음" 신호를 로컬 백엔드로 보내고, 마지막 수신 시각이 임계값을 넘으면 관리자 웹에
-  연결 끊김 상태로 표시하는 방식 검토 필요 — 아직 미착수
 - **GPU 카드 공유 시 `tracking2.py`/`sideOverflow.py`-`training` 동시 실행 지연/자원 경합
   실측 필요** — 둘 다 상시 도는 구조라 `training`을 돌리는 시간대엔 자원을 나눠 써야 함,
   정확한 부하는 실측 필요(단, `sideOverflow.py`는 모델이 가벼워 부담이 작을 것으로 예상)
@@ -508,22 +538,19 @@ Detect → Create Event → Save Event → Check mode
   MJPEG 스트림(TOP 카메라 1개 분량)을 구독하는 구조라 예전 우려("TOP 라즈베리파이→GPU
   서버 RTSP 상시 스트리밍을 GPU가 직접 수신")보다는 부담이 가벼울 것으로 예상 — 그래도
   실측은 메인보드 입고 후 필요
-- **오분류 `EVENT`에 영상이 안 붙음(`imageFileId`가 계속 null)** — 위의 "`tracking2.py`가
-  자체 저장하는 이미지(`waste_events/*.jpg`)를 GridFS와 연동" 항목과는 **원인이 다른 별개
-  문제**. `createEventFromAiDisposal`이 오분류 확정 시 "직전 5초" 프레임을 GIF로 만들려고
-  `recordingService.snapshotRecentFrames`를 호출하는데, presence 기반 녹화가 사람 이탈 후
-  세션을 즉시 삭제(`recordingService.stop`)하는 반면 GPU 판정은 그보다 늦게 도착해서
-  꺼낼 세션이 이미 없음 → 프레임 0개 → GIF 생성 자체가 스킵됨. 2026-08-27 확인 시 최근
-  오분류 이벤트 10건 전부 `imageFileId`가 null이었음. **방문 전체 영상(`visitClips`)은
-  정상 저장되고 있으므로**, (1) 녹화 세션을 stop 후 짧게 유지하거나 (2) 이벤트 시각과
-  겹치는 `visitClip`의 영상을 대신 보여주는 두 가지 해법이 있음(후자가 더 저렴)
+- **오분류 `EVENT`에 영상이 붙는지 실기기 확인 필요** — 위 "재학습용 미확정 방문 캡처"의
+  "오분류 영상 연결"로 **코드는 구현 완료**(2026-08-27, `visitClip` 영상에서 직전 5초를
+  파생). 단, 2026-08-27에 null 10건이 확인된 뒤의 구현이라 **실제 운영에서 `imageFileId`가
+  채워지는지 재확인은 아직 안 됨** — 특히 지연 도착 이벤트의 `cameraId`+시각 폴백 경로는
+  단위 테스트로만 검증됨. (`tracking2.py`가 자체 저장하는 `waste_events/*.jpg`를 GridFS와
+  연동하는 위 항목은 여전히 **원인이 다른 별개 미착수 과제**)
 - **GPU 판정 지연이 현장 알림 지연으로 이어지는 문제** — RPA 알림은 `EVENT` 생성 시점에
   트리거되는데 그 생성이 GPU의 `aiDisposal` 도착을 기다리므로, GPU가 느리면 전구/경고음도
   같이 늦어짐. 위 "RPA 정책"의 "오분류 시 즉시 자동 트리거"와 충돌. 2026-08-27 측정에서
   방문 종료 대비 평균 약 16.8초(최대 48.7초)가 나왔으나 **표본 8건이고 측정 시간대에
   학습·vLLM을 같은 카드에서 돌리고 있어 오염된 값** — GPU 유휴 시간대에 재측정해서 실제
-  문제인지 먼저 확정할 것. (위 "GPU 쪽 헬스체크/하트비트 부재" 항목은 "살아있는가"를 보는
-  것이고, 이건 "얼마나 느린가"라 별개)
+  문제인지 먼저 확정할 것. (위 "추론 인프라"의 "GPU 하트비트(헬스체크)" 항목은
+  "살아있는가"를 보는 것이고, 이건 "얼마나 느린가"라 별개)
 - **카메라 영상이 좌우 반전으로 들어오는지 확인 필요** — 저장된 TOP 프레임을 보면 쓰레기통에
   붙은 한글 라벨이 거울상으로 보임(2026-08-27 확인). 학습 데이터와 운영이 같은 반전 상태면
   일관되므로 문제없지만, 의도치 않은 설정이면 운영 `tracking2.py`에도 함께 영향을 줌.

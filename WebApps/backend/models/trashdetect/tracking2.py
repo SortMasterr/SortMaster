@@ -39,12 +39,28 @@ IS_LIVE_STREAM_SOURCE = (
 STREAM_RECONNECT_DELAY_SECONDS = 2.0
 
 # 백엔드는 CAMERA_ID="CAM-01"을 ELEV-TOP으로 매핑해서 받으므로 그대로 둔다
-# (services/eventService.py의 _aiCameraIdToCameraId 참고)
+# (services/eventService.py의 _aiCameraIdToCameraId 참고) — aiDisposal 전용.
 CAMERA_ID = "CAM-01"
+
+# trackStarted/trackEnded/gpuHeartbeats는 위 CAM-01 같은 GPU 쪽 값이 아니라 백엔드의
+# CameraId enum 값을 직접 기대한다(schemas/visitClip.py의 TrackStartedRequest/
+# TrackEndedRequest, schemas/gpuHeartbeat.py의 GpuHeartbeatPing과 동일 패턴).
+BACKEND_CAMERA_ID = "ELEV-TOP"
 
 # 로컬 백엔드 주소 — GPU 서버 포트는 팀 공유 규칙상 99로 끝나야 해서 8047을 그대로 못 씀.
 # SSH 역터널(-R 8299:localhost:8047)로 도커 PC의 8047을 GPU 서버의 8299로 매핑해서 접속
 BACKEND_URL = f"http://{BACKEND_HOST}:8299/api/events/aiDisposal"
+
+# 판정 이벤트와 무관하게 이 스크립트가 살아있음을 알리는 생존 신호(architecture.md의
+# "GPU 쪽 헬스체크/하트비트 부재" TBD 해결용) — 같은 터널을 그대로 재사용
+HEARTBEAT_URL = f"http://{BACKEND_HOST}:8299/api/gpuHeartbeats"
+HEARTBEAT_INTERVAL_SECONDS = 30.0
+
+# 재학습용 미확정 방문 캡처(architecture.md 참고) — 새 트랙 발견 즉시/확정 못 하고
+# 놓쳤을 때 백엔드에 알려서 visitClip과 연결한다. 통에 확정 투입된 경우는 이 신호 대신
+# 기존 BACKEND_URL(aiDisposal)의 trackId로 연결된다.
+TRACK_STARTED_URL = f"http://{BACKEND_HOST}:8299/api/events/trackStarted"
+TRACK_ENDED_URL = f"http://{BACKEND_HOST}:8299/api/events/trackEnded"
 
 # GPU 서버는 화면(디스플레이)이 없는 헤드리스 환경이라 cv2.imshow를 그대로 쓰면 에러 남
 HEADLESS = True
@@ -630,6 +646,62 @@ def handle_disposal_event(event):
         print(f"[BACKEND] 전송 실패: {error}")
 
 
+_last_heartbeat_sent_at = 0.0
+
+
+def send_heartbeat_if_due():
+    """HEARTBEAT_INTERVAL_SECONDS마다 생존 신호를 보낸다. 판정 이벤트가 없어도(=조용해도)
+    이 스크립트/터널이 살아있는지 백엔드가 구분할 수 있도록 매 프레임 루프에서 호출한다.
+    """
+    global _last_heartbeat_sent_at
+
+    now = time.monotonic()
+    if now - _last_heartbeat_sent_at < HEARTBEAT_INTERVAL_SECONDS:
+        return
+
+    _last_heartbeat_sent_at = now
+
+    try:
+        requests.post(
+            HEARTBEAT_URL,
+            json={"cameraId": BACKEND_CAMERA_ID},
+            timeout=3,
+        )
+    except requests.RequestException as error:
+        print(f"[HEARTBEAT] 전송 실패: {error}")
+
+
+def send_track_started(raw_track_id):
+    try:
+        requests.post(
+            TRACK_STARTED_URL,
+            json={
+                "trackId": raw_track_id,
+                "cameraId": BACKEND_CAMERA_ID,
+                "timestamp": datetime.now().astimezone().isoformat(),
+            },
+            timeout=3,
+        )
+    except requests.RequestException as error:
+        print(f"[TRACK_STARTED] 전송 실패: {error}")
+
+
+def send_track_ended(raw_track_id):
+    try:
+        requests.post(
+            TRACK_ENDED_URL,
+            json={
+                "trackId": raw_track_id,
+                "cameraId": BACKEND_CAMERA_ID,
+                "timestamp": datetime.now().astimezone().isoformat(),
+                "result": "unresolved",
+            },
+            timeout=3,
+        )
+    except requests.RequestException as error:
+        print(f"[TRACK_ENDED] 전송 실패: {error}")
+
+
 # ============================================================
 # 9. 쓰레기통 화면 표시
 # ============================================================
@@ -690,6 +762,8 @@ try:
 
             print("영상 입력이 종료되었습니다.")
             break
+
+        send_heartbeat_if_due()
 
         frame_index += 1
         clean_frame = frame.copy()
@@ -793,6 +867,8 @@ try:
                         f"(ByteTrack={raw_track_id}), "
                         f"class={class_name}, conf={float(conf):.2f}"
                     )
+
+                    send_track_started(raw_track_id)
 
                 track = active_tracks[raw_track_id]
                 current_trash_ids.add(raw_track_id)
@@ -1058,6 +1134,8 @@ try:
                     f"[EXPIRE] T{track['display_id']} "
                     f"(ByteTrack={raw_track_id}) - 투입 확인 안 됨"
                 )
+
+                send_track_ended(raw_track_id)
 
                 del active_tracks[raw_track_id]
 

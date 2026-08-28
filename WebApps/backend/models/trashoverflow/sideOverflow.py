@@ -63,6 +63,11 @@ BIN_TYPE = "normal"
 # SSH 역터널(-R 8299:localhost:8047)로 도커 PC의 8047을 GPU 서버의 8299로 매핑해서 접속
 BACKEND_URL = f"http://{BACKEND_HOST}:8299/api/binStates"
 
+# 판정 이벤트와 무관하게 이 스크립트가 살아있음을 알리는 생존 신호(tracking2.py와 동일
+# 패턴, architecture.md의 "GPU 쪽 헬스체크/하트비트 부재" TBD 해결용)
+HEARTBEAT_URL = f"http://{BACKEND_HOST}:8299/api/gpuHeartbeats"
+HEARTBEAT_INTERVAL_SECONDS = 30.0
+
 OVERFLOW_SECONDS = 30.0
 NORMAL_RESET_SECONDS = 1.0
 CONFIDENCE_THRESHOLD = 0.70
@@ -208,6 +213,32 @@ def report_bin_state(confidence):
         print(f"[BACKEND] 전송 실패: {error}")
 
 
+_last_heartbeat_sent_at = 0.0
+
+
+def send_heartbeat_if_due():
+    """HEARTBEAT_INTERVAL_SECONDS마다 생존 신호를 보낸다(tracking2.py와 동일 패턴).
+    넘침 상태 변화가 없어 report_bin_state가 한동안 호출되지 않아도, 이 스크립트/터널이
+    살아있는지 백엔드가 구분할 수 있도록 매 루프에서 호출한다.
+    """
+    global _last_heartbeat_sent_at
+
+    now = time.monotonic()
+    if now - _last_heartbeat_sent_at < HEARTBEAT_INTERVAL_SECONDS:
+        return
+
+    _last_heartbeat_sent_at = now
+
+    try:
+        requests.post(
+            HEARTBEAT_URL,
+            json={"cameraId": CAMERA_ID},
+            timeout=3,
+        )
+    except requests.RequestException as error:
+        print(f"[HEARTBEAT] 전송 실패: {error}")
+
+
 # ============================================================
 # 5. 메인 루프
 # ============================================================
@@ -228,6 +259,8 @@ try:
 
             print("영상 입력이 종료되었습니다.")
             break
+
+        send_heartbeat_if_due()
 
         predictedClass, confidence, frameOverflow = run_inference(
             np.asarray(frame)

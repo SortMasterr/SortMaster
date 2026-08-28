@@ -2,7 +2,7 @@
 
 > 버전: 고도화 진행 중(MVP 데모 완료). `repositories/eventRepository.py`가 motor(비동기 MongoDB 드라이버) 기반으로 구현됨(in-memory Mock 제거 완료) — `WebApps/backend/schemas/event.py`의 Pydantic 모델을 근거로 작성. **`detectionId`/`trackingId`/`binId`/`binType`/`modelVersion`과 카메라별 GridFS 버킷, `BIN_STATES`(`repositories/binStateRepository.py`) 모두 코드 반영 완료.**
 > 실제 영속화되는 것은 MongoDB `events`/`binStates`/`collectionTasks`/
-> `collectionAutomationRuns`/`collectionAutomationState` 컬렉션 + GridFS다.
+> `collectionAutomationRuns`/`collectionAutomationState`/`gpuHeartbeats` 컬렉션 + GridFS다.
 > `CAMERA`/`SystemState`는 현재 DB 컬렉션이 아니라 Enum·런타임 상태라 참고용으로만 표시.
 > 손 감지 조합 판정은 폐지되고 쓰레기 감지 자체가 트리거로 바뀜 — 옆 카메라(`ELEV-SIDE`)는
 > **GPU 서버의 `models/trashoverflow/sideOverflow.py`**가 **MobileNet_V3_Small** 경량
@@ -31,13 +31,19 @@ erDiagram
     EVENT ||--o| COLLECTION_TASK : "FULL 전환 시 수거 작업"
     COLLECTION_TASK ||--o{ COLLECTION_AUTOMATION_RUN : "알림 실행 이력"
     EVENT |o--|| MEDIA_FILE : "참조(선택)"
-    CAMERA ||--o{ VISIT_CLIP : "presence 감지 기반 방문 녹화(설계만 확정, 구현 전)"
-    VISIT_CLIP |o--o{ EVENT : "matchedEventIds(trackId로 정밀 매칭, 구현 전)"
-    VISIT_CLIP |o--|| MEDIA_FILE : "imageFileId 참조(구현 전)"
+    CAMERA ||--o| GPU_HEARTBEAT : "생존 신호(cameraId 기준, 구현 완료)"
+    CAMERA ||--o{ VISIT_CLIP : "presence 감지 기반 방문 녹화(구현 완료)"
+    VISIT_CLIP |o--o{ EVENT : "matchedEventIds(trackId로 정밀 매칭, 구현 완료, 실기기 검증 TBD)"
+    VISIT_CLIP |o--|| MEDIA_FILE : "imageFileId 참조(구현 완료)"
 
     CAMERA {
         string cameraId PK "ELEV-TOP/ELEV-SIDE/REST-4F-01(설치 위치는 12층 엘리베이터 앞 1곳뿐). ELEV-TOP=투기 판정 담당, ELEV-SIDE=넘침 감지 담당"
-        string status "ONLINE/OFFLINE, 런타임 상태(영속화 여부 TBD). 현재 프론트(index.js/sidebar.js) 어디서도 실제 참조 안 함 — aspirational 필드"
+        string status "ONLINE/OFFLINE. 실제 영속화는 GPU_HEARTBEAT가 담당(아래 참고) — 이 필드 자체는 여전히 개념적 표시일 뿐 CAMERA가 실제 컬렉션은 아님"
+    }
+
+    GPU_HEARTBEAT {
+        string cameraId PK "ELEV-TOP 또는 ELEV-SIDE만(GPU 추론을 실제로 담당하는 카메라, architecture.md 참고)"
+        datetime lastSeenAt "GPU 서버(tracking2.py/sideOverflow.py)가 POST /api/gpuHeartbeats(EP-19)를 보낸 마지막 시각. cameraId당 최신 1행만 유지(upsert, BIN_STATES와 동일 패턴)"
     }
 
     BIN_STATES {
@@ -140,6 +146,14 @@ erDiagram
   리셋(`EVENT` 생성 없음). `schemas/binState.py`/`repositories/binStateRepository.py`/
   `services/binStateService.py`로 코드 반영 완료 — 조회는 `GET /api/binStates`(EP-10), 갱신은
   `POST /api/binStates`(EP-11, `Docs/API_SPEC.md` 참고)
+- **GPU_HEARTBEAT**(신규): GPU 서버 추론 스크립트(`tracking2.py`/`sideOverflow.py`)가
+  판정 이벤트와 무관하게 보내는 생존 신호. `BIN_STATES`와 동일하게 `cameraId`당
+  `lastSeenAt` 1행만 upsert로 유지하고, ONLINE/OFFLINE 자체는 저장하지 않고 조회
+  시점마다 임계값(90초, `services/gpuHeartbeatService.py`)과 비교해 계산한다 — 임계값을
+  나중에 조정해도 재계산만 하면 되도록 하기 위함. 대상은 GPU 추론을 실제로 담당하는
+  `ELEV-TOP`/`ELEV-SIDE` 둘뿐(`REST-4F-01`은 미설치). `GET`/`POST /api/gpuHeartbeats`
+  (EP-19, `.agentfiles/apiSpec.md` 참고)로 코드 반영 완료 — `architecture.md`의 "GPU 쪽
+  헬스체크/하트비트 부재" TBD 해결
 - **MEDIA_FILE**: MongoDB GridFS 구조, **버킷을 카메라별로 2개 분리**(`topMedia`/`sideMedia` —
   각각 `<bucket>.files`+`<bucket>.chunks`, 기본 버킷명 `fs` 하나만 쓰던 걸 카메라별로 나눔).
   저장 시 `EVENT.cameraId`(위 카메라→`topMedia`, 옆 카메라→`sideMedia`) 기준으로 버킷 선택,
@@ -151,7 +165,8 @@ erDiagram
   시작~종료 신호 사이 실제 구간을 캡처(신호 유실 대비 최대 30초 안전 캡) — `misclassification`은
   투척 완료 후 약 3초 텀을 두고 종료 신호가 옴(`architecture.md`). 탐지 서비스가 아직 없어
   실제 트리거 전이라 `imageFileId`는 대부분 `null`.
-- **VISIT_CLIP**(신규, **설계만 확정, 코드 미반영** — 2026-08-26): `EVENT`처럼 판정이 확정된
+- **VISIT_CLIP**(신규, **구현 완료, 실기기 검증 TBD** — 백엔드+GPU 쪽 신호 전송 코드 모두
+  반영됐으나 실제 GPU 서버에서 신호가 정상 도달하는지는 아직 검증 안 됨): `EVENT`처럼 판정이 확정된
   것만 저장하는 게 아니라, **presence 감지로 "누가 통 근처에 왔다 갔다"는 사실 자체를 판정
   여부와 무관하게 항상 기록**하는 컬렉션. 재학습(`autoTraining`)에 YOLO가 놓친 실패 사례를
   공급하기 위한 용도 — 상세 배경/설계는 `architecture.md`의 "재학습용 미확정 방문 캡처",

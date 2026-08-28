@@ -19,6 +19,11 @@
 - Docker 이미지/컨테이너 이름은 케밥케이스(`sortmaster-backend`) — Docker 이미지 이름은 대문자 자체가 불가능(소문자+`.`/`_`/`-`만 허용)하고, Docker 생태계 관례와도 일치
 - GPU 서버 스크립트 및 학습 파이프라인과 연동되는 모델 가중치·산출물 파일명은 Python·학습 도구 관례와 기존 연동을 우선해 snake_case 허용
   (`best_side.pt` 등). 이름을 바꾸려면 GPU 서버 스크립트와 모든 참조 위치를 함께 변경
+- **`training/` 폴더(모델팀 초기 데이터셋 준비 스크립트)의 파일명·함수명은 snake_case 유지**
+  (`data_split.py`, `frame_extraction.py`, `count_yolo_classes()` 등). Colab 노트북·개인
+  학습 환경 관례에 맞춰 작성됐고 백엔드가 import하지 않는 별도 실행 단위라, 리네임하면
+  얻는 것 없이 외부 참조만 깨진다. 자동 재학습 파이프라인(`autoTraining/`)은 이 예외에
+  해당하지 않고 camelCase를 따른다 — 두 폴더의 차이는 `training/README.md` 참고
 - **학습된 모델 파일이 실제로 내놓는 클래스명 문자열**(`tracking2.py`의 `model.names`)은
   코드 컨벤션(camelCase)과 무관하게, **그 시점에 로드하는 체크포인트가 실제로 내놓는
   문자열과 정확히 일치**해야 함(프레임워크 강제 이름과 같은 성격 — 값을 바꾸려면 실제
@@ -52,5 +57,8 @@
 | `schemas/` | Pydantic 모델(요청/응답 스키마) |
 | `streaming/` | 카메라 캡처·프레임 스트리밍 로직. `cameraManager.py` 구현됨(카메라 1대당 독립 `CameraId`, MJPEG) |
 | `static/`, `templates/` | 정적 파일, Jinja2 템플릿 |
+| `detection/` | 프레임 단위 순수 판정 로직(상태 없음). `presenceDetector.py`(배경 차분 기반 사람 존재 감지) — 상태 머신/게이팅은 `services/presenceGateService.py` 쪽 |
+| `models/` | **GPU 서버에서 실행되는** 추론 스크립트+가중치+`Dockerfile`. `trashdetect/`(TOP, `tracking2.py`+YOLO26), `trashoverflow/`(SIDE, `sideOverflow.py`+MobileNet_V3_Small). 백엔드 프로세스가 import하지 않는 별도 실행 단위라 위 레이어 규칙 적용 대상이 아님 |
+| `tests/` | pytest 테스트. 대상 모듈명에 `test` 접두어(`testEventMediaService.py` 등) |
 
 새로운 책임(예: 탐지 파이프라인, RPA 연동)이 생기면 위 표에 맞는 폴더가 없을 때만 최상위에 새 폴더 추가(`detection/`, `rpa/` 등) — 기존 폴더 하나에 억지로 우겨넣지 말 것.

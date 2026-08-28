@@ -14,7 +14,7 @@ v0.2(MVP), 구현 기준일 2026-08-25. `DetectedClass`/`BinType`의 `general`�
 | DetectedClass | normal / paper / recyclables / coffeeCup — 총 4종, misclassification 이벤트에서만 사용. `mixed`/`uncertain`은 제외됨. 실제 YOLO26 모델이 plastic/can을 구분 못 해 `recyclables` 하나로 통합 |
 | ActionTaken | lightAndSound / soundOnly / lightOnly / notificationOnly / none |
 | Mode | MANAGE(기본값) / COLLECT |
-| CameraStatus | ONLINE / OFFLINE |
+| CameraStatus | ONLINE / OFFLINE — EP-19 응답에 사용(ELEV-TOP/ELEV-SIDE의 GPU 추론 스크립트 하트비트 기반) |
 | WSEventType | MISCLASSIFICATION_DETECTED / BIN_OVERFLOW_DETECTED / MODE_CHANGED / CAMERA_DISCONNECTED / SYSTEM_ERROR |
 
 상태 코드: 200 정상 / 400 요청 오류 / 404 이벤트·녹화 세션 없음 /
@@ -40,6 +40,7 @@ v0.2(MVP), 구현 기준일 2026-08-25. `DetectedClass`/`BinType`의 `general`�
 | EP-14 | GET /api/collectionTasks, POST /api/collectionTasks/{collectionTaskId}/acknowledge, POST /api/collectionTasks/{collectionTaskId}/complete, GET /api/collectionAutomation/status | FULL 감지 기반 수거 작업 조회·확인·완료 및 RPA 상태 조회 | 목록: taskStatus?, limit? / 처리: collectionTaskId | 200/404/409/422 | `RPA_COLLECTION_ENABLED=true`일 때 NORMAL→FULL overflow 이벤트에 활성 수거 작업 1건 생성. 별도 collection-scheduler가 최초 담당자 알림→재알림→관리자 에스컬레이션 순으로 발송. 작업·발송 이력·heartbeat는 MongoDB에 영속화 |
 | EP-17 | GET /api/visitClips | 방문 클립(presence 기반 녹화, 판정 여부 무관) 목록, 최신순 | Query: limit?(기본 60, 1~200) | 200/422 | 관리자 대시보드에는 노출하지 않음(사이드바/페이지 없음) — 필요 시 직접 호출하는 조회 전용 API. `imageFileId`는 응답에 노출하지 않고 EP-18 경로로만 접근 |
 | EP-18 | GET /api/visitClips/{clipId}/media | 방문 클립 GIF 원본 스트리밍(GridFS) | Path: clipId | 200/404 | `clipId`가 유효한 ObjectId가 아니거나 문서가 없으면 404. `cameraId`에 따라 topMedia/sideMedia 버킷에서 읽음(`repositories/mongoClient.py`의 `getGridFsBucket`과 동일 규칙). `Content-Type: image/gif` |
+| EP-19 | GET/POST /api/gpuHeartbeats | GPU 서버 추론 스크립트(`tracking2.py`/`sideOverflow.py`)의 생존 신호 조회/수신 | GET: 없음 / POST Body: cameraId(CameraId, ELEV-TOP 또는 ELEV-SIDE만) | 200/422 | POST는 두 스크립트가 판정 이벤트와 무관하게 30초~1분 주기로 호출(EP-12/EP-11과 같은 SSH 역터널 재사용, 별도 포트 불필요), 호출마다 `cameraId`의 `lastSeenAt`을 현재 시각으로 upsert. GET은 관리자 웹(PG-03)이 폴링해 ELEV-TOP/ELEV-SIDE 각각의 `CameraStatus`(ONLINE/OFFLINE)를 표시 — 저장은 `lastSeenAt`만 하고 상태는 조회 시점마다 임계값(90초)과 비교해 계산(`services/gpuHeartbeatService.py`). 하트비트를 한 번도 못 받은 카메라는 OFFLINE |
 
 ### EP-02. POST /api/events — 이벤트 생성
 
@@ -121,7 +122,7 @@ TemplateResponse만 반환, views.py/api.py 혼용 금지.
 |---|---|---|---|
 | PG-01 | GET / | index.html | 카메라 지점 2개(위+옆, `ELEV-TOP`/`ELEV-SIDE`) 스트리밍(분할 그리드)+모니터링 현황. 템플릿 컨텍스트의 `currentMode`는 현재 `MANAGE` 고정이며 실제 런타임 모드는 WS 연결 직후 동기화. 관리 모드에서 EP-10 응답 중 하나라도 `currentState=FULL`이면 수거 작업 생성 여부와 무관하게 사이드바에 `쓰레기통 가득참` 표시 |
 | PG-02 | GET /events | eventsList.html | EP-03 결과 표 렌더링(이전기록), EP-04/EP-04-M 상세 모달과 GIF 썸네일·확대 보기 |
-| PG-03 | GET /statistics | statistics.html | EP-05 요약·클래스별 집계와 EP-03 최근 이벤트 렌더링 |
+| PG-03 | GET /statistics | statistics.html | EP-05 요약·클래스별 집계와 EP-03 최근 이벤트 렌더링. EP-19를 20초 주기로 폴링하되, 평소엔 아무것도 표시하지 않다가 OFFLINE인 카메라가 있을 때만 상단에 경고 배너 노출(고객이 보는 화면이라 GPU/스크립트명 등 내부 인프라 용어 대신 "오분류 자동 감지"/"쓰레기통 넘침 자동 감지" 기능명으로 표시) |
 
 `GET /events/{id}` 페이지 라우트는 없다. 상세 정보는 `/events`의 모달이 EP-04를 호출하고,
 GIF가 있는 이벤트는 EP-04-M으로 썸네일과 확대 이미지를 표시한다.
@@ -138,7 +139,9 @@ sidebar.html은 라우트 아님 — 각 페이지에 공통 포함되는 사이
 
 - **`trackStarted`/`trackEnded` 및 방문 클립 연결** → `visitClipService`의 active track과
   `visitClips` 저장소로 구현. EP-12의 오분류 이벤트는 GridFS에 저장된 전체 방문 GIF에서
-  직전 약 5초 GIF를 파생하며, 전체 방문 GIF는 재학습/방문 기록으로 분리 유지
+  직전 약 5초 GIF를 파생하며, 전체 방문 GIF는 재학습/방문 기록으로 분리 유지. GPU 쪽
+  (`models/trashdetect/tracking2.py`)도 새 트랙 등록 시 EP-14, 미확정 만료 시 EP-15를
+  실제로 호출하도록 구현 완료 — 실기기(GPU 서버) 검증은 아직 TBD(`architecture.md` 참고)
 
 - **GPU↔백엔드 오분류 판정 신호 전달 방식 확정** → 로컬 백엔드가 프레임을 GPU로 보내는
   방향이 아니라, GPU(`models/trashdetect/tracking2.py`)가 자체 판정 후 `POST

@@ -105,7 +105,7 @@ Deploy는 `runDaily`에 포함되지 않으며 사람의 평가 확인과 배포
 | 사람 검수 후 자동 구간 | 구현됨 | `HumanReview → Publish → SyncDataset → Build → Train → Evaluate` |
 | 단일 명령 전체 실행 | 구현됨 | `runDaily`가 검수 완료를 기다린 뒤 평가까지 자동 진행 |
 | MongoDB 이벤트·미확정 방문 수집 | 구현됨·실DB 미검증 | `events.imageFileId`와 `matchedEventIds: []`인 `visitClips.imageFileId`를 `topMedia`에서 수집 |
-| GPU 방문 트랙 신호 | 미구현 | `tracking2.py`가 `trackStarted`/`trackEnded`를 아직 보내지 않아 시도 후 미확정 트랙을 visitClip에 연결하지 못함 |
+| GPU 방문 트랙 신호 | 구현됨·실기기 미검증 | `tracking2.py`가 새 트랙 발견 즉시 `POST /api/events/trackStarted`, 통에 못 들어가고 만료(`TRACK_EXPIRE_FRAMES`)되면 `POST /api/events/trackEnded(unresolved)`를 보내 시도 후 미확정 트랙을 visitClip에 연결. 통에 확정 투입된 트랙은 기존 `aiDisposal`의 `trackId`로 연결(추가 신호 불필요). fragment-duplicate로 스킵되는 트랙(같은 통에 ID가 바뀐 것으로 판단되는 극히 드문 경우)은 trackEnded를 보내지 않음 — 실제 이벤트가 다른 trackId로 이미 확정됐기 때문 |
 | Qwen-VL 실제 연결 | 연결됨·역할 축소 확정 | 프레임 단위 판정에만 사용. **박스 좌표는 쓰지 않음** — 실측 결과 위치 정확도가 사용 불가 수준(IoU 중앙값 0.00, `decisionLog.md` 참고). 스키마 미준수 폭주는 `max_tokens`로 제한 |
 | MongoDB 학습 데이터 Publish | 구현됨·실DB 미검증 | 승인 데이터만 추가, 이미지 중복·계약 충돌 검사 |
 | MongoDB 학습 데이터 Sync | 구현됨·실DB 미검증 | active 데이터 다운로드와 이미지·라벨 해시 검증 |
