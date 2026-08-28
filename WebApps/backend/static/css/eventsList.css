@@ -378,6 +378,10 @@ td.time {
     white-space: nowrap;
 }
 
+.mobileValue {
+    display: none;
+}
+
 /* 분류 태그 */
 .tag {
     display: inline-flex;
@@ -718,6 +722,21 @@ td.time {
 @media (max-width: 900px) {
     .stats {
         grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .areaCell,
+    .binIdCell {
+        white-space: nowrap;
+    }
+
+    .desktopValue {
+        display: none;
+    }
+
+    .mobileValue {
+        display: inline;
     }
 }
 

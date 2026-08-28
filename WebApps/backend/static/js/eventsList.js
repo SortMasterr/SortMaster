@@ -24,6 +24,19 @@ document.addEventListener("DOMContentLoaded", async () => {
         "REST-4F-01": "4층 휴게실",
     };
 
+    const mobileCameraInfoById = {
+        "ELEV-TOP": "TOP",
+        "ELEV-SIDE": "SIDE",
+        "REST-4F-01": "4F",
+    };
+
+    const mobileBinInfoById = {
+        "BIN-GENERAL": "GEN",
+        "BIN-PAPER": "PAP",
+        "BIN-PLASTIC-CAN": "PLA",
+        "BIN-COFFEE-CUP": "COFF",
+    };
+
     const state = {
         sortKey: "time",
         sortDirection: "desc",
@@ -110,6 +123,12 @@ document.addEventListener("DOMContentLoaded", async () => {
         const isOverflow =
             eventData.eventCategory === "overflow";
 
+        const area =
+            cameraInfoById[eventData.cameraId] ??
+            eventData.cameraId;
+
+        const binId = eventData.binId ?? "-";
+
         const typeInfo = isOverflow
             ? {
                 name: "쓰레기통 넘침",
@@ -124,14 +143,18 @@ document.addEventListener("DOMContentLoaded", async () => {
             eventId: eventData.eventId,
             time: new Date(eventData.timestamp),
 
-            area:
-                cameraInfoById[eventData.cameraId] ??
-                eventData.cameraId,
+            area,
+            mobileArea:
+                mobileCameraInfoById[eventData.cameraId] ??
+                area,
 
             type: typeInfo.name,
             typeClass: typeInfo.className,
 
-            binId: eventData.binId ?? "-",
+            binId,
+            mobileBinId:
+                mobileBinInfoById[binId] ??
+                binId,
 
             result: isOverflow
                 ? "넘침 감지"
@@ -898,10 +921,17 @@ document.addEventListener("DOMContentLoaded", async () => {
                                     )}
                                 </td>
 
-                                <td>
-                                    ${escapeHtml(
-                                        row.area
-                                    )}
+                                <td class="areaCell">
+                                    <span class="desktopValue">
+                                        ${escapeHtml(
+                                            row.area
+                                        )}
+                                    </span>
+                                    <span class="mobileValue">
+                                        ${escapeHtml(
+                                            row.mobileArea
+                                        )}
+                                    </span>
                                 </td>
 
                                 <td>
@@ -918,10 +948,17 @@ document.addEventListener("DOMContentLoaded", async () => {
                                     </span>
                                 </td>
 
-                                <td>
-                                    ${escapeHtml(
-                                        row.binId
-                                    )}
+                                <td class="binIdCell">
+                                    <span class="desktopValue">
+                                        ${escapeHtml(
+                                            row.binId
+                                        )}
+                                    </span>
+                                    <span class="mobileValue">
+                                        ${escapeHtml(
+                                            row.mobileBinId
+                                        )}
+                                    </span>
                                 </td>
 
                                 <td>
