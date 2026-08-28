@@ -112,6 +112,7 @@ class CollectionNotificationSelectionTest(unittest.TestCase):
             enabled=True,
             assigneeEmail="worker@example.com",
             managerEmail="manager@example.com",
+            initialDelayMinutes=10,
             reminderMinutes=10,
             escalationMinutes=20,
             pollSeconds=30,
@@ -131,6 +132,58 @@ class CollectionNotificationSelectionTest(unittest.TestCase):
         ).model_dump()
         values.update(changes)
         return CollectionTask(**values)
+
+    def testInitialNotificationWaitsTenMinutes(self):
+        from RPAs.collectionAutomation.collectionScheduler import selectNotification
+
+        beforeDelay = selectNotification(
+            self.task(createdAt=self.now - timedelta(minutes=9, seconds=59)),
+            self.now,
+            self.config,
+        )
+        atDelay = selectNotification(
+            self.task(createdAt=self.now - timedelta(minutes=10)),
+            self.now,
+            self.config,
+        )
+
+        self.assertIsNone(beforeDelay)
+        self.assertEqual(CollectionAutomationActionType.INITIAL, atDelay[0])
+
+    def testReminderAndEscalationUseInitialNotificationTime(self):
+        from RPAs.collectionAutomation.collectionScheduler import selectNotification
+
+        beforeReminder = selectNotification(
+            self.task(initialNotificationAt=self.now - timedelta(minutes=9)),
+            self.now,
+            self.config,
+        )
+        reminder = selectNotification(
+            self.task(initialNotificationAt=self.now - timedelta(minutes=10)),
+            self.now,
+            self.config,
+        )
+        beforeEscalation = selectNotification(
+            self.task(
+                initialNotificationAt=self.now - timedelta(minutes=19),
+                reminderNotificationAt=self.now - timedelta(minutes=9),
+            ),
+            self.now,
+            self.config,
+        )
+        escalation = selectNotification(
+            self.task(
+                initialNotificationAt=self.now - timedelta(minutes=20),
+                reminderNotificationAt=self.now - timedelta(minutes=10),
+            ),
+            self.now,
+            self.config,
+        )
+
+        self.assertIsNone(beforeReminder)
+        self.assertEqual(CollectionAutomationActionType.REMINDER, reminder[0])
+        self.assertIsNone(beforeEscalation)
+        self.assertEqual(CollectionAutomationActionType.ESCALATION, escalation[0])
 
     def testNotificationsRemainOrderedAfterLongDowntime(self):
         from RPAs.collectionAutomation.collectionScheduler import selectNotification

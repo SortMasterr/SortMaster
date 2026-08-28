@@ -25,11 +25,17 @@ docker compose --profile local up -d --build backend mongo collection-scheduler
 RPA_COLLECTION_ENABLED=true
 RPA_COLLECTION_ASSIGNEE_EMAIL=worker@example.com
 RPA_COLLECTION_MANAGER_EMAIL=manager@example.com
+RPA_COLLECTION_INITIAL_DELAY_MINUTES=10
 RPA_COLLECTION_REMINDER_MINUTES=10
 RPA_COLLECTION_ESCALATION_MINUTES=20
 RPA_COLLECTION_POLL_SECONDS=30
 RPA_COLLECTION_RETRY_SECONDS=60
 ```
+
+`RPA_COLLECTION_INITIAL_DELAY_MINUTES`는 `FULL` 감지부터 담당자 최초 이메일까지의
+대기 시간입니다. 재알림과 관리자 에스컬레이션 시간은 최초 이메일이 성공적으로 발송된
+시점부터 각각 계산합니다. 기본 설정은 최초 알림 10분 후, 재알림은 그로부터 10분 후,
+관리자 에스컬레이션은 최초 알림으로부터 20분 후입니다.
 
 SMTP 발신 설정은 보고서 RPA와 동일한 `RPA_REPORT_FROM`, `SMTP_HOST`, `SMTP_PORT`,
 `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_USE_TLS`를 사용합니다. 이메일 주소와 비밀번호는

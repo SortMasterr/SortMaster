@@ -42,6 +42,7 @@ class CollectionAutomationConfig:
     enabled: bool
     assigneeEmail: str | None
     managerEmail: str | None
+    initialDelayMinutes: float
     reminderMinutes: float
     escalationMinutes: float
     pollSeconds: float
@@ -51,12 +52,17 @@ class CollectionAutomationConfig:
     def fromEnvironment(cls) -> "CollectionAutomationConfig":
         loadProjectDotenv()
         try:
+            initialDelayMinutes = float(
+                os.getenv("RPA_COLLECTION_INITIAL_DELAY_MINUTES", "10")
+            )
             reminderMinutes = float(os.getenv("RPA_COLLECTION_REMINDER_MINUTES", "10"))
             escalationMinutes = float(os.getenv("RPA_COLLECTION_ESCALATION_MINUTES", "20"))
             pollSeconds = float(os.getenv("RPA_COLLECTION_POLL_SECONDS", "30"))
             retrySeconds = float(os.getenv("RPA_COLLECTION_RETRY_SECONDS", "60"))
         except ValueError as error:
             raise ConfigurationError("수거 자동화 시간 설정은 숫자여야 합니다.") from error
+        if initialDelayMinutes < 0:
+            raise ConfigurationError("담당자 최초 알림 지연 시간은 0 이상이어야 합니다.")
         if min(reminderMinutes, escalationMinutes, pollSeconds, retrySeconds) <= 0:
             raise ConfigurationError("수거 자동화 시간 설정은 0보다 커야 합니다.")
         if escalationMinutes <= reminderMinutes:
@@ -72,6 +78,7 @@ class CollectionAutomationConfig:
             enabled=parseBool(os.getenv("RPA_COLLECTION_ENABLED", "false")),
             assigneeEmail=optionalEmail("RPA_COLLECTION_ASSIGNEE_EMAIL"),
             managerEmail=optionalEmail("RPA_COLLECTION_MANAGER_EMAIL"),
+            initialDelayMinutes=initialDelayMinutes,
             reminderMinutes=reminderMinutes,
             escalationMinutes=escalationMinutes,
             pollSeconds=pollSeconds,
