@@ -44,6 +44,31 @@ class MemoryEventRepository:
             None,
         )
 
+    async def acknowledgeById(self, eventId, acknowledgedAt):
+        event = await self.findById(eventId)
+
+        if event is None or event.eventCategory != EventCategory.MISCLASSIFICATION:
+            return None
+
+        if event.acknowledgedAt is None:
+            event.acknowledgedAt = acknowledgedAt
+
+        return event
+
+    async def acknowledgeMany(self, eventIds, acknowledgedAt):
+        events = []
+
+        for eventId in dict.fromkeys(eventIds):
+            event = await self.acknowledgeById(
+                eventId,
+                acknowledgedAt,
+            )
+
+            if event is not None:
+                events.append(event)
+
+        return events
+
     async def countByDetectedClass(self, fromDate=None, toDate=None):
         return {
             detectedClass: sum(
@@ -182,6 +207,35 @@ class EventMvpTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(2, statistics.totalEventCount)
         self.assertEqual(1, statistics.misclassificationCount)
         self.assertEqual(1, statistics.overflowCount)
+
+    async def testAcknowledgementIsStoredAndReturned(self):
+        event = await self.service.createEvent(
+            createMisclassification("acknowledge-001")
+        )
+
+        acknowledgedEvent = await self.service.acknowledgeEvent(
+            event.eventId
+        )
+
+        self.assertIsNotNone(acknowledgedEvent.acknowledgedAt)
+        self.assertEqual(
+            event.eventId,
+            acknowledgedEvent.eventId,
+        )
+
+    async def testBulkAcknowledgementIgnoresUnknownIds(self):
+        event = await self.service.createEvent(
+            createMisclassification("acknowledge-many-001")
+        )
+
+        acknowledgedEvents = await self.service.acknowledgeEvents(
+            [event.eventId, "missing-event"]
+        )
+
+        self.assertEqual(
+            [event.eventId],
+            [item.eventId for item in acknowledgedEvents],
+        )
 
     def testCameraRoleValidation(self):
         with self.assertRaises(ValidationError):

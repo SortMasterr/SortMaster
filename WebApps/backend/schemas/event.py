@@ -114,4 +114,9 @@ class Event(EventCreate):
     eventId: str
     timestamp: datetime
     actionTaken: ActionTaken
+    acknowledgedAt: datetime | None = None
     notes: str | None = None
+
+
+class EventAcknowledgementBatch(BaseModel):
+    eventIds: list[str] = Field(min_length=1, max_length=500)

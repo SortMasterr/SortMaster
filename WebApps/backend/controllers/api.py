@@ -19,6 +19,7 @@ from schemas.detection import (
 from schemas.event import (
     CameraId,
     Event,
+    EventAcknowledgementBatch,
     EventCategory,
     EventCreate,
 )
@@ -150,6 +151,42 @@ async def getEventById(
         )
 
     return event
+
+
+@router.post(
+    "/events/{id}/acknowledge",
+    response_model=Event,
+)
+async def acknowledgeEvent(
+    id: str,
+) -> Event:
+    event = await eventService.acknowledgeEvent(id)
+
+    if event is None:
+        raise HTTPException(
+            status_code=404,
+            detail="확인할 오분류 이벤트를 찾을 수 없습니다.",
+        )
+
+    await _broadcastAcknowledgedEvents([event])
+    return event
+
+
+@router.post(
+    "/events/acknowledgeAll",
+    response_model=list[Event],
+)
+async def acknowledgeAllEvents(
+    request: EventAcknowledgementBatch,
+) -> list[Event]:
+    events = await eventService.acknowledgeEvents(
+        request.eventIds
+    )
+
+    if events:
+        await _broadcastAcknowledgedEvents(events)
+
+    return events
 
 
 @router.get(
@@ -332,6 +369,18 @@ async def _broadcastIfManageMode(
         }
 
     await webSocketManager.broadcast(payload)
+
+
+async def _broadcastAcknowledgedEvents(
+    events: list[Event],
+) -> None:
+    await webSocketManager.broadcast(
+        {
+            "eventType": "MISCLASSIFICATION_ACKNOWLEDGED",
+            "eventIds": [event.eventId for event in events],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    )
 
 
 @router.post(

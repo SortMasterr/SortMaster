@@ -98,6 +98,24 @@ class EventService:
             eventId
         )
 
+    async def acknowledgeEvent(
+        self,
+        eventId: str,
+    ) -> Event | None:
+        return await self.repository.acknowledgeById(
+            eventId,
+            datetime.now(timezone.utc),
+        )
+
+    async def acknowledgeEvents(
+        self,
+        eventIds: list[str],
+    ) -> list[Event]:
+        return await self.repository.acknowledgeMany(
+            eventIds,
+            datetime.now(timezone.utc),
+        )
+
     async def getStatistics(
         self,
         fromDate: datetime | None = None,
@@ -307,6 +325,7 @@ class EventService:
                 eventCreate.confidenceScore
             ),
             actionTaken=actionTaken,
+            acknowledgedAt=None,
             imageFileId=(
                 eventCreate.imageFileId
             ),

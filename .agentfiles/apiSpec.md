@@ -15,13 +15,20 @@ v0.2(MVP), 구현 기준일 2026-08-25. `DetectedClass`/`BinType`의 `general`�
 | ActionTaken | lightAndSound / soundOnly / lightOnly / notificationOnly / none |
 | Mode | MANAGE(기본값) / COLLECT |
 | CameraStatus | ONLINE / OFFLINE — EP-19 응답에 사용(ELEV-TOP/ELEV-SIDE의 GPU 추론 스크립트 하트비트 기반) |
-| WSEventType | MISCLASSIFICATION_DETECTED / BIN_OVERFLOW_DETECTED / MODE_CHANGED (여기까지 구현됨) / CAMERA_DISCONNECTED / SYSTEM_ERROR (둘 다 미구현, 아래 EP-07 참고) |
+| WSEventType | MISCLASSIFICATION_DETECTED / MISCLASSIFICATION_ACKNOWLEDGED / BIN_OVERFLOW_DETECTED / MODE_CHANGED / CAMERA_DISCONNECTED / SYSTEM_ERROR |
 
 상태 코드: 200 정상 / 400 요청 오류 / 404 이벤트·녹화 세션 없음 /
 409 녹화 충돌 / 422 스키마 불일치 / 500 서버·이메일 설정 파일 오류 /
 503 카메라 미설정·연결 실패
 
 ## JSON API
+
+오분류 알림 확인 동기화: `Event` 응답의 `acknowledgedAt`은 서버에 저장된 공용 확인
+시각이며 기존 필드 누락 문서는 미확인으로 취급한다. 개별 확인은
+`POST /api/events/{id}/acknowledge`, 일괄 확인은
+`POST /api/events/acknowledgeAll`(Body: `eventIds`, 1~500개)을 사용한다. 처리 후
+`MISCLASSIFICATION_ACKNOWLEDGED`(`eventIds`, `timestamp`)를 `/ws/events`의 모든
+현재 연결에 브로드캐스트한다.
 
 | ID | Method/Path | 설명 | Params | 상태코드 | 부수효과 |
 |---|---|---|---|---|---|
@@ -48,7 +55,7 @@ v0.2(MVP), 구현 기준일 2026-08-25. `DetectedClass`/`BinType`의 `general`�
 
 Request(EventCreate): cameraId(CameraId), eventCategory(EventCategory), detectionId(str, **구현 완료** — 탐지 파이프라인이 부여하는 중복 저장 방지 키, DB 유니크), trackingId(int|null, misclassification만 — YOLO26 추적 ID), detectedClass(DetectedClass, misclassification일 때만 필수), binId(str, misclassification·overflow 공통 — 물리 통 4개 중 하나), binType(BinType), isMisclassified(bool, misclassification일 때만), confidenceScore(float 0~1, misclassification일 때만), overflowDuration/overflowThreshold(float|null, overflow만), modelVersion(str), imageFileId(str|null, 선택)
 
-Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory, detectionId, trackingId(null 가능), detectedClass(null 가능), binId, binType, isMisclassified(null 가능), confidenceScore(null 가능), overflowDuration/overflowThreshold(null 가능), actionTaken(ActionTaken), imageFileId(str|null, GridFS 파일 ID, 녹화 파이프라인 연동 전엔 null), modelVersion, notes(str|null)
+Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory, detectionId, trackingId(null 가능), detectedClass(null 가능), binId, binType, isMisclassified(null 가능), confidenceScore(null 가능), overflowDuration/overflowThreshold(null 가능), actionTaken(ActionTaken), acknowledgedAt(datetime|null), imageFileId(str|null, GridFS 파일 ID, 녹화 파이프라인 연동 전엔 null), modelVersion, notes(str|null)
 - misclassification: isMisclassified=false 또는 5초 Cooldown 중이면 null 반환
 - overflow: 현재 백엔드는 시간 Cooldown이나 `BIN_STATES` 전환 검증 없이, 스키마가 유효하고
   `detectionId`가 새 값이면 저장한다. `NORMAL`→`FULL` 전환 시점에만 호출하는 것은 확정 설계이자
@@ -109,6 +116,7 @@ EP-18은 Response Body가 GIF 바이너리이고 JSON이 아니다.
 | eventType | payload | 설명 |
 |---|---|---|
 | MISCLASSIFICATION_DETECTED | cameraId, timestamp, isMisclassified | 투기(오분류) 발생 시. detectedClass 필드 추가 여부 TBD |
+| MISCLASSIFICATION_ACKNOWLEDGED | eventIds, timestamp | 오분류 알림 개별·일괄 확인 후 모든 현재 연결에 전송 |
 | BIN_OVERFLOW_DETECTED | cameraId, timestamp | 쓰레기통 포화(넘침) 감지 시 |
 | MODE_CHANGED | mode, timestamp | 연결 시 1회 + 전환 성공 시 전체 브로드캐스트 |
 | CAMERA_DISCONNECTED | cameraId, timestamp | **미구현** — 브로드캐스트하는 코드가 없고 프론트도 처리하지 않음. 카메라 연결 감시 구현 후 추가 예정(예정 조건: 30초 재시도 초과) |
