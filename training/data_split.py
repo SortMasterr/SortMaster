@@ -5,7 +5,7 @@ import random
 
 
 ## 초기에는 val: 10, test: 20으로 설정되어 있었음
-def split_yolo_dataset(
+def split_yolo_dataset1(
     dataset_dir,
     val_count=10,
     test_count=20,
@@ -182,7 +182,7 @@ def split_yolo_dataset(
 
 ## val:100 test:200장으로 늘림
 
-def split_yolo_dataset(source_dir, dataset_dir, test_count=200, val_count=100):
+def split_yolo_dataset2(source_dir, dataset_dir, test_count=200, val_count=100):
     """
     이미지와 TXT 라벨을 랜덤하게 섞은 후
     Test / Val / Train으로 복사하는 함수
@@ -365,14 +365,3 @@ def split_yolo_dataset(source_dir, dataset_dir, test_count=200, val_count=100):
     print(f"Train 이미지 : {image_train}")
     print(f"Train 라벨   : {label_train}")
 
-
-# ==================================================
-# 실행
-# ==================================================
-
-# split_yolo_dataset(
-#     source_dir=r"C:\final_project\code\images3",
-#     dataset_dir=r"C:\final_project\yolo_dataset_trash",
-#     test_count=200,
-#     val_count=100
-# )
