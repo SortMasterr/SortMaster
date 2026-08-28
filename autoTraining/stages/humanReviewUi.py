@@ -19,13 +19,15 @@ _PAGE = r'''<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SortMaster 사람 라벨 검수</title><style>
 body{font-family:system-ui,sans-serif;margin:0;background:#111827;color:#e5e7eb}main{max-width:1500px;margin:auto;padding:20px}
-header,.controls,.panel{display:flex;gap:12px;align-items:center}.panel{align-items:flex-start}.images{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;flex:3}.images img,.images canvas{width:100%;max-height:620px;object-fit:contain;background:#030712;display:block}
+header,.controls,.panel{display:flex;gap:12px;align-items:center}.panel{align-items:flex-start}.images{display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:3}.images img,.images canvas{width:100%;max-height:620px;object-fit:contain;background:#030712;display:block}
 #canvas{cursor:crosshair;touch-action:none}
 .form{flex:1;min-width:340px}textarea,input{box-sizing:border-box;width:100%;padding:9px;margin:5px 0 12px;background:#1f2937;color:#fff;border:1px solid #4b5563}textarea{height:150px;font-family:monospace}
 button{padding:10px 16px;border:0;border-radius:6px;cursor:pointer}.approve{background:#16a34a;color:#fff}.reject{background:#dc2626;color:#fff}.nav{background:#374151;color:#fff}
 .classBtn{background:#374151;color:#fff;padding:7px 12px;margin:0 6px 6px 0;font-size:.9rem}.classBtn.active{background:#22d3ee;color:#0f172a;font-weight:700}
 .tool{background:#4b5563;color:#fff;padding:7px 12px;margin:0 6px 6px 0;font-size:.9rem}
-.meta{white-space:pre-wrap;background:#1f2937;padding:10px;max-height:200px;overflow:auto;font-size:.85rem}.saved{color:#86efac}
+.meta{background:#1f2937;padding:10px;max-height:200px;overflow:auto;font-size:.9rem;line-height:1.7}
+.meta b{color:#9ca3af;font-weight:600;margin-right:6px}.meta .dim{color:#6b7280;font-size:.8rem;word-break:break-all}
+.saved{color:#86efac}
 .hint{color:#9ca3af;font-size:.82rem;margin:2px 0 8px}
 @media(max-width:1100px){.panel{display:block}.images{grid-template-columns:1fr}.form{min-width:0}}
 </style></head><body><main>
@@ -180,6 +182,33 @@ async function waitForIndex(i){
         check();
     });
 }
+// Qwen 응답의 enum 값을 검수자가 바로 읽을 수 있는 한국어로 바꾼다. 원시 JSON을
+// 그대로 덤프하면 프레임마다 눈으로 파싱해야 해서 검수 속도가 떨어진다.
+const issueLabels={none:'문제 없음',wrongClass:'클래스 틀림',missingObject:'놓친 객체 있음',
+    extraBox:'없는 걸 잡음',badBbox:'박스 부정확',tooBlurry:'흐림',tooDark:'어두움',
+    multipleObjects:'객체 여러 개'};
+const decisionLabels={approved:'승인',rejected:'거절',manualReview:'사람 확인 필요'};
+
+function escapeHtml(value){
+    const holder=document.createElement('div');
+    holder.textContent=value==null?'':String(value);
+    return holder.innerHTML;
+}
+
+function renderMeta(){
+    const review=current.review||{};
+    const issues=(review.issues||[]).map((issue)=>issueLabels[issue]||issue).join(' · ')||'-';
+    const previous=current.decision?.decision;
+    const confidence=typeof review.confidence==='number'?review.confidence.toFixed(2):'-';
+    document.getElementById('meta').innerHTML=
+        `<div><b>Qwen 판정</b> ${escapeHtml(decisionLabels[review.decision]||review.decision||'-')}`
+        +` <span class="dim">(신뢰도 ${confidence})</span></div>`
+        +`<div><b>Qwen 추정 클래스</b> ${escapeHtml(review.predictedClass||'-')}</div>`
+        +`<div><b>지적 사항</b> ${escapeHtml(issues)}</div>`
+        +(previous?`<div class="saved"><b>이전 결정</b> ${escapeHtml(decisionLabels[previous]||previous)}</div>`:'')
+        +`<div class="dim">${escapeHtml(current.video||'')} / ${escapeHtml(current.id||'')}</div>`;
+}
+
 async function load(i){
     if(!total)await summary();
     if(i>=total)await waitForIndex(i);
@@ -191,7 +220,7 @@ async function load(i){
     document.getElementById('label').value=current.labelText;
     document.getElementById('reviewer').value=current.decision?.reviewer||'';
     document.getElementById('notes').value=current.decision?.notes||'';
-    document.getElementById('meta').textContent=JSON.stringify({id:current.id,video:current.video,qwen:current.review,classes:current.classes,previousDecision:current.decision?.decision||null},null,2);
+    renderMeta();
 
     if(!classNames.length&&Array.isArray(current.classes)){classNames=current.classes;renderClassButtons()}
     boxes=textToBoxes(current.labelText);
