@@ -40,10 +40,14 @@ requiredPackages = [
     # Windows에는 IANA time zone DB가 기본 포함되지 않음. 보고서 RPA의
     # Asia/Seoul KST↔UTC 기간 변환에 사용한다.
     ("tzdata==2025.2", "tzdata"),
-    # SIDE(ELEV-SIDE) 넘침 판정용 MobileNet_V3_Small 추론(CPU, GPU 서버 미사용) —
-    # models/trashoverflow/, services/overflowDetectionService.py
-    ("torch==2.13.0", "torch"),
-    ("torchvision==0.28.0", "torchvision"),
+    # 백엔드/RPA 단위 테스트 실행용(WebApps/backend/tests, RPAs/reportAutomation/tests).
+    # 테스트 파일명이 camelCase(testEventService.py)라 pytest 기본 탐색 패턴(test_*.py)에
+    # 안 걸리므로 WebApps/backend/pytest.ini가 python_files를 재정의한다.
+    ("pytest==9.1.1", "pytest"),
+    # torch/torchvision은 여기 없음 — SIDE(ELEV-SIDE) 넘침 판정이 로컬 백엔드 CPU 추론에서
+    # GPU 서버(models/trashoverflow/sideOverflow.py)로 재전환되면서 로컬에서는 더 이상
+    # 필요 없어졌다(.agentfiles/decisionLog.md 참고). GPU 서버 쪽 설치는
+    # .agentfiles/gpuServerOps.md의 "Python venv" 절 참고.
 ]
 
 requiredPython = (3, 11)
