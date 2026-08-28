@@ -164,7 +164,8 @@ docker compose --profile local up --build
   (이메일 입력란을 비우고 확인하면 수신 해제되며 환경변수 주소도 다시 활성화되지 않음)
 - **수거 업무 자동화 RPA**: 구현됨. `RPA_COLLECTION_ENABLED=true`일 때 `BIN_STATES`가
   `NORMAL→FULL`로 전환되면 통별 활성 수거 작업을 한 건 생성하고, 별도
-  `collection-scheduler`가 담당자 최초 알림→재알림→관리자 에스컬레이션을 순서대로 발송.
+  `collection-scheduler`가 FULL 감지 10분 후 담당자 최초 알림→설정 시간 후 재알림→관리자
+  에스컬레이션을 순서대로 발송.
   `/statistics`에서 작업 확인·완료, 처리 지표와 최근 실행 이력을 조회할 수 있음. 신규 API·DB
   스키마 변경이므로 배포 전 CTO 검토 필요
 - **RPA(전구/경고음)**: 아직 미착수. 모드 전환 API(`/api/mode`)는 있지만 실제

@@ -95,15 +95,22 @@ def selectNotification(
 ) -> tuple[CollectionAutomationActionType, str, str] | None:
     elapsedMinutes = (now - task.createdAt).total_seconds() / 60
     if task.initialNotificationAt is None:
+        if elapsedMinutes < config.initialDelayMinutes:
+            return None
         return CollectionAutomationActionType.INITIAL, "assignee", config.assigneeEmail or ""
-    if (
-        task.reminderNotificationAt is None
-        and elapsedMinutes >= config.reminderMinutes
-    ):
+
+    elapsedSinceInitialMinutes = (
+        now - task.initialNotificationAt
+    ).total_seconds() / 60
+
+    if task.reminderNotificationAt is None:
+        if elapsedSinceInitialMinutes < config.reminderMinutes:
+            return None
         return CollectionAutomationActionType.REMINDER, "assignee", config.assigneeEmail or ""
+
     if (
         task.escalationNotificationAt is None
-        and elapsedMinutes >= config.escalationMinutes
+        and elapsedSinceInitialMinutes >= config.escalationMinutes
     ):
         return CollectionAutomationActionType.ESCALATION, "manager", config.managerEmail or ""
     return None

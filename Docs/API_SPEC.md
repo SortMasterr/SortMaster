@@ -1514,7 +1514,8 @@ camelCase를 유지한다.
 
 `RPA_COLLECTION_ENABLED=true`일 때 `BIN_STATES`가 `NORMAL`에서 `FULL`로 전환되면
 동일 `binId`의 활성 수거 작업을 최대 한 건 생성한다. 별도 `collection-scheduler` 프로세스가
-담당자 최초 알림, 설정 시간 후 재알림, 관리자 에스컬레이션을 순서대로 발송한다.
+`RPA_COLLECTION_INITIAL_DELAY_MINUTES`(기본 10분) 후 담당자 최초 알림을 발송하고,
+최초 알림 성공 시각을 기준으로 재알림과 관리자 에스컬레이션을 순서대로 발송한다.
 
 ### `GET /api/collectionTasks`
 
