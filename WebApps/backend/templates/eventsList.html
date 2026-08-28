@@ -241,7 +241,10 @@
                 </div>
 
                 <div class="mItem mMediaItem">
-                    <div class="mLabel">
+                    <div
+                        id="eventMediaLabel"
+                        class="mLabel"
+                    >
                         이벤트 영상 · 직전 약 5초
                     </div>
 
@@ -267,6 +270,17 @@
                     >
                         <i class="fa-regular fa-image"></i>
                         <span>저장된 영상 없음</span>
+                    </div>
+
+                    <div
+                        id="eventMediaUnsupported"
+                        class="eventMediaUnsupported"
+                        hidden
+                    >
+                        <i class="fa-solid fa-video-slash"></i>
+                        <span>
+                            사이드 카메라는 미리보기를 지원하지 않습니다
+                        </span>
                     </div>
                 </div>
 

@@ -524,6 +524,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     function updateEventMedia(row) {
+        const mediaLabel = getElement(
+            "eventMediaLabel"
+        );
         const thumbnailButton = getElement(
             "eventMediaThumbnailBtn"
         );
@@ -533,23 +536,36 @@ document.addEventListener("DOMContentLoaded", async () => {
         const emptyState = getElement(
             "eventMediaEmpty"
         );
+        const unsupportedState = getElement(
+            "eventMediaUnsupported"
+        );
 
         if (
+            !mediaLabel ||
             !thumbnailButton ||
             !thumbnail ||
-            !emptyState
+            !emptyState ||
+            !unsupportedState
         ) {
             return;
         }
 
+        const isPreviewUnsupported =
+            row.eventCategory === "overflow";
         const hasMedia = Boolean(
             row.imageFileId
         );
 
-        thumbnailButton.hidden = !hasMedia;
-        emptyState.hidden = hasMedia;
+        thumbnail.onerror = null;
+        mediaLabel.hidden = isPreviewUnsupported;
+        unsupportedState.hidden =
+            !isPreviewUnsupported;
+        thumbnailButton.hidden =
+            isPreviewUnsupported || !hasMedia;
+        emptyState.hidden =
+            isPreviewUnsupported || hasMedia;
 
-        if (!hasMedia) {
+        if (isPreviewUnsupported || !hasMedia) {
             thumbnailButton.dataset.mediaUrl = "";
             thumbnail.removeAttribute("src");
             return;
@@ -562,6 +578,12 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         thumbnailButton.dataset.mediaUrl = mediaUrl;
         thumbnail.onerror = () => {
+            if (
+                thumbnailButton.dataset.mediaUrl
+                !== mediaUrl
+            ) {
+                return;
+            }
             thumbnailButton.hidden = true;
             emptyState.hidden = false;
             thumbnail.removeAttribute("src");
