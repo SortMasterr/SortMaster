@@ -51,8 +51,9 @@ BACKEND_CAMERA_ID = "ELEV-TOP"
 # SSH 역터널(-R 8299:localhost:8047)로 도커 PC의 8047을 GPU 서버의 8299로 매핑해서 접속
 BACKEND_URL = f"http://{BACKEND_HOST}:8299/api/events/aiDisposal"
 
-# 판정 이벤트와 무관하게 이 스크립트가 살아있음을 알리는 생존 신호(architecture.md의
-# "GPU 쪽 헬스체크/하트비트 부재" TBD 해결용) — 같은 터널을 그대로 재사용
+# 판정 이벤트와 무관하게 이 스크립트가 살아있음을 알리는 생존 신호
+# (Docs/ARCHITECTURE.md의 "추론 인프라" > "GPU 하트비트(헬스체크)" 참고)
+# — 같은 터널을 그대로 재사용
 HEARTBEAT_URL = f"http://{BACKEND_HOST}:8299/api/gpuHeartbeats"
 HEARTBEAT_INTERVAL_SECONDS = 30.0
 

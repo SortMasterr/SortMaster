@@ -2,7 +2,7 @@
 
 판정 이벤트(`aiDisposal`/`binStates`)와 별개로 GPU가 보내는 하트비트의 마지막 수신
 시각을 저장해두고, 조회 시점마다 임계값을 넘었는지 계산해 ONLINE/OFFLINE을 반환한다
-(`architecture.md`의 "GPU 쪽 헬스체크/하트비트 부재" TBD 해결).
+(설계는 `Docs/ARCHITECTURE.md`의 "추론 인프라" > "GPU 하트비트(헬스체크)" 참고).
 """
 from datetime import datetime, timezone
 

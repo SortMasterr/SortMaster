@@ -64,7 +64,7 @@ BIN_TYPE = "normal"
 BACKEND_URL = f"http://{BACKEND_HOST}:8299/api/binStates"
 
 # 판정 이벤트와 무관하게 이 스크립트가 살아있음을 알리는 생존 신호(tracking2.py와 동일
-# 패턴, architecture.md의 "GPU 쪽 헬스체크/하트비트 부재" TBD 해결용)
+# 패턴, Docs/ARCHITECTURE.md의 "추론 인프라" > "GPU 하트비트(헬스체크)" 참고)
 HEARTBEAT_URL = f"http://{BACKEND_HOST}:8299/api/gpuHeartbeats"
 HEARTBEAT_INTERVAL_SECONDS = 30.0
 

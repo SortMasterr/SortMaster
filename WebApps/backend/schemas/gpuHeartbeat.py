@@ -13,8 +13,8 @@ class CameraStatus(str, Enum):
 
 class GpuHeartbeatPing(BaseModel):
     """GPU 서버의 `tracking2.py`(ELEV-TOP)/`sideOverflow.py`(ELEV-SIDE)가 판정 이벤트와
-    무관하게 일정 주기(30초~1분)로 보내는 생존 신호. `architecture.md`의 "GPU 쪽
-    헬스체크/하트비트 부재" TBD 해결용.
+    무관하게 일정 주기(30초~1분)로 보내는 생존 신호. 설계는 `Docs/ARCHITECTURE.md`의
+    "추론 인프라" > "GPU 하트비트(헬스체크)" 참고.
     """
 
     cameraId: CameraId

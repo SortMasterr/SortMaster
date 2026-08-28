@@ -152,8 +152,8 @@ erDiagram
   시점마다 임계값(90초, `services/gpuHeartbeatService.py`)과 비교해 계산한다 — 임계값을
   나중에 조정해도 재계산만 하면 되도록 하기 위함. 대상은 GPU 추론을 실제로 담당하는
   `ELEV-TOP`/`ELEV-SIDE` 둘뿐(`REST-4F-01`은 미설치). `GET`/`POST /api/gpuHeartbeats`
-  (EP-19, `.agentfiles/apiSpec.md` 참고)로 코드 반영 완료 — `architecture.md`의 "GPU 쪽
-  헬스체크/하트비트 부재" TBD 해결
+  (EP-19, `.agentfiles/apiSpec.md` 참고)로 코드 반영 완료 — 설계는 `Docs/ARCHITECTURE.md`의
+  "추론 인프라" > "GPU 하트비트(헬스체크)" 참고
 - **MEDIA_FILE**: MongoDB GridFS 구조, **버킷을 카메라별로 2개 분리**(`topMedia`/`sideMedia` —
   각각 `<bucket>.files`+`<bucket>.chunks`, 기본 버킷명 `fs` 하나만 쓰던 걸 카메라별로 나눔).
   저장 시 `EVENT.cameraId`(위 카메라→`topMedia`, 옆 카메라→`sideMedia`) 기준으로 버킷 선택,
