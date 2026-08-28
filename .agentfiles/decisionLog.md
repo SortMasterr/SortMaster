@@ -372,3 +372,28 @@
   - 아직 검증 안 한 선택지: **Grounding DINO**(텍스트 프롬프트로 정밀 박스를 내놓도록 설계된
     open-vocabulary 디텍터). 범용 VLM보다 그라운딩이 정확하다고 알려져 있으나 공유 GPU에
     모델 추가 배포가 필요하고 우리 클래스에서의 성능은 실측 전
+
+- **수동 학습 모델(`training/`) 반영 경로 → registry 정식 등록으로 확정**(2026-08-28) →
+  모델팀이 `training/trash_yolo26n_aug2`로 넘긴 신규 TOP 모델(mAP50 0.932, 자체 테스트
+  split 247장 기준)을 반영하면서 세 가지 방법을 검토했다.
+  - **기각 ①: 운영 `bestTop.pt`만 직접 덮어쓰기** — 가장 간단하지만 재학습 파이프라인은
+    계속 옛 모델을 기준으로 라벨링/학습하게 되어 운영과 파이프라인이 계속 벌어짐
+  - **기각 ②: bootstrap `best.pt`까지 같이 덮어쓰기** — 애초 요청은 "운영과 파이프라인을
+    동일하게"였으나, `resolveActiveModel`의 docstring이 bootstrap을 **"변경 불가"**로
+    명시하고 있고, 진행 중이던 2026-08-27 배치의 `cycleModel.json`이 bootstrap 해시로
+    고정돼 있어서 덮어쓰면 그 배치의 `train` 단계가 해시 불일치로 죽는다
+  - **채택 ③: registry 등록 + 활성 포인터** — `promoteToRegistry()`로 registry에 불변
+    버전 파일을 만들고 `current.json` 포인터를 생성. 이러면 bootstrap은 불변 baseline으로
+    남고, 파이프라인(Label/Train)과 운영(`deploy`가 복사)이 **같은 registry 모델**을 쓰게
+    되어 원래 요청한 "둘이 동일" 상태가 설계를 깨지 않고 성립한다. 진행 중 배치도
+    `cycleModel.json`이 그대로라 영향 없음
+  - **`promote` 스테이지는 쓸 수 없었음** — 이 모델은 `autoTraining` 사이클 산출물이 아니라
+    수동 학습 결과라 `evaluation.json`이 없고, 따라서 골든테스트 비교(`minimumMap50Gain`)
+    게이트를 통과할 수 없다. 내부 함수 `promoteToRegistry()`를 직접 호출하는 방식으로
+    우회했으며, 이 사실은 포인터의 `source.note`에 기록해 둠. **즉 이번 모델은 성능이
+    기존보다 낫다는 것이 프로젝트 기준으로는 검증되지 않은 상태**(모델팀 자체 테스트
+    결과만 신뢰해서 반영)
+  - **부수적으로 드러난 사실**: 작업 전 해시를 대조해 보니 운영 `bestTop.pt`(`757f7e8b…`)와
+    bootstrap(`714d19c5…`)은 **이미 서로 다른 모델**이었고, registry 디렉터리 자체가 없어
+    롤백 수단이 전혀 없는 상태였다. 그래서 신규 등록 전에 기존 운영 모델을 registry에
+    먼저 백필해 `rollback --version` 경로를 확보했다

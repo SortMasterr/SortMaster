@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import shutil
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -48,6 +49,83 @@ class ReviewLabelsStage:
         if not apiHost.startswith(("http://", "https://")):
             raise ValueError("qwenVl.apiHost는 http:// 또는 https://로 시작해야 합니다.")
         return f"{apiHost}:{port}"
+
+    def _isQwenVlReachable(self, timeoutSeconds: float) -> bool:
+        """짧은 타임아웃으로 vLLM API 응답 여부만 확인합니다(기동 대기 폴링용)."""
+        apiBaseUrl = self._resolveQwenVlApiBaseUrl()
+        try:
+            with urllib.request.urlopen(
+                apiBaseUrl + "/v1/models",
+                timeout=timeoutSeconds,
+            ):
+                return True
+        except (urllib.error.URLError, TimeoutError):
+            return False
+
+    def _ensureQwenVlRunning(self) -> None:
+        """vLLM(``llm`` 서비스)이 응답하지 않으면 온디맨드로 기동하고 준비될 때까지 대기합니다.
+
+        GPU 서버는 팀 공유 자원이라 상시 기동 대신 review 단계를 실행할 때만 필요한
+        만큼 켜는 방침(gpuServerOps.md)을 유지한다 — 이미 떠 있으면(다른 이유로
+        누군가 미리 띄워둔 경우 포함) 손대지 않고, 이 실행이 직접 띄운 경우에만
+        review() 종료 시 `_shutdownQwenVlIfAutoStarted`가 내린다.
+        """
+        if self._isQwenVlReachable(timeoutSeconds=3):
+            return
+
+        print(
+            "[QWEN-VL] llm 서비스가 응답하지 않아 자동 기동합니다 "
+            "(docker compose --profile llm up -d llm)"
+        )
+        subprocess.run(
+            ["docker", "compose", "--profile", "llm", "up", "-d", "llm"],
+            cwd=self.projectRoot,
+            check=True,
+        )
+        # 여기서부터는 컨테이너가 실제로 떠 있으므로, 아래 대기가 타임아웃으로
+        # 실패하더라도(RuntimeError) review()의 finally가 이 값을 보고 정리한다.
+        self._qwenVlAutoStarted = True
+
+        startupTimeoutSeconds = float(self.config["qwenVl"]["startupTimeoutSeconds"])
+        deadline = time.monotonic() + startupTimeoutSeconds
+        while time.monotonic() < deadline:
+            if self._isQwenVlReachable(timeoutSeconds=3):
+                print("[QWEN-VL] llm 서비스 기동 완료")
+                return
+            time.sleep(5)
+
+        raise RuntimeError(
+            "llm 서비스가 "
+            f"{startupTimeoutSeconds:.0f}초 안에 응답하지 않았습니다. 첫 기동은 모델 "
+            "가중치 다운로드로 더 걸릴 수 있습니다 — GPU 서버에서 "
+            "`docker compose logs -f llm`으로 진행 상황을 확인하세요."
+        )
+
+    def _shutdownQwenVlIfAutoStarted(self) -> None:
+        """이번 review() 실행이 직접 띄운 llm 서비스라면 끝난 뒤 내려 GPU 서버 VRAM을
+        다른 팀/워크로드에 돌려준다(gpuServerOps.md). 원래부터 떠 있던 경우는
+        건드리지 않는다 — 종료 실패는 원래 예외(있다면)를 가리지 않도록 로그만
+        남기고 삼킨다.
+        """
+        if not self._qwenVlAutoStarted:
+            return
+        self._qwenVlAutoStarted = False
+
+        print(
+            "[QWEN-VL] review 단계가 자동으로 띄운 llm 서비스를 종료합니다 "
+            "(docker compose --profile llm down)"
+        )
+        try:
+            subprocess.run(
+                ["docker", "compose", "--profile", "llm", "down"],
+                cwd=self.projectRoot,
+                check=True,
+            )
+        except (subprocess.CalledProcessError, OSError) as error:
+            print(
+                "[QWEN-VL] llm 서비스 자동 종료 실패 — GPU 서버에서 수동으로 "
+                f"`docker compose --profile llm down`을 실행하세요: {error}"
+            )
 
     def _requestQwenVl(
         self,
@@ -111,6 +189,7 @@ class ReviewLabelsStage:
     def _reviewSchema(self) -> dict[str, Any]:
         """Qwen-VL이 반환해야 하는 camelCase JSON 구조를 정의합니다."""
         classes = self.config["dataset"]["classes"]
+        maxDetections = int(self.config["qwenVl"]["maxDetectionsPerFrame"])
         return {
             "type": "object",
             "properties": {
@@ -124,6 +203,9 @@ class ReviewLabelsStage:
                 },
                 "issues": {
                     "type": "array",
+                    # 허용값이 8종뿐인데 상한이 없으면 문법상 같은 값을 무한히 반복해도
+                    # 되므로, 아래 qwenDetections와 같은 이유로 원소 수를 묶는다.
+                    "maxItems": 8,
                     "items": {
                         "type": "string",
                         "enum": [
@@ -145,10 +227,18 @@ class ReviewLabelsStage:
                 },
                 "qwenDetections": {
                     "type": "array",
+                    # 상한이 없으면 guided decoding 문법이 배열 원소를 무한히
+                    # 허용해서, 모델이 멈추지 못하고 max_model_len까지 생성하다
+                    # 잘린 JSON을 내놓는 문제가 실제로 발생했다(2026-08-26). 그때는
+                    # maxResponseTokens로 짧게 끊어 대응했지만, 그 상한이 객체 2개
+                    # 이상인 정상 응답까지 잘라버려 Qwen 결과가 통째로 버려지는
+                    # 부작용이 확인됐다(2026-08-28). 토큰 상한 대신 여기서 구조적으로
+                    # 묶어야 정상 응답을 희생하지 않고 폭주만 막을 수 있다.
+                    "maxItems": maxDetections,
                     "description": (
                         "Qwen이 원본 이미지에서 실제로 존재한다고 판단하는 쓰레기 "
                         "객체 목록(픽셀 좌표) — YOLO 결과와 무관하게 직접 다시 "
-                        "판단한다. 쓰레기가 없으면 빈 배열."
+                        f"판단한다. 쓰레기가 없으면 빈 배열이며 최대 {maxDetections}개."
                     ),
                     "items": {
                         "type": "object",
@@ -211,6 +301,9 @@ class ReviewLabelsStage:
         qwenDetections = review.get("qwenDetections")
         if not isinstance(qwenDetections, list):
             raise ValueError("qwenDetections는 배열이어야 합니다.")
+        maxDetections = schema["properties"]["qwenDetections"]["maxItems"]
+        if len(qwenDetections) > maxDetections:
+            raise ValueError(f"qwenDetections는 최대 {maxDetections}개여야 합니다.")
         for detection in qwenDetections:
             if detection.get("class") not in classes:
                 raise ValueError("qwenDetections에 허용되지 않는 class가 있습니다.")
@@ -338,6 +431,16 @@ class ReviewLabelsStage:
         if not manifestHasRows(self.labelsManifest):
             raise RuntimeError("먼저 label 단계를 실행하세요.")
 
+        self._qwenVlAutoStarted = False
+        try:
+            self._ensureQwenVlRunning()
+            self._reviewAllRows()
+        finally:
+            self._shutdownQwenVlIfAutoStarted()
+
+    def _reviewAllRows(self) -> None:
+        """review()의 실제 검수 루프 — llm 기동/종료 관리와 분리해, 이 루프가 도중에
+        실패해도 review()의 finally가 자동 종료를 그대로 실행하게 한다."""
         qwenVlModel = self._resolveQwenVlModel()
         retries = int(self.config["qwenVl"]["retries"])
         minimumConfidence = float(
