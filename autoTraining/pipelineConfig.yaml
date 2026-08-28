@@ -62,11 +62,18 @@ qwenVl:
   startupTimeoutSeconds: 180
   retries: 2
   minimumReviewConfidence: 0.70
-  # 검수 스키마 응답은 원래 한 줄짜리 JSON이면 충분한데, 이 한도가 없으면 모델이 멈추지
-  # 못하고 max_model_len까지 계속 생성하다 문자열이 잘려 JSON 파싱이 실패하는 문제가
-  # 실제로 발생했다(2026-08-26 GPU 서버 실제 이미지 검증 중 확인). 짧게 강제로 끊어
-  # 빨리 실패하고 재시도하도록 상한을 둔다.
-  maxResponseTokens: 300
+  # 한 프레임에서 Qwen이 낼 수 있는 최대 객체 수이며 응답 스키마의 maxItems가 됩니다.
+  # 이 상한이 없으면 guided decoding 문법상 배열이 무한히 늘어날 수 있어, 모델이 멈추지
+  # 못하고 max_model_len까지 생성하는 폭주가 실제로 발생했습니다(2026-08-26).
+  # 실제 프레임에 쓰레기가 10개를 넘을 일은 없어 정상 응답을 자르지 않습니다.
+  maxDetectionsPerFrame: 10
+  # 위 폭주는 원래 이 토큰 상한(300)으로 막았지만, 그 값이 객체 2개 이상인 정상 응답까지
+  # 잘라서 Qwen 결과가 통째로 버려지는 부작용이 확인됐습니다(2026-08-28, reviewErrors에
+  # JSON 파싱 실패가 남고 qwenDetections가 빈 배열로 fallback). 폭주는 이제
+  # maxDetectionsPerFrame이 구조적으로 막으므로, 이 값은 최대 개수 응답이 잘리지 않을
+  # 만큼 넉넉하게 둡니다(모델이 들여쓴 JSON을 내놔 문자당 토큰 소모가 큽니다).
+  # max_model_len 8192에 이미지 2장 프롬프트를 넣어도 여유가 있는 범위입니다.
+  maxResponseTokens: 800
 
 dataset:
   trainRatio: 0.80

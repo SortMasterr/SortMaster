@@ -189,6 +189,7 @@ class ReviewLabelsStage:
     def _reviewSchema(self) -> dict[str, Any]:
         """Qwen-VL이 반환해야 하는 camelCase JSON 구조를 정의합니다."""
         classes = self.config["dataset"]["classes"]
+        maxDetections = int(self.config["qwenVl"]["maxDetectionsPerFrame"])
         return {
             "type": "object",
             "properties": {
@@ -202,6 +203,9 @@ class ReviewLabelsStage:
                 },
                 "issues": {
                     "type": "array",
+                    # 허용값이 8종뿐인데 상한이 없으면 문법상 같은 값을 무한히 반복해도
+                    # 되므로, 아래 qwenDetections와 같은 이유로 원소 수를 묶는다.
+                    "maxItems": 8,
                     "items": {
                         "type": "string",
                         "enum": [
@@ -223,10 +227,18 @@ class ReviewLabelsStage:
                 },
                 "qwenDetections": {
                     "type": "array",
+                    # 상한이 없으면 guided decoding 문법이 배열 원소를 무한히
+                    # 허용해서, 모델이 멈추지 못하고 max_model_len까지 생성하다
+                    # 잘린 JSON을 내놓는 문제가 실제로 발생했다(2026-08-26). 그때는
+                    # maxResponseTokens로 짧게 끊어 대응했지만, 그 상한이 객체 2개
+                    # 이상인 정상 응답까지 잘라버려 Qwen 결과가 통째로 버려지는
+                    # 부작용이 확인됐다(2026-08-28). 토큰 상한 대신 여기서 구조적으로
+                    # 묶어야 정상 응답을 희생하지 않고 폭주만 막을 수 있다.
+                    "maxItems": maxDetections,
                     "description": (
                         "Qwen이 원본 이미지에서 실제로 존재한다고 판단하는 쓰레기 "
                         "객체 목록(픽셀 좌표) — YOLO 결과와 무관하게 직접 다시 "
-                        "판단한다. 쓰레기가 없으면 빈 배열."
+                        f"판단한다. 쓰레기가 없으면 빈 배열이며 최대 {maxDetections}개."
                     ),
                     "items": {
                         "type": "object",
@@ -289,6 +301,9 @@ class ReviewLabelsStage:
         qwenDetections = review.get("qwenDetections")
         if not isinstance(qwenDetections, list):
             raise ValueError("qwenDetections는 배열이어야 합니다.")
+        maxDetections = schema["properties"]["qwenDetections"]["maxItems"]
+        if len(qwenDetections) > maxDetections:
+            raise ValueError(f"qwenDetections는 최대 {maxDetections}개여야 합니다.")
         for detection in qwenDetections:
             if detection.get("class") not in classes:
                 raise ValueError("qwenDetections에 허용되지 않는 class가 있습니다.")
