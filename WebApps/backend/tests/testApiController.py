@@ -152,6 +152,78 @@ class ApiControllerBroadcastTest(
         self.assertIs(response, event)
         broadcast.assert_awaited_once_with(event)
 
+    async def testAcknowledgementBroadcastsToConnectedClients(self):
+        event = savedEvent().model_copy(
+            update={"acknowledgedAt": datetime.now(timezone.utc)}
+        )
+
+        with (
+            patch(
+                "controllers.api.eventService.acknowledgeEvent",
+                AsyncMock(return_value=event),
+            ),
+            patch(
+                "controllers.api._broadcastAcknowledgedEvents",
+                AsyncMock(),
+            ) as broadcast,
+        ):
+            response = await api.acknowledgeEvent(event.eventId)
+
+        self.assertIs(response, event)
+        broadcast.assert_awaited_once_with([event])
+
+    async def testMissingAcknowledgementReturnsHttp404(self):
+        with patch(
+            "controllers.api.eventService.acknowledgeEvent",
+            AsyncMock(return_value=None),
+        ):
+            with self.assertRaises(HTTPException) as context:
+                await api.acknowledgeEvent("missing-event")
+
+        self.assertEqual(404, context.exception.status_code)
+
+    async def testBulkAcknowledgementBroadcastsOnce(self):
+        event = savedEvent().model_copy(
+            update={"acknowledgedAt": datetime.now(timezone.utc)}
+        )
+        request = api.EventAcknowledgementBatch(
+            eventIds=[event.eventId]
+        )
+
+        with (
+            patch(
+                "controllers.api.eventService.acknowledgeEvents",
+                AsyncMock(return_value=[event]),
+            ),
+            patch(
+                "controllers.api._broadcastAcknowledgedEvents",
+                AsyncMock(),
+            ) as broadcast,
+        ):
+            response = await api.acknowledgeAllEvents(request)
+
+        self.assertEqual([event], response)
+        broadcast.assert_awaited_once_with([event])
+
+    async def testAcknowledgementPayloadContainsEventIds(self):
+        event = savedEvent().model_copy(
+            update={"acknowledgedAt": datetime.now(timezone.utc)}
+        )
+
+        with patch(
+            "controllers.api.webSocketManager.broadcast",
+            AsyncMock(),
+        ) as broadcast:
+            await api._broadcastAcknowledgedEvents([event])
+
+        payload = broadcast.await_args.args[0]
+        self.assertEqual(
+            "MISCLASSIFICATION_ACKNOWLEDGED",
+            payload["eventType"],
+        )
+        self.assertEqual([event.eventId], payload["eventIds"])
+        self.assertIn("timestamp", payload)
+
     async def testDuplicateStopResponseDoesNotBroadcastAgain(self):
         event = savedEvent()
 

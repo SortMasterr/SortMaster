@@ -22,7 +22,7 @@ const acknowledgedAlertsStorageKey =
     "sortMasterAcknowledgedMisclassificationIds";
 
 
-function getAcknowledgedAlertIds() {
+function getLegacyAcknowledgedAlertIds() {
     try {
         const storedValue = JSON.parse(
             localStorage.getItem(
@@ -43,17 +43,6 @@ function getAcknowledgedAlertIds() {
 
         return new Set();
     }
-}
-
-
-function saveAcknowledgedAlertIds(alertIds) {
-    const recentAlertIds =
-        Array.from(alertIds).slice(-500);
-
-    localStorage.setItem(
-        acknowledgedAlertsStorageKey,
-        JSON.stringify(recentAlertIds)
-    );
 }
 
 
@@ -123,8 +112,6 @@ async function refreshMisclassificationAlerts() {
             );
         }
 
-        const acknowledgedIds =
-            getAcknowledgedAlertIds();
         const events = await response.json();
         const alerts = events
             .filter((eventData) => {
@@ -133,9 +120,7 @@ async function refreshMisclassificationAlerts() {
                         "misclassification" &&
                     eventData.isMisclassified === true &&
                     eventData.actionTaken !== "none" &&
-                    !acknowledgedIds.has(
-                        eventData.eventId
-                    )
+                    eventData.acknowledgedAt == null
                 );
             })
             .sort((left, right) => {
@@ -153,36 +138,99 @@ async function refreshMisclassificationAlerts() {
 }
 
 
-function acknowledgeMisclassificationAlert(eventId) {
-    const acknowledgedIds =
-        getAcknowledgedAlertIds();
+async function requestAlertAcknowledgement(
+    path,
+    body = null
+) {
+    const options = {
+        method: "POST",
+        headers: {},
+    };
 
-    acknowledgedIds.add(eventId);
-    saveAcknowledgedAlertIds(acknowledgedIds);
+    if (body !== null) {
+        options.headers["Content-Type"] =
+            "application/json";
+        options.body = JSON.stringify(body);
+    }
 
-    publishMisclassificationAlerts(
-        currentMisclassificationAlerts.filter(
-            (alertData) =>
-                alertData.eventId !== eventId
-        )
-    );
+    const response = await fetch(path, options);
+
+    if (!response.ok) {
+        throw new Error(
+            `오분류 알림 확인 실패: ${response.status}`
+        );
+    }
+
+    return response.json();
 }
 
 
-function acknowledgeAllMisclassificationAlerts() {
-    const acknowledgedIds =
-        getAcknowledgedAlertIds();
+async function acknowledgeMisclassificationAlert(eventId) {
+    try {
+        await requestAlertAcknowledgement(
+            `/api/events/${encodeURIComponent(eventId)}` +
+                "/acknowledge"
+        );
+        await refreshMisclassificationAlerts();
+    } catch (error) {
+        console.warn(
+            "오분류 알림을 확인하지 못했습니다:",
+            error
+        );
+    }
+}
 
-    currentMisclassificationAlerts.forEach(
-        (alertData) => {
-            acknowledgedIds.add(
-                alertData.eventId
-            );
-        }
+
+async function acknowledgeAllMisclassificationAlerts() {
+    const eventIds = currentMisclassificationAlerts.map(
+        (alertData) => alertData.eventId
     );
 
-    saveAcknowledgedAlertIds(acknowledgedIds);
-    publishMisclassificationAlerts([]);
+    if (eventIds.length === 0) {
+        return;
+    }
+
+    try {
+        await requestAlertAcknowledgement(
+            "/api/events/acknowledgeAll",
+            { eventIds }
+        );
+        await refreshMisclassificationAlerts();
+    } catch (error) {
+        console.warn(
+            "오분류 알림을 모두 확인하지 못했습니다:",
+            error
+        );
+    }
+}
+
+
+async function migrateLegacyAcknowledgedAlerts() {
+    const eventIds = Array.from(
+        getLegacyAcknowledgedAlertIds()
+    );
+
+    if (eventIds.length === 0) {
+        localStorage.removeItem(
+            acknowledgedAlertsStorageKey
+        );
+        return;
+    }
+
+    try {
+        await requestAlertAcknowledgement(
+            "/api/events/acknowledgeAll",
+            { eventIds }
+        );
+        localStorage.removeItem(
+            acknowledgedAlertsStorageKey
+        );
+    } catch (error) {
+        console.warn(
+            "기존 오분류 확인 상태를 서버로 옮기지 못했습니다:",
+            error
+        );
+    }
 }
 
 
@@ -522,6 +570,13 @@ function connectSidebarSocket() {
         }
 
         if (
+            message.eventType ===
+            "MISCLASSIFICATION_ACKNOWLEDGED"
+        ) {
+            refreshMisclassificationAlerts();
+        }
+
+        if (
             !isCollectMode &&
             message.eventType ===
             "BIN_OVERFLOW_DETECTED"
@@ -616,12 +671,13 @@ async function requestModeChange() {
 }
 
 
-function initSidebarEvents() {
+async function initSidebarEvents() {
     updateActiveMenu();
     updateSidebarUI();
     connectSidebarSocket();
     refreshBinFullAlert();
-    refreshMisclassificationAlerts();
+    await migrateLegacyAcknowledgedAlerts();
+    await refreshMisclassificationAlerts();
 
     binFullAlertPollTimer =
         setInterval(

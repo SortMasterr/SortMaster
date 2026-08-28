@@ -68,6 +68,9 @@ class EventRepository:
             isMisclassified=document.get("isMisclassified"),
             confidenceScore=document.get("confidenceScore"),
             actionTaken=ActionTaken(document["actionTaken"]),
+            acknowledgedAt=self.normalizeDateTime(
+                document.get("acknowledgedAt")
+            ),
             imageFileId=document.get("imageFileId"),
             overflowDuration=document.get("overflowDuration"),
             overflowThreshold=document.get("overflowThreshold"),
@@ -386,6 +389,66 @@ class EventRepository:
         )
         return result.modified_count > 0
 
+    async def acknowledgeById(
+        self,
+        eventId: str,
+        acknowledgedAt: datetime,
+    ) -> Event | None:
+        await self.collection.update_one(
+            {
+                "eventId": eventId,
+                "eventCategory": EventCategory.MISCLASSIFICATION.value,
+                "$or": [
+                    {"acknowledgedAt": None},
+                    {"acknowledgedAt": {"$exists": False}},
+                ],
+            },
+            {"$set": {"acknowledgedAt": acknowledgedAt}},
+        )
+        document = await self.collection.find_one(
+            {
+                "eventId": eventId,
+                "eventCategory": EventCategory.MISCLASSIFICATION.value,
+            }
+        )
+
+        return (
+            self._tryFromDocument(document)
+            if document is not None
+            else None
+        )
+
+    async def acknowledgeMany(
+        self,
+        eventIds: list[str],
+        acknowledgedAt: datetime,
+    ) -> list[Event]:
+        uniqueEventIds = list(dict.fromkeys(eventIds))
+        query = {
+            "eventId": {"$in": uniqueEventIds},
+            "eventCategory": EventCategory.MISCLASSIFICATION.value,
+        }
+        await self.collection.update_many(
+            {
+                **query,
+                "$or": [
+                    {"acknowledgedAt": None},
+                    {"acknowledgedAt": {"$exists": False}},
+                ],
+            },
+            {"$set": {"acknowledgedAt": acknowledgedAt}},
+        )
+        cursor = self.collection.find(query)
+        events = []
+
+        async for document in cursor:
+            event = self._tryFromDocument(document)
+
+            if event is not None:
+                events.append(event)
+
+        return events
+
     def _buildCurrentDocumentQuery(self) -> dict:
         return {
             "eventId": {"$type": "string", "$ne": ""},
@@ -459,6 +522,12 @@ class EventRepository:
                     "$or": [
                         {"notes": None},
                         {"notes": {"$type": "string"}},
+                    ]
+                },
+                {
+                    "$or": [
+                        {"acknowledgedAt": None},
+                        {"acknowledgedAt": {"$type": "date"}},
                     ]
                 },
             ],

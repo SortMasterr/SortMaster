@@ -336,6 +336,7 @@ WebSocket 알림도 다시 보내지 않는다.
   "isMisclassified": true,
   "confidenceScore": 0.85,
   "actionTaken": "lightAndSound",
+  "acknowledgedAt": null,
   "imageFileId": "68f2c1a4b9d3e2f1a0c5d6e7",
   "overflowDuration": null,
   "overflowThreshold": null,
@@ -360,6 +361,7 @@ WebSocket 알림도 다시 보내지 않는다.
 | `isMisclassified` | boolean           | ✅       | 오분류 여부, overflow는 `null`                        |
 | `confidenceScore` | float             | ✅       | 신뢰도, overflow는 `null`                           |
 | `actionTaken`     | ActionTaken       | ❌       | 모드에 따른 경고 처리 결과                                 |
+| `acknowledgedAt`  | ISO 8601 datetime | ✅       | 오분류 알림의 서버 확인 시각. 미확인 및 기존 문서는 `null` |
 | `imageFileId`     | string            | ✅       | GridFS 파일 ID(GIF), 녹화 파이프라인 연동 전이거나 생략 시 `null` |
 | `overflowDuration` | float            | ✅       | overflow 지속시간                                  |
 | `overflowThreshold` | float           | ✅       | overflow 판정 기준시간                              |
@@ -398,6 +400,19 @@ overflow:
   "timestamp": "2026-08-11T06:47:50.261977+00:00"
 }
 ```
+
+### 오분류 알림 확인 상태 동기화
+
+`Event` 응답은 `acknowledgedAt`(ISO 8601 datetime 또는 `null`)을 포함한다. 모니터링
+화면의 확인 상태는 브라우저별 저장소가 아니라 MongoDB `EVENT.acknowledgedAt`에
+영속화하며, 필드가 없는 기존 문서는 미확인(`null`)으로 취급한다.
+
+- `POST /api/events/{id}/acknowledge`: 오분류 이벤트 하나를 확인 처리하고 갱신된
+  `Event`를 반환한다. 대상이 없거나 오분류 이벤트가 아니면 404를 반환한다.
+- `POST /api/events/acknowledgeAll`: Body `{ "eventIds": ["..."] }`에 포함된 오분류
+  이벤트를 일괄 확인하고 갱신된 `Event[]`를 반환한다. `eventIds`는 1~500개다.
+- 확인 처리는 멱등이며 최초 `acknowledgedAt`을 유지한다.
+- 처리 후 `MISCLASSIFICATION_ACKNOWLEDGED`를 모든 현재 WebSocket 연결에 전송한다.
 
 ### 상태 코드
 
@@ -859,6 +874,7 @@ wss://서버주소/ws/events
 | ---------------------------- | ------------------------------------------ | -------------------------------- |
 | `MODE_CHANGED`               | `mode`, `timestamp`                        | 연결 직후 1회 또는 모드 변경 성공 시           |
 | `MISCLASSIFICATION_DETECTED` | `cameraId`, `timestamp`, `isMisclassified` | `MANAGE` 모드에서 오분류 이벤트가 실제 생성됐을 때 |
+| `MISCLASSIFICATION_ACKNOWLEDGED` | `eventIds`, `timestamp` | 오분류 알림 개별·일괄 확인 처리 후 모든 현재 연결에 전송 |
 | `BIN_OVERFLOW_DETECTED`      | `cameraId`, `timestamp`                    | `MANAGE` 모드에서 overflow 이벤트가 반환됐을 때 |
 
 ### `MODE_CHANGED` 예시
@@ -879,6 +895,16 @@ wss://서버주소/ws/events
   "cameraId": "ELEV-TOP",
   "timestamp": "2026-08-11T05:25:28.109933+00:00",
   "isMisclassified": true
+}
+```
+
+`MISCLASSIFICATION_ACKNOWLEDGED` 예시:
+
+```json
+{
+  "eventType": "MISCLASSIFICATION_ACKNOWLEDGED",
+  "eventIds": ["a3b70dae-3a1b-48b6-a8d1-a06afcb934d1"],
+  "timestamp": "2026-08-28T06:10:00.000000+00:00"
 }
 ```
 

@@ -73,6 +73,7 @@ erDiagram
         float overflowDuration "nullable, overflow만. 전환 확정 시점의 BIN_STATES.overflowDuration 스냅샷"
         float overflowThreshold "nullable, overflow만. FULL 판정 기준 시간(모델/설정값)"
         string actionTaken "lightAndSound/soundOnly/lightOnly/notificationOnly/none"
+        datetime acknowledgedAt "nullable, 오분류 알림 공용 확인 시각. 필드가 없는 기존 문서는 미확인"
         string imageFileId FK "nullable, detection start/stop 녹화 사용 시 카메라별 GridFS GIF ID"
         string modelVersion "신규 — YOLO26/Qwen3-VL-8B 등 모델 버전. 재학습 이후 이벤트 비교/추적용"
         string notes "nullable"

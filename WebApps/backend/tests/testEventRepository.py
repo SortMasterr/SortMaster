@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock
 
 from repositories.eventRepository import EventRepository
 from schemas.event import BinType, DetectedClass, EventCategory
@@ -66,6 +67,7 @@ def currentDocument():
         "isMisclassified": True,
         "confidenceScore": 0.9,
         "actionTaken": "lightAndSound",
+        "acknowledgedAt": None,
         "imageFileId": None,
         "overflowDuration": None,
         "overflowThreshold": None,
@@ -127,6 +129,7 @@ class EventRepositoryCompatibilityTest(
                 "overflowDuration",
                 "overflowThreshold",
                 "notes",
+                "acknowledgedAt",
             },
             optionalFields,
         )
@@ -153,6 +156,53 @@ class EventRepositoryCompatibilityTest(
             [event.eventId for event in events],
         )
         self.assertIn("detectionId", collection.lastQuery)
+
+    async def testAcknowledgeByIdPersistsServerTimestamp(self):
+        acknowledgedAt = datetime.now(timezone.utc)
+        document = currentDocument()
+        document["acknowledgedAt"] = acknowledgedAt
+        collection = MagicMock()
+        collection.update_one = AsyncMock()
+        collection.find_one = AsyncMock(return_value=document)
+        repository = TestEventRepository(collection)
+
+        event = await repository.acknowledgeById(
+            document["eventId"],
+            acknowledgedAt,
+        )
+
+        self.assertEqual(acknowledgedAt, event.acknowledgedAt)
+        updateQuery = collection.update_one.await_args.args[0]
+        self.assertEqual(document["eventId"], updateQuery["eventId"])
+        self.assertEqual(
+            "misclassification",
+            updateQuery["eventCategory"],
+        )
+        self.assertIn("$or", updateQuery)
+
+    async def testAcknowledgeManyReturnsOnlyMatchingDocuments(self):
+        acknowledgedAt = datetime.now(timezone.utc)
+        document = currentDocument()
+        document["acknowledgedAt"] = acknowledgedAt
+        collection = MagicMock()
+        collection.update_many = AsyncMock()
+        collection.find.return_value = AsyncCursor([document])
+        repository = TestEventRepository(collection)
+
+        events = await repository.acknowledgeMany(
+            [document["eventId"], document["eventId"]],
+            acknowledgedAt,
+        )
+
+        self.assertEqual(
+            [document["eventId"]],
+            [event.eventId for event in events],
+        )
+        findQuery = collection.find.call_args.args[0]
+        self.assertEqual(
+            [document["eventId"]],
+            findQuery["eventId"]["$in"],
+        )
 
     async def testStatisticsIgnoreUnknownLegacyEnumValues(self):
         collection = FakeCollection(
