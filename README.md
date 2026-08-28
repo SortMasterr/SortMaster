@@ -223,10 +223,10 @@ GPU 서버로 이관하면서 메인보드엔 고성능 추론이 더 이상 필
    구조로 확정됨, `.agentfiles/architecture.md`의 "탐지 파이프라인" 참고). systemd 서비스로
    등록해 재부팅 시 자동 기동되도록 완료(재부팅 테스트로 검증됨) — 실전 셋업
    절차/트러블슈팅은 `.agentfiles/piSetupOps.md` 참고
-2. **중앙 서버 알림 신호 수신 → GPIO/스피커 트리거**: 아직 설계 전. 현재 `RPAs/`는
-   중앙 백엔드 안에서 Mock 처리 중인 자리만 잡아둔 상태 — 실제로는 라즈베리파이 쪽
-   리스너로 옮겨야 할 가능성 높음(GPIO 릴레이로 전구, USB/오디오잭으로 스피커).
-   신호 전달 방식(MQTT/HTTP/WebSocket)은 TBD.
+2. **중앙 서버 알림 신호 수신 → GPIO/스피커 트리거**: 스피커 검증용 라즈베리파이
+   WebSocket 리스너는 `debug/hardware/alertListener.py`에 구현됨. 기존 `/ws/events`의
+   `MISCLASSIFICATION_DETECTED`를 수신하면 `aplay`로 테스트 경고음을 재생한다.
+   실제 설치 환경 상시 서비스화와 GPIO 전구 연동은 아직 미착수.
 3. **YOLO26 추론은 여기 없음** — GPU 서버의 `models/trashdetect/tracking2.py`가 전담(아직
    Docker 컨테이너 아닌 독립 스크립트, 아래 "메인보드 입고 후 개발할 부분" 참고)
 
