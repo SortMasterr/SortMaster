@@ -8,14 +8,14 @@ v0.2(MVP), 구현 기준일 2026-08-25. `DetectedClass`/`BinType`의 `general`�
 
 | Enum | 값 |
 |---|---|
-| CameraId | ELEV-TOP / ELEV-SIDE / REST-4F-01 — 설치 위치 1곳뿐이라 번호 없음(`.agentfiles/architecture.md` 참고). ELEV-TOP=YOLO26(쓰레기 4종 분류+추적)+룰 베이스(통 위치, 고정 ROI) 조합, ELEV-SIDE=MobileNet_V3_Small(쓰레기통 넘침 여부, 로컬 백엔드 CPU 추론) |
+| CameraId | ELEV-TOP / ELEV-SIDE / REST-4F-01 — 설치 위치 1곳뿐이라 번호 없음(`.agentfiles/architecture.md` 참고). ELEV-TOP=YOLO26(쓰레기 4종 분류+추적)+룰 베이스(통 위치, 고정 ROI) 조합, ELEV-SIDE=MobileNet_V3_Small(쓰레기통 넘침 여부, GPU 서버 `models/trashoverflow/sideOverflow.py` — 과거 "로컬 백엔드 CPU 추론" 방식에서 재전환됨, `decisionLog.md` 참고) |
 | EventCategory | misclassification(투기, 위 카메라 단독 — **GPU 서버(`models/trashdetect/tracking2.py`)가 감지+추적+분류+정상/오분류 판정까지 자체적으로 끝내고 `POST /api/events/aiDisposal`로 결과를 로컬 백엔드에 직접 푸시**, 백엔드는 재판정 없이 저장. 실시간 경로엔 LLM 미사용 — Qwen3-VL-8B는 학습 준비 단계 자동 라벨링 검증(분류만, 좌표 없음)에만 사용 중) / overflow(넘침, 옆 카메라 단독 — **GPU 서버(`models/trashoverflow/sideOverflow.py`)가 MobileNet_V3_Small로 자체 판정 후 `POST /api/binStates`로 푸시**(TOP과 동일한 패턴 — 과거 "로컬 백엔드 CPU 추론" 방식에서 재전환됨, `decisionLog.md` 참고), 물리 통 4개의 상태를 `BIN_STATES`로 지속 추적하다 `NORMAL`→`FULL` 전환 시점에만 생성) |
 | BinType | normal / recyclables / coffeeCup / paper — 물리 쓰레기통 4개 고정. `DetectedClass`와 값 체계 1:1 일치 |
 | DetectedClass | normal / paper / recyclables / coffeeCup — 총 4종, misclassification 이벤트에서만 사용. `mixed`/`uncertain`은 제외됨. 실제 YOLO26 모델이 plastic/can을 구분 못 해 `recyclables` 하나로 통합 |
 | ActionTaken | lightAndSound / soundOnly / lightOnly / notificationOnly / none |
 | Mode | MANAGE(기본값) / COLLECT |
 | CameraStatus | ONLINE / OFFLINE — EP-19 응답에 사용(ELEV-TOP/ELEV-SIDE의 GPU 추론 스크립트 하트비트 기반) |
-| WSEventType | MISCLASSIFICATION_DETECTED / BIN_OVERFLOW_DETECTED / MODE_CHANGED / CAMERA_DISCONNECTED / SYSTEM_ERROR |
+| WSEventType | MISCLASSIFICATION_DETECTED / BIN_OVERFLOW_DETECTED / MODE_CHANGED (여기까지 구현됨) / CAMERA_DISCONNECTED / SYSTEM_ERROR (둘 다 미구현, 아래 EP-07 참고) |
 
 상태 코드: 200 정상 / 400 요청 오류 / 404 이벤트·녹화 세션 없음 /
 409 녹화 충돌 / 422 스키마 불일치 / 500 서버·이메일 설정 파일 오류 /
@@ -28,7 +28,7 @@ v0.2(MVP), 구현 기준일 2026-08-25. `DetectedClass`/`BinType`의 `general`�
 | EP-01 | GET /api/stream/{cameraId} | MJPEG 스트림 | Path: cameraId(CameraId) | 200/422/503 | 카메라 1대=지점 1개=1cameraId(role 파라미터 없음, 구조 불변). `CameraId`는 `ELEV-TOP`/`ELEV-SIDE`(설치 위치가 12층 엘리베이터 앞 1곳뿐이라 번호 불필요 — `.agentfiles/architecture.md` 참고). 카메라 미설정/연결 실패 시 503. 개발=`.env`의 `CAMERA_SOURCE_<ID>`(예: `CAMERA_SOURCE_ELEVTOP`) 웹캠, 배포=카메라별 독립 RTSP |
 | EP-03 | GET /api/events | 이벤트 목록 | Query: from?, to?(ISO8601) | 200/422 | 없음. 페이지네이션 미구현(TBD) |
 | EP-04 | GET /api/events/{id} | 이벤트 상세 | Path: id | 200/404 | 없음. not found 시 `{"detail":"이벤트를 찾을 수 없습니다."}` |
-| EP-04-M | GET /api/events/{id}/media | 이벤트 GIF 조회 | Path: id | 200/404 | `imageFileId`가 참조하는 카메라별 GridFS GIF를 `image/gif`로 반환. 이벤트/ID/파일이 없으면 404, `Cache-Control: private, max-age=300` |
+| EP-04-M | GET /api/events/{id}/media | 이벤트 GIF 조회 | Path: id | 200/404 | `imageFileId`가 참조하는 카메라별 GridFS GIF를 `image/gif`로 반환. 이벤트/ID/파일이 없으면 404, `Cache-Control: private, max-age=300`. 현재 실제로 미디어가 붙는 건 misclassification뿐 — overflow는 `imageFileId`가 항상 null이라 404다(`architecture.md`의 "이벤트 적재" 참고) |
 | EP-05 | GET /api/statistics | 클래스별·카테고리별 집계, 온디맨드(캐시없음) | Query: from?, to? | 200/422 | Response: `labels`, `counts`, `totalEventCount`, `misclassificationCount`, `overflowCount` |
 | EP-06 | POST /api/mode | 모드 전환 | Body: mode(Mode) | 200/422 | 성공 시 전체 WS 클라이언트에 MODE_CHANGED 브로드캐스트 |
 | EP-08 | POST /api/detection/start | 녹화 시작(탐지 시작 신호) | Body: cameraId(CameraId) | 200/422/503 | `recordingService.start` 호출, recordingId 반환. 카메라 미설정/연결 실패 시 503 |
@@ -38,9 +38,11 @@ v0.2(MVP), 구현 기준일 2026-08-25. `DetectedClass`/`BinType`의 `general`�
 | EP-12 | POST /api/events/aiDisposal | GPU 서버(`models/trashdetect/tracking2.py`)가 투척 완료 판정 시 직접 푸시하는 전용 엔드포인트 | Body: eventId, trackId, timestamp, cameraId("CAM-01" 등 GPU 쪽 값 그대로), detectedClass("normal"/"paper"/"recyclables"/"coffeecup"), binId(detectedClass와 동일 값 체계), result("correct"/"incorrect"/"unknown"), imagePath? | 200/422 | `eventService.createEventFromAiDisposal`이 GPU 쪽 값을 내부 `EventCreate`로 매핑 후 EP-02의 쿨다운/멱등성을 재사용. `incorrect`이면 GridFS/`visitClips`에 저장된 전체 방문 GIF에서 이벤트 직전 약 5초를 파생해 `imageFileId`에 연결한다. 대응 DB 영상이 아직 없으면 방문 종료 저장 단계에서 연결하고, 영상이 먼저 저장됐으면 `trackId` 또는 카메라/시각으로 찾아 즉시 연결한다. 원본이 없으면 이벤트만 저장한다. `imagePath`는 GPU 로컬 경로라 사용하지 않는다. 매핑 실패 또는 `unknown`은 이벤트 미생성 |
 | EP-13 | GET/POST /api/reports/email | 자동 일일·주간 보고서 수신 이메일 조회/저장/해제(즉시 발송 없음) | GET: 없음 / POST Body: recipient(string\|null, 빈 값은 수신 해제) | 200/422/500 | `state/recipientSettings.json`에 주소 또는 명시적 해제 상태를 저장. 해제 상태에서는 환경변수 수신 주소도 폴백하지 않음. Docker에서는 backend와 별도 report-scheduler가 report-state 볼륨 공유. 스케줄러가 매일 09:00 일일, 월요일 09:10 주간 보고서를 자동 발송. 검증된 일일 이벤트 메타데이터를 최근 7일만 임시 저장하고 주간 보고서는 이를 합산하며, 누락 시 발송하지 않음. 전주 비교는 최근 2개 주간 합계만 보존. SMTP 비밀은 서버 설정에만 유지 |
 | EP-14 | GET /api/collectionTasks, POST /api/collectionTasks/{collectionTaskId}/acknowledge, POST /api/collectionTasks/{collectionTaskId}/complete, GET /api/collectionAutomation/status | FULL 감지 기반 수거 작업 조회·확인·완료 및 RPA 상태 조회 | 목록: taskStatus?, limit? / 처리: collectionTaskId | 200/404/409/422 | `RPA_COLLECTION_ENABLED=true`일 때 NORMAL→FULL overflow 이벤트에 활성 수거 작업 1건 생성. 별도 collection-scheduler가 기본 10분 대기 후 최초 담당자 알림→최초 알림 성공 시각 기준 재알림→관리자 에스컬레이션 순으로 발송. 작업·발송 이력·heartbeat는 MongoDB에 영속화 |
+| EP-15 | POST /api/events/trackStarted | GPU 서버(`tracking2.py`)가 새 트랙을 발견하는 즉시 보내는 경량 신호 | Body: trackId(int≥0), cameraId(CameraId — GPU 쪽 `CAM-01`이 아니라 백엔드 enum 값), timestamp(ISO8601) | 200/422 | `visitClipService`의 메모리 `activeTracks`에만 기록(DB 저장·이벤트 생성 없음). 방문 종료 시 이 트랙이 그 구간의 `visitClip.trackIds`로 옮겨진다. Response Body 없음 |
+| EP-16 | POST /api/events/trackEnded | GPU가 트랙을 어느 통에도 넣지 못하고 만료시켰을 때 EP-12 대신 보내는 신호 | Body: trackId(int≥0), cameraId(CameraId), timestamp(ISO8601), result(`"unresolved"` 고정) | 200/422 | 해당 트랙이 속한 `visitClip.unresolvedTrackIds`에 추가돼 재학습 후보(미확정 방문)로 표시된다. 통에 확정 투입된 트랙과 fragment-duplicate로 스킵된 트랙은 이 신호를 보내지 않는다(정상 방문이 재학습 후보로 잘못 잡히는 걸 막기 위함 — `architecture.md` 참고). Response Body 없음 |
 | EP-17 | GET /api/visitClips | 방문 클립(presence 기반 녹화, 판정 여부 무관) 목록, 최신순 | Query: limit?(기본 60, 1~200) | 200/422 | 관리자 대시보드에는 노출하지 않음(사이드바/페이지 없음) — 필요 시 직접 호출하는 조회 전용 API. `imageFileId`는 응답에 노출하지 않고 EP-18 경로로만 접근 |
 | EP-18 | GET /api/visitClips/{clipId}/media | 방문 클립 GIF 원본 스트리밍(GridFS) | Path: clipId | 200/404 | `clipId`가 유효한 ObjectId가 아니거나 문서가 없으면 404. `cameraId`에 따라 topMedia/sideMedia 버킷에서 읽음(`repositories/mongoClient.py`의 `getGridFsBucket`과 동일 규칙). `Content-Type: image/gif` |
-| EP-19 | GET/POST /api/gpuHeartbeats | GPU 서버 추론 스크립트(`tracking2.py`/`sideOverflow.py`)의 생존 신호 조회/수신 | GET: 없음 / POST Body: cameraId(CameraId, ELEV-TOP 또는 ELEV-SIDE만) | 200/422 | POST는 두 스크립트가 판정 이벤트와 무관하게 30초~1분 주기로 호출(EP-12/EP-11과 같은 SSH 역터널 재사용, 별도 포트 불필요), 호출마다 `cameraId`의 `lastSeenAt`을 현재 시각으로 upsert. GET은 관리자 웹(PG-03)이 폴링해 ELEV-TOP/ELEV-SIDE 각각의 `CameraStatus`(ONLINE/OFFLINE)를 표시 — 저장은 `lastSeenAt`만 하고 상태는 조회 시점마다 임계값(90초)과 비교해 계산(`services/gpuHeartbeatService.py`). 하트비트를 한 번도 못 받은 카메라는 OFFLINE |
+| EP-19 | GET/POST /api/gpuHeartbeats | GPU 서버 추론 스크립트(`tracking2.py`/`sideOverflow.py`)의 생존 신호 조회/수신 | GET: 없음 / POST Body: cameraId(CameraId) | 200/422 | POST는 두 스크립트가 판정 이벤트와 무관하게 30초~1분 주기로 호출(EP-12/EP-11과 같은 SSH 역터널 재사용, 별도 포트 불필요), 호출마다 `cameraId`의 `lastSeenAt`을 현재 시각으로 upsert. GET은 관리자 웹(PG-03)이 폴링해 ELEV-TOP/ELEV-SIDE 각각의 `CameraStatus`(ONLINE/OFFLINE)를 표시 — 저장은 `lastSeenAt`만 하고 상태는 조회 시점마다 임계값(90초)과 비교해 계산(`services/gpuHeartbeatService.py`). 하트비트를 한 번도 못 받은 카메라는 OFFLINE. **POST는 `CameraId` 전체를 받아 저장하지만 GET 응답은 `MONITORED_CAMERA_IDS`(ELEV-TOP/ELEV-SIDE)로만 한정** — REST-4F-01로 보내도 422가 아니라 200이며 저장만 되고 조회에는 안 나온다 |
 
 ### EP-02. POST /api/events — 이벤트 생성
 
@@ -81,7 +83,7 @@ GPU→백엔드 오분류 판정 신호는 이 EP-08/09가 아니라 별도의 E
 ### EP-17/EP-18. GET /api/visitClips, GET /api/visitClips/{clipId}/media — 방문 클립 조회
 
 `services/visitClipService.py`/`repositories/visitClipRepository.py`(`listRecent`/`findMediaById`)가
-`visitClips` 컬렉션을 직접 읽는다. EP-14/15(트랙 신호, 아래 TBD 참고)와 무관하게 이미 저장된
+`visitClips` 컬렉션을 직접 읽는다. EP-15/EP-16(트랙 신호)과 무관하게 이미 저장된
 클립을 사람이 확인하기 위한 용도.
 
 EP-17 Response(200, `VisitClipSummary[]`): id(str, Mongo `_id`), cameraId(CameraId),
@@ -109,8 +111,8 @@ EP-18은 Response Body가 GIF 바이너리이고 JSON이 아니다.
 | MISCLASSIFICATION_DETECTED | cameraId, timestamp, isMisclassified | 투기(오분류) 발생 시. detectedClass 필드 추가 여부 TBD |
 | BIN_OVERFLOW_DETECTED | cameraId, timestamp | 쓰레기통 포화(넘침) 감지 시 |
 | MODE_CHANGED | mode, timestamp | 연결 시 1회 + 전환 성공 시 전체 브로드캐스트 |
-| CAMERA_DISCONNECTED | cameraId, timestamp | 30초 재시도 초과 |
-| SYSTEM_ERROR | message, timestamp | 서버 내부 에러 |
+| CAMERA_DISCONNECTED | cameraId, timestamp | **미구현** — 브로드캐스트하는 코드가 없고 프론트도 처리하지 않음. 카메라 연결 감시 구현 후 추가 예정(예정 조건: 30초 재시도 초과) |
+| SYSTEM_ERROR | message, timestamp | **미구현** — 서버 오류 알림 정책 확정 후 추가 예정 |
 
 eventType은 대문자 스네이크케이스(camelCase 규칙 유일 예외). 새 타입은 이 표에 먼저 추가 후 구현.
 
@@ -121,7 +123,7 @@ TemplateResponse만 반환, views.py/api.py 혼용 금지.
 | ID | Path | 템플릿 | 설명 |
 |---|---|---|---|
 | PG-01 | GET / | index.html | 카메라 지점 2개(위+옆, `ELEV-TOP`/`ELEV-SIDE`) 스트리밍(분할 그리드)+모니터링 현황. 템플릿 컨텍스트의 `currentMode`는 현재 `MANAGE` 고정이며 실제 런타임 모드는 WS 연결 직후 동기화. 관리 모드에서 EP-10 응답 중 하나라도 `currentState=FULL`이면 수거 작업 생성 여부와 무관하게 사이드바에 `쓰레기통 가득참` 표시 |
-| PG-02 | GET /events | eventsList.html | EP-03 결과 표 렌더링(이전기록), EP-04/EP-04-M 상세 모달과 GIF 썸네일·확대 보기 |
+| PG-02 | GET /events | eventsList.html | EP-03 결과 표 렌더링(이전기록), EP-04/EP-04-M 상세 모달과 GIF 썸네일·확대 보기. `eventCategory=overflow`면 썸네일 대신 "사이드 카메라는 미리보기를 지원하지 않습니다"를 표시하고(EP-04-M 호출 자체를 안 함), misclassification인데 `imageFileId`가 없으면 "저장된 영상 없음"을 표시 |
 | PG-03 | GET /statistics | statistics.html | EP-05 요약·클래스별 집계와 EP-03 최근 이벤트 렌더링. EP-19를 20초 주기로 폴링하되, 평소엔 아무것도 표시하지 않다가 OFFLINE인 카메라가 있을 때만 상단에 경고 배너 노출(고객이 보는 화면이라 GPU/스크립트명 등 내부 인프라 용어 대신 "오분류 자동 감지"/"쓰레기통 넘침 자동 감지" 기능명으로 표시) |
 
 `GET /events/{id}` 페이지 라우트는 없다. 상세 정보는 `/events`의 모달이 EP-04를 호출하고,
@@ -140,7 +142,7 @@ sidebar.html은 라우트 아님 — 각 페이지에 공통 포함되는 사이
 - **`trackStarted`/`trackEnded` 및 방문 클립 연결** → `visitClipService`의 active track과
   `visitClips` 저장소로 구현. EP-12의 오분류 이벤트는 GridFS에 저장된 전체 방문 GIF에서
   직전 약 5초 GIF를 파생하며, 전체 방문 GIF는 재학습/방문 기록으로 분리 유지. GPU 쪽
-  (`models/trashdetect/tracking2.py`)도 새 트랙 등록 시 EP-14, 미확정 만료 시 EP-15를
+  (`models/trashdetect/tracking2.py`)도 새 트랙 등록 시 EP-15, 미확정 만료 시 EP-16을
   실제로 호출하도록 구현 완료 — 실기기(GPU 서버) 검증은 아직 TBD(`architecture.md` 참고)
 
 - **GPU↔백엔드 오분류 판정 신호 전달 방식 확정** → 로컬 백엔드가 프레임을 GPU로 보내는

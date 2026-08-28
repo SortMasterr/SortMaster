@@ -52,8 +52,22 @@ python debug/db/checkVisitClips.py
 ```
 
 전체 문서 수, `matchedEventIds`가 비어있는(재학습 후보) 문서 수, 최근 5개를 출력한다.
-`trackIds`는 GPU `tracking2.py`가 `trackStarted`를 아직 안 보내서 지금은 항상 0이
-정상(`.agentfiles/architecture.md`의 "재학습용 미확정 방문 캡처" 참고).
+`trackIds`/`unresolvedTrackIds`는 GPU `tracking2.py`가 보내는 트랙 신호(EP-15/EP-16)로
+채워진다 — 스크립트 쪽 전송은 구현 완료지만 **GPU 서버 실기기에서 실제로 도달하는지는 아직
+미검증**이라, 값이 비어 있다고 곧바로 버그는 아니다(`.agentfiles/architecture.md`의
+"재학습용 미확정 방문 캡처" 참고).
+
+## 6. visitClip GIF 내려받기 (읽기 전용)
+
+`visitClips`에 저장된 실제 GIF를 GridFS(`topMedia`)에서 로컬 파일로 내려받는다. 조회만
+하고 아무것도 쓰지 않는다. 받은 파일은 이미지 뷰어나 브라우저로 열면 된다.
+
+```bash
+python debug/db/downloadVisitClipMedia.py
+python debug/db/downloadVisitClipMedia.py --imageFileId <objectId 문자열>
+```
+
+`--imageFileId`를 생략하면 가장 최근 `visitClip` 문서의 GIF를 받는다.
 
 ## 참고
 - 로컬 Docker MongoDB 사용 (Atlas 아님 — GPU 서버(L40S)에도 동일하게 Docker로 배포 예정)

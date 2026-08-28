@@ -163,8 +163,10 @@ HARD_EXAMPLE_DIR.mkdir(parents=True, exist_ok=True)
 # 2. 클래스 / 분리배출 규칙
 # ============================================================
 # 아래 3개 매핑의 클래스명은 코드 컨벤션이 아니라 현재 bestTop.pt의 model.names와
-# 정확히 일치해야 합니다. 2026-08-27 로컬 운영 파일과 bootstrap 파일의 SHA-256이 같고,
-# 두 체크포인트 모두 아래 PascalCase 4종을 내놓는 것을 직접 확인했습니다.
+# 정확히 일치해야 합니다. 2026-08-28 기준 운영 bestTop.pt / registry 활성 모델 /
+# bootstrap best.pt 셋의 model.names를 직접 대조해 전부 아래 4종을 내놓는 것을
+# 확인했습니다(운영과 registry 활성 모델은 같은 체크포인트, bootstrap은 이제 별개
+# 체크포인트입니다 — .agentfiles/naming.md의 세 파일 관계 표 참고).
 # API와 DB에는 TRASH_TYPE_MAP을 거쳐 기존 lowercase 값만 전송합니다.
 EXPECTED_CLASS_NAMES = {
     0: "TrashNormal",

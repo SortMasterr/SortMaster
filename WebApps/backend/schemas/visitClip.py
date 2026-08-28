@@ -7,7 +7,7 @@ from schemas.event import CameraId
 
 
 class TrackStartedRequest(BaseModel):
-    """GPU(tracking2.py)가 새 트랙을 발견하는 즉시 보내는 경량 신호(EP-14)."""
+    """GPU(tracking2.py)가 새 트랙을 발견하는 즉시 보내는 경량 신호(EP-15)."""
 
     trackId: int = Field(ge=0)
     cameraId: CameraId
@@ -15,7 +15,7 @@ class TrackStartedRequest(BaseModel):
 
 
 class TrackEndedRequest(BaseModel):
-    """GPU가 트랙을 확정 못 하고 놓쳤을 때 aiDisposal 대신 보내는 신호(EP-15)."""
+    """GPU가 트랙을 확정 못 하고 놓쳤을 때 aiDisposal 대신 보내는 신호(EP-16)."""
 
     trackId: int = Field(ge=0)
     cameraId: CameraId

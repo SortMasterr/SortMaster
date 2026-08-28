@@ -58,6 +58,31 @@ uvicorn main:app --reload --port 8047
 브라우저에서 http://localhost:8047 접속.
 API 상세 스펙은 `.agentfiles/apiSpec.md` 참고.
 
+### 테스트 실행
+
+```bat
+cd WebApps/backend
+venv\Scriptsctivate
+python -m pytest
+```
+
+`pytest`는 `infra/checkEnv.py`가 설치한다(별도 설치 불필요). 테스트 파일명이 프로젝트
+컨벤션대로 camelCase(`testEventService.py`)라 pytest 기본 탐색 패턴(`test_*.py`)에 안 걸리므로,
+`WebApps/backend/pytest.ini`가 `python_files`/`python_classes`를 재정의한다 — **반드시
+`WebApps/backend`에서 실행할 것**(다른 위치에서 돌리면 `no tests ran`이 뜨거나 `schemas`
+import가 깨진다). MongoDB 없이 전부 mock으로 도는 단위 테스트라 DB를 띄울 필요는 없다.
+
+RPA·debug 테스트는 저장소 루트에서 실행한다(루트 `pytest.ini`가 `RPAs`와
+`debug/detection`만 대상으로 잡는다 — `debug/db/testCrud.py` 등은 pytest 테스트가 아니라
+손으로 돌리는 MongoDB 스크립트라 제외했다).
+
+```bat
+python -m pytest
+```
+
+`tzdata` 미설치 상태면 보고서 RPA 테스트가 `ModuleNotFoundError: No module named 'tzdata'`로
+무더기 실패한다 — `python infra/checkEnv.py`를 먼저 돌릴 것.
+
 ### Docker Compose
 
 ```bash
@@ -272,8 +297,13 @@ GPU 서버로 이관하면서 메인보드엔 고성능 추론이 더 이상 필
 
 ## TBD (팀 논의 필요)
 
-- 오탐 confidence threshold (현재 `.env`에 임시값 0.7) — `mixed`/`uncertain` 클래스는 제외로
-  확정됐지만(`.agentfiles/architecture.md` 참고), 신뢰도 임계값 자체는 별개로 여전히 TBD
+- 오탐 confidence threshold — `mixed`/`uncertain` 클래스는 제외로 확정됐지만
+  (`.agentfiles/architecture.md` 참고), 신뢰도 임계값 자체는 여전히 TBD. **`.env`로
+  빼놓은 값이 아니라 GPU 스크립트 안의 상수**라 바꾸려면 GPU 서버 쪽 파일을 고쳐야 한다:
+  SIDE는 `models/trashoverflow/sideOverflow.py`의 `CONFIDENCE_THRESHOLD`(0.70),
+  TOP은 `models/trashdetect/tracking2.py`의 `CONFIDENCE`(0.05, BoT-SORT가 약한 탐지까지
+  재활용하도록 낮게)와 `NEW_TRASH_CONFIDENCE`(0.45, 새 트랙을 이벤트로 등록하는 하한)로
+  나뉘어 있음
 - MongoDB 버전, Docker/Compose 버전 (개발 환경 표 참고)
 - 통계 대시보드 세부 지표
 - 안면인식(투기자 식별) 포함 여부 — 기본 제외

@@ -53,6 +53,22 @@ uvicorn main:app --reload --port 8047
 
 `http://localhost:8047/`에서 할당한 지점들의 화면이 RTSP 경유로 정상 표시되면 성공.
 
+## 프레임 전달 상태 점검 — `testRtspDelay.py`
+
+RTSP 카메라(`streaming/cameraManager.py`의 ffmpeg 서브프로세스 방식)가 프레임을 실제로
+얼마나 자주 갱신하는지, 연결이 얼마나 빨리 열리는지 확인한다. 프로젝트 루트에서
+backend venv를 활성화하고 실행한다.
+
+```bash
+python debug/streaming/testRtspDelay.py --camera-id ELEV-TOP
+```
+
+`.env`의 `CAMERA_SOURCE_<CameraId>`가 설정돼 있어야 한다(위 시뮬레이터로 띄운 RTSP도 가능).
+
+ffmpeg 서브프로세스가 항상 최신 프레임만 덮어써서 유지하므로(아무도 안 읽어도 버퍼가 안
+쌓임) 예전처럼 "방치 시 지연이 누적되는지"를 재는 게 아니라, `readFrame()`을 반복 호출해
+**프레임 내용이 바뀌는 빈도(체감 전달 fps)** 를 본다.
+
 ## 참고
 
 - MediaMTX 기본 RTSP 포트는 8554(변경 가능하나 바꿀 이유 없음)

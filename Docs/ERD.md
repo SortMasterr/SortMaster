@@ -163,8 +163,12 @@ erDiagram
   OpenCV 프레임을 Pillow로 인코딩, `repositories/mediaRepository.py`가 업로드), 필드명은
   `imageFileId`로 공용. 녹화 길이는 고정 10초가 아니라 `services/recordingService.py`가
   시작~종료 신호 사이 실제 구간을 캡처(신호 유실 대비 최대 30초 안전 캡) — `misclassification`은
-  투척 완료 후 약 3초 텀을 두고 종료 신호가 옴(`architecture.md`). 탐지 서비스가 아직 없어
-  실제 트리거 전이라 `imageFileId`는 대부분 `null`.
+  투척 완료 후 약 3초 텀을 두고 종료 신호가 옴(`architecture.md`).
+  **다만 현재 운영 경로에서 실제로 채워지는 건 `topMedia`뿐이다** — presence 기반 방문 녹화가
+  TOP 전용(`presenceGateService`가 `CameraId.ELEVTOP` 하나만 돌림)이고, SIDE는 GPU가 EP-11로
+  판정만 푸시해 프레임이 백엔드로 오지 않는다. 즉 overflow `EVENT`의 `imageFileId`는 계속
+  `null`이고 `/events` 모달도 미리보기 대신 미지원 안내를 띄운다. `sideMedia` 버킷에 쓰는
+  경로는 데모 스텁(EP-08/EP-09)으로 `cameraId=ELEV-SIDE` 녹화를 돌릴 때뿐이다.
 - **VISIT_CLIP**(신규, **구현 완료, 실기기 검증 TBD** — 백엔드+GPU 쪽 신호 전송 코드 모두
   반영됐으나 실제 GPU 서버에서 신호가 정상 도달하는지는 아직 검증 안 됨): `EVENT`처럼 판정이 확정된
   것만 저장하는 게 아니라, **presence 감지로 "누가 통 근처에 왔다 갔다"는 사실 자체를 판정

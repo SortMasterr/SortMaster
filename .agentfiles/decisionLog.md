@@ -320,7 +320,9 @@
     `visitClip.trackIds`가 항상 비어있어서 "트랙 시도 후 실패"와 "아예 인지 못함"을
     구분하는 `unresolvedTrackIds` 기반 분류는 아직 사실상 동작하지 않음. 상세는
     `architecture.md`의 "재학습용 미확정 방문 캡처", `Docs/ERD.md`의 `VISIT_CLIP`,
-    `.agentfiles/apiSpec.md`의 EP-14/EP-15 참고
+    `.agentfiles/apiSpec.md`의 EP-15/EP-16 참고(당시엔 EP 번호가 EP-14/EP-15로 적혀
+    수거 작업 RPA와 충돌해 있었고, `tracking2.py`의 전송도 이후 `be09762`로 구현됨 —
+    실기기 도달 검증만 남음)
 
 - **자동 라벨링에 Qwen-VL 박스를 쓰지 않기로 확정(위치 지정 역할 배제)** → 검수 UI에 Qwen이
   제시한 박스를 그려주기 시작하면서 위치가 어긋난다는 지적이 나왔고, 배치 2026-08-26 데이터로

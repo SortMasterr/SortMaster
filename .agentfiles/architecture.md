@@ -374,7 +374,13 @@ GPU 1장(48GB) 내 진행. 파인튜닝 후 4/8bit 양자화해 추론 시 VRAM 
 ## 이벤트 적재
 
 - 매 프레임 Insert 금지, 판정 시점만 저장
-- `eventCategory`로 구분: misclassification(투기, 분류 결과 포함) / overflow(넘침, 분류 없이 영상만)
+- `eventCategory`로 구분: misclassification(투기, 분류 결과 포함) / overflow(넘침, 분류 없음).
+  **현재 운영 경로에서 overflow `EVENT`에는 영상이 붙지 않는다** — GPU가 `POST /api/binStates`
+  (EP-11)로 판정만 푸시하고 프레임을 보내지 않으며, presence 기반 방문 녹화는 TOP 전용
+  (`presenceGateService`는 `CameraId.ELEVTOP` 하나만 돌린다)이라 SIDE 구간을 녹화하는 주체가
+  없다. 그래서 `/events` 상세 모달도 overflow면 "사이드 카메라는 미리보기를 지원하지
+  않습니다"를 띄운다. overflow에 GIF가 붙는 경로는 데모 스텁(EP-08/EP-09)뿐이며, SIDE 영상을
+  실제로 남길지는 아직 정하지 않았다(아래 TBD 참고)
 - **물리 쓰레기통 4개**(일반/플라스틱·캔/커피컵/종이, `binId`)가 옆 카메라(`ELEV-SIDE`) 시야
   안에 고정 설치. "플라스틱·캔" 통(`binType=recyclables`)은 캔과 플라스틱을 물리적으로 같이
   받는데, 실제 YOLO26 모델(`tracking2.py`)도 둘을 구분하지 못해 `DetectedClass.RECYCLABLES`
@@ -443,7 +449,7 @@ GPU 1장(48GB) 내 진행. 파인튜닝 후 4/8bit 양자화해 추론 시 VRAM 
 전부 반영됨. `autoTraining/stages/collectEventMedia.py`도 `matchedEventIds`가 비어있는
 `visitClip`을 재학습 후보(`eventCategory: unresolvedVisit`)로 수집하는 경로가 추가됨(진행
 중 — 아래 참고). 상세 필드는 `Docs/ERD.md`의 `VISIT_CLIP`, API 형식은
-`.agentfiles/apiSpec.md`의 EP-14/EP-15 참고. **`tracking2.py`(GPU)의 `trackStarted`/
+`.agentfiles/apiSpec.md`의 EP-15/EP-16 참고. **`tracking2.py`(GPU)의 `trackStarted`/
 `trackEnded` 전송도 구현 완료** — 새 트랙을 등록하는 즉시 `trackStarted`를, 어느 통에도
 못 들어가고 만료(`TRACK_EXPIRE_FRAMES`)되면 `trackEnded(unresolved)`를 보낸다. 통에 확정
 투입된 트랙은 기존 `aiDisposal`의 `trackId`로만 연결하고 별도 `trackEnded`는 보내지 않으며,
@@ -523,7 +529,13 @@ Detect → Create Event → Save Event → Check mode
   참고). 단, 전경 비율 임계값(`PRESENCE_FOREGROUND_RATIO_THRESHOLD`)/진입 확인 시간
   (`PRESENCE_ENTRY_CONFIRM_SECONDS`)/이탈 유예 시간(`PRESENCE_EXIT_GRACE_SECONDS`,
   스펙상 3초) 수치 자체는 실제 TOP 카메라 설치 위치/거리 기준 실측 후 조정 필요 —
-  `README.md`의 "오탐 confidence threshold"와 같은 성격의 수치 튜닝 TBD
+  `README.md`의 "오탐 confidence threshold"와 같은 성격의 수치 튜닝 TBD.
+  **단, 배경 모델 수렴 시간은 이미 실기기로 원인을 잡아 고정했다**(튜닝 대상 아님):
+  `cv2.createBackgroundSubtractorMOG2`의 기본 `history=500`은 30fps 기준(약 16초)이라
+  우리 폴링 주기(`PRESENCE_POLL_INTERVAL_SECONDS`, 기본 0.2초)로는 100초가 걸려서,
+  백엔드를 재시작할 때마다 그동안 사람이 없어도 PRESENT로 붙어 있거나 나가도 ABSENT로
+  안 돌아오는 오탐이 재현됐다. 지금은 `presenceGateService.py`의 `backgroundHistorySeconds`
+  (20초)로 폴링 주기에 맞춰 `history`를 계산해 항상 그 정도 안에 수렴하게 한다
 - **GPU 하트비트 주기(30초)/OFFLINE 임계값(90초) 실측 튜닝** — 구현 방식 자체는 확정+구현
   완료(위 "추론 인프라"의 "GPU 하트비트(헬스체크)" 참고). 단, 두 수치 자체는 실측 없이
   임의로 정한 값(위 "사람 존재 감지 임계값"과 같은 성격) — 정상 판정 지연(GPU가 바빠서
@@ -573,6 +585,12 @@ Detect → Create Event → Save Event → Check mode
   학습·vLLM을 같은 카드에서 돌리고 있어 오염된 값** — GPU 유휴 시간대에 재측정해서 실제
   문제인지 먼저 확정할 것. (위 "추론 인프라"의 "GPU 하트비트(헬스체크)" 항목은
   "살아있는가"를 보는 것이고, 이건 "얼마나 느린가"라 별개)
+- **overflow(SIDE) 이벤트에 영상을 남길지 여부** — 지금은 안 남는다(위 "이벤트 적재" 참고).
+  GPU가 EP-11로 판정만 푸시하고 presence 녹화는 TOP 전용이라 `sideMedia` 버킷이 운영에서
+  비어 있고, `/events` 모달도 overflow엔 미리보기 미지원 안내를 띄운다. 남기려면 (1) SIDE에도
+  녹화 게이팅을 붙이거나 (2) `sideOverflow.py`가 판정 프레임을 같이 보내는 방식 중 하나를
+  정해야 하는데, "넘침은 통 상태라 영상 증거의 가치가 낮다"는 판단이면 지금 상태를 확정으로
+  두고 ERD의 `sideMedia` 버킷을 정리하는 선택지도 있다 — 아직 논의 안 됨
 - **카메라 영상이 좌우 반전으로 들어오는지 확인 필요** — 저장된 TOP 프레임을 보면 쓰레기통에
   붙은 한글 라벨이 거울상으로 보임(2026-08-27 확인). 학습 데이터와 운영이 같은 반전 상태면
   일관되므로 문제없지만, 의도치 않은 설정이면 운영 `tracking2.py`에도 함께 영향을 줌.

@@ -30,5 +30,5 @@
 
 ## Verification
 
-- Use Python 3.11 in `WebApps/backend/.venv`.
+- Use Python 3.11 in `WebApps/backend/venv` (created by the README's setup steps; there is no `.venv`).
 - Verify frontend changes against the current API contract and test without modifying production data.

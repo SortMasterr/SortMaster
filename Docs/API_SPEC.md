@@ -572,6 +572,18 @@ GET /api/events/a3b70dae-3a1b-48b6-a8d1-a06afcb934d1/media
 | 404 | 이벤트가 없거나 `imageFileId`가 없거나 GridFS 파일을 찾을 수 없음 |
 | 500 | 서버 내부 처리 오류 |
 
+### 현재 미디어가 붙는 범위
+
+실제로 GIF가 연결되는 이벤트는 **misclassification뿐이다.** overflow 이벤트는 GPU가 EP-11로
+판정 결과만 푸시하고 프레임을 보내지 않으며, presence 기반 방문 녹화도 TOP 전용이라
+(`presenceGateService`가 `CameraId.ELEVTOP` 하나만 돌린다) `imageFileId`가 항상 `null`이고 이
+엔드포인트는 404를 반환한다. 그래서 이전기록 상세 모달(PG-02)은 overflow일 때 이 API를 아예
+호출하지 않고 "사이드 카메라는 미리보기를 지원하지 않습니다"를 표시한다.
+
+`sideMedia` GridFS 버킷에 실제로 쓰는 경로는 데모 스텁(EP-08/EP-09)으로
+`cameraId=ELEV-SIDE` 녹화를 돌릴 때뿐이다. SIDE 영상을 정식으로 남길지는 미정이다
+(`.agentfiles/architecture.md` TBD 참고).
+
 ---
 
 ## EP-05. `GET /api/statistics`
@@ -1197,6 +1209,11 @@ WS /ws/events
 * 테이블 정렬
 * 페이지네이션
 * 행 선택 시 상세 모달
+* 상세 모달의 영상 영역은 세 가지 상태를 구분해 표시한다
+  * misclassification + `imageFileId` 있음 → EP-04-M 썸네일과 확대 보기
+  * misclassification + `imageFileId` 없음 → "저장된 영상 없음"
+  * overflow → EP-04-M을 호출하지 않고 "사이드 카메라는 미리보기를 지원하지 않습니다"
+    (SIDE는 구조상 영상이 저장되지 않는다 — EP-04-M의 "현재 미디어가 붙는 범위" 참고)
 * 새 이벤트 생성 후 새로고침하면 목록에 반영
 
 ### 사용하는 API
@@ -1498,6 +1515,11 @@ camelCase를 유지한다.
 | EP-12   | GPU 서버(`tracking2.py`) 투척 판정 결과 수신 | 구현됨(`tracking2.py`의 RTSP 연결·상시 서비스화는 TBD) |
 | EP-13   | 자동 통계 보고서 수신 이메일 설정 | 구현됨(대시보드에서 1개 주소 저장, 별도 스케줄러가 일일·주간 자동 발송) |
 | EP-14   | FULL 감지 수거 작업 및 자동 알림 | 구현됨(배포 전 CTO 검토 필요) |
+| EP-15   | GPU 트랙 시작 신호 수신           | 구현됨(GPU 서버 실기기 도달 검증은 TBD) |
+| EP-16   | GPU 트랙 미확정 종료 신호 수신     | 구현됨(GPU 서버 실기기 도달 검증은 TBD) |
+| EP-17   | 방문 클립 목록 조회               | 구현됨(관리자 웹에는 미노출, 조회 전용) |
+| EP-18   | 방문 클립 GIF 원본 조회           | 구현됨             |
+| EP-19   | GPU 추론 스크립트 하트비트 조회·수신 | 구현됨(30초 주기/90초 임계값은 실측 튜닝 TBD) |
 | PG-01   | 모니터링 페이지              | 구현됨             |
 | PG-02   | 이전기록 페이지              | 구현됨             |
 | PG-03   | 통계 대시보드               | 구현됨             |
@@ -1541,6 +1563,161 @@ camelCase를 유지한다.
 자동화 활성 여부, 담당자·관리자 주소 설정 여부, 워커 heartbeat와 상태, 미처리·확인·에스컬레이션·
 당일 완료 건수, 평균 처리시간, 최근 알림 실행 이력을 반환한다. SMTP 비밀번호와 전체 수신 주소는
 응답하지 않는다.
+
+---
+
+## EP-15/EP-16. `POST /api/events/trackStarted`, `POST /api/events/trackEnded`
+
+GPU 서버(`models/trashdetect/tracking2.py`)가 보내는 **트랙 신호** 두 개다. 재학습용 미확정
+방문 캡처 설계(`.agentfiles/architecture.md`의 "재학습용 미확정 방문 캡처")에서, presence
+감지로 이미 저장된 방문 클립(`visitClips`)을 "확정됨 / 미확정"으로 분류하는 데만 쓴다.
+**클립 저장 여부 자체는 이 신호와 무관하다** — YOLO가 트랙을 아예 시작하지 못한 방문도
+영상은 이미 저장돼 있다.
+
+두 요청 모두 `cameraId`에 EP-12의 GPU 쪽 값(`CAM-01`)이 아니라 `CameraId` enum 값
+(`ELEV-TOP`)을 그대로 보낸다. 응답 Body는 없다(HTTP 200).
+
+### `POST /api/events/trackStarted` Request — `TrackStartedRequest`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `trackId` | int (≥0) | ✅ | YOLO26/BoT-SORT 추적 ID |
+| `cameraId` | CameraId | ✅ | `ELEV-TOP` |
+| `timestamp` | ISO8601 | ✅ | 트랙을 처음 발견한 시각 |
+
+```json
+{
+  "trackId": 17,
+  "cameraId": "ELEV-TOP",
+  "timestamp": "2026-08-28T10:21:03.120000Z"
+}
+```
+
+`visitClipService`의 메모리 `activeTracks`에만 기록하며 DB 저장이나 이벤트 생성은 하지
+않는다. 방문이 종료되면 그 구간에 속한 트랙이 `visitClip.trackIds`로 옮겨진다.
+
+### `POST /api/events/trackEnded` Request — `TrackEndedRequest`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `trackId` | int (≥0) | ✅ | 만료된 추적 ID |
+| `cameraId` | CameraId | ✅ | `ELEV-TOP` |
+| `timestamp` | ISO8601 | ✅ | 트랙 만료 시각 |
+| `result` | `"unresolved"` | ❌ | 고정값. 생략 시 `"unresolved"` |
+
+```json
+{
+  "trackId": 17,
+  "cameraId": "ELEV-TOP",
+  "timestamp": "2026-08-28T10:21:09.480000Z",
+  "result": "unresolved"
+}
+```
+
+해당 트랙이 속한 `visitClip.unresolvedTrackIds`에 추가돼 재학습 후보(미확정 방문)로
+표시된다. **통에 확정 투입된 트랙은 EP-12의 `trackId`로만 연결하고 이 신호를 보내지
+않으며**, 같은 통에서 ID만 바뀐 것으로 판단해 스킵한 fragment-duplicate 트랙도 보내지
+않는다 — 정상 처리된 방문이 재학습 후보로 잘못 잡히는 것을 막기 위함이다.
+
+---
+
+## EP-17. `GET /api/visitClips`
+
+presence 감지 기반 방문 녹화 목록을 최신순으로 반환한다. 판정 여부와 무관하게 저장된
+모든 방문이 대상이다. **관리자 웹에는 노출하지 않는다**(사이드바 항목도 페이지도 없음) —
+필요할 때 직접 호출하는 조회 전용 API다.
+
+- Query: `limit`(1~200, 기본 60)
+- Response: `VisitClipSummary[]`(HTTP 200)
+
+```json
+[
+  {
+    "id": "66cf1a2b3c4d5e6f70819200",
+    "cameraId": "ELEV-TOP",
+    "startedAt": "2026-08-28T10:20:58Z",
+    "endedAt": "2026-08-28T10:21:12Z",
+    "trackIds": [17],
+    "matchedEventIds": [],
+    "unresolvedTrackIds": [17]
+  }
+]
+```
+
+`imageFileId`는 응답에 포함하지 않는다(EP-18 경로로만 접근). 상태 판단은 클라이언트 책임이며
+백엔드가 별도 status 필드를 계산하지 않는다.
+
+| 조건 | 의미 |
+| --- | --- |
+| `matchedEventIds`가 비어있지 않음 | 판정 확정(EVENT 존재) |
+| 비어있고 `unresolvedTrackIds`가 비어있지 않음 | 미확정(트랙 시도 후 실패) |
+| `trackIds`까지 비어있음 | 감지 시도 자체가 없었음(YOLO가 아예 인지 못함) |
+
+앞의 세 조건 모두 재학습 후보다(`autoTraining/stages/collectEventMedia.py`가
+`matchedEventIds`가 빈 클립을 `unresolvedVisit`로 수집). 재학습 후보만 보려면 클라이언트에서
+`matchedEventIds.length === 0`으로 필터링한다.
+
+---
+
+## EP-18. `GET /api/visitClips/{clipId}/media`
+
+방문 클립 GIF 원본을 GridFS에서 스트리밍한다. `cameraId`에 따라 `topMedia`/`sideMedia`
+버킷에서 읽으며(`repositories/mongoClient.py`의 `getGridFsBucket`과 동일 규칙),
+`Content-Type: image/gif`로 반환한다. Response Body는 GIF 바이너리이고 JSON이 아니다.
+
+`clipId`가 유효한 ObjectId가 아니면 404(`{"detail": "잘못된 클립 ID입니다."}`), 문서나
+파일이 없으면 404(`{"detail": "클립을 찾을 수 없습니다."}`)다.
+
+이 GIF는 **방문 전체 구간**이며, EP-12가 오분류 이벤트에 연결하는 "직전 약 5초" 미리보기
+GIF와는 별개 파일이다(전체 방문 GIF는 재학습·방문 기록용으로 그대로 유지된다).
+
+---
+
+## EP-19. `GET/POST /api/gpuHeartbeats`
+
+GPU 서버 추론 스크립트(`tracking2.py`/`sideOverflow.py`)의 생존 신호다. 판정 이벤트
+(EP-12/EP-11)만으로는 "아무 일도 없어서 조용한 것"과 "스크립트 크래시·SSH 터널 끊김으로
+판정 자체가 안 되는 것"을 구분할 수 없어 추가했다. EP-12/EP-11과 **같은 SSH 역터널을 그대로
+재사용**하므로 별도 포트가 필요 없다.
+
+### `POST /api/gpuHeartbeats` Request — `GpuHeartbeatPing`
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `cameraId` | CameraId | ✅ | `ELEV-TOP`(tracking2.py) 또는 `ELEV-SIDE`(sideOverflow.py) |
+
+```json
+{ "cameraId": "ELEV-TOP" }
+```
+
+두 스크립트가 판정 이벤트와 무관하게 30초~1분 주기로 호출하며, 호출마다 해당 `cameraId`의
+`lastSeenAt`을 현재 시각으로 upsert한다(`gpuHeartbeats` 컬렉션). ONLINE/OFFLINE 자체는
+저장하지 않는다.
+
+`cameraId`는 `CameraId` enum 전체를 받는다 — `REST-4F-01`을 보내도 422가 아니라 200이며
+저장까지 되지만, 아래 GET 응답에는 나오지 않는다.
+
+### `GET /api/gpuHeartbeats`
+
+`services/gpuHeartbeatService.py`의 `MONITORED_CAMERA_IDS`(`ELEV-TOP`/`ELEV-SIDE`)에 대해서만
+현재 상태를 계산해 반환한다. 상태는 저장값이 아니라 **조회 시점마다** `OFFLINE_THRESHOLD_SECONDS`
+(90초)와 비교해 계산한다(임계값을 바꾸면 재계산만 하면 되도록). 하트비트를 한 번도 받지 못한
+카메라는 `lastSeenAt=null`, `status=OFFLINE`이다.
+
+```json
+[
+  { "cameraId": "ELEV-TOP", "status": "ONLINE", "lastSeenAt": "2026-08-28T10:21:40Z" },
+  { "cameraId": "ELEV-SIDE", "status": "OFFLINE", "lastSeenAt": null }
+]
+```
+
+PG-03(통계 대시보드)이 20초 주기로 폴링하되, 평소엔 아무것도 표시하지 않다가 OFFLINE인
+카메라가 있을 때만 상단 경고 배너를 띄운다. 고객(행정직원)이 보는 화면이므로 "GPU"나
+스크립트명 같은 내부 인프라 용어는 노출하지 않고 "오분류 자동 감지"/"쓰레기통 넘침 자동 감지"
+기능명으로만 안내한다.
+
+30초 주기와 90초 임계값은 실측 없이 정한 값으로 조정 대상이다(`.agentfiles/architecture.md`
+TBD 참고).
 
 ---
 

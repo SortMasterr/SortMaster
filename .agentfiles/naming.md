@@ -17,8 +17,12 @@
 - Enum 멤버 식별자(`CameraId.ELEVTOP`), 값은 `"ELEV-TOP"` 고정
 - 환경변수 키(`.env`의 `MONGO_HOST` 등)는 SCREAMING_SNAKE_CASE 유지
 - Docker 이미지/컨테이너 이름은 케밥케이스(`sortmaster-backend`) — Docker 이미지 이름은 대문자 자체가 불가능(소문자+`.`/`_`/`-`만 허용)하고, Docker 생태계 관례와도 일치
-- GPU 서버 스크립트 및 학습 파이프라인과 연동되는 모델 가중치·산출물 파일명은 Python·학습 도구 관례와 기존 연동을 우선해 snake_case 허용
-  (`best_side.pt` 등). 이름을 바꾸려면 GPU 서버 스크립트와 모든 참조 위치를 함께 변경
+- GPU 서버 스크립트 및 학습 파이프라인과 연동되는 모델 가중치·산출물 파일명은 Python·학습 도구
+  관례와 기존 연동을 우선해 snake_case도 허용. 다만 **현재 저장소의 가중치는 전부 camelCase**다
+  — TOP은 `bestTop.pt`, SIDE는 `bestSide.pt`, registry는 `model-*.pt`, bootstrap은
+  `best.pt`(학습 도구가 내놓는 이름 그대로). 이름을 바꾸려면 GPU 서버 스크립트
+  (`tracking2.py`의 `MODEL_PATH`, `sideOverflow.py`의 `MODEL_PATH`)와
+  `autoTraining/pipelineConfig.yaml`을 포함한 모든 참조 위치를 함께 변경
 - **`training/` 폴더(모델팀 초기 데이터셋 준비 스크립트)의 파일명·함수명은 snake_case 유지**
   (`data_split.py`, `frame_extraction.py`, `count_yolo_classes()` 등). Colab 노트북·개인
   학습 환경 관례에 맞춰 작성됐고 백엔드가 import하지 않는 별도 실행 단위라, 리네임하면
@@ -73,6 +77,6 @@
 | `static/`, `templates/` | 정적 파일, Jinja2 템플릿 |
 | `detection/` | 프레임 단위 순수 판정 로직(상태 없음). `presenceDetector.py`(배경 차분 기반 사람 존재 감지) — 상태 머신/게이팅은 `services/presenceGateService.py` 쪽 |
 | `models/` | **GPU 서버에서 실행되는** 추론 스크립트+가중치+`Dockerfile`. `trashdetect/`(TOP, `tracking2.py`+YOLO26), `trashoverflow/`(SIDE, `sideOverflow.py`+MobileNet_V3_Small). 백엔드 프로세스가 import하지 않는 별도 실행 단위라 위 레이어 규칙 적용 대상이 아님 |
-| `tests/` | pytest 테스트. 대상 모듈명에 `test` 접두어(`testEventMediaService.py` 등) |
+| `tests/` | pytest 테스트. 대상 모듈명에 `test` 접두어(`testEventMediaService.py` 등). 이 camelCase 이름은 pytest 기본 탐색 패턴(`test_*.py`/`Test*`)에 안 걸리므로 `WebApps/backend/pytest.ini`가 `python_files`/`python_classes`를 재정의한다 — 테스트는 `WebApps/backend`에서 `python -m pytest`로 실행(루트에는 `RPAs`/`debug/detection`용 별도 `pytest.ini`가 있음) |
 
 새로운 책임(예: 탐지 파이프라인, RPA 연동)이 생기면 위 표에 맞는 폴더가 없을 때만 최상위에 새 폴더 추가(`detection/`, `rpa/` 등) — 기존 폴더 하나에 억지로 우겨넣지 말 것.
