@@ -11,14 +11,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-import cv2
-
 from common.pipelineUtilities import (
     chinesePattern,
     iterateManifest,
     manifestHasRows,
 )
-from stages.autoLabeling import drawDetections
 
 
 class ReviewLabelsStage:
@@ -187,9 +184,15 @@ class ReviewLabelsStage:
         return qwenVlModels[0]
 
     def _reviewSchema(self) -> dict[str, Any]:
-        """Qwen-VL이 반환해야 하는 camelCase JSON 구조를 정의합니다."""
+        """Qwen-VL이 반환해야 하는 camelCase JSON 구조를 정의합니다.
+
+        좌표(bbox)는 요구하지 않습니다 — 2026-08-28 실측에서 Qwen이 없는 물체를
+        confidence 0.95로 만들어내는 환각이 확인됐고, 정밀 로컬라이제이션은 VLM의
+        구조적 약점이라 판단해 YOLO 결과에 대한 분류 검증만 맡기는 범위로 되돌렸습니다
+        (`architecture.md`의 "LLM 활용"이 원래 정의한 검증/보정 범위). 박스 작성은
+        사람 검수 UI의 드래그 기능이 담당합니다.
+        """
         classes = self.config["dataset"]["classes"]
-        maxDetections = int(self.config["qwenVl"]["maxDetectionsPerFrame"])
         return {
             "type": "object",
             "properties": {
@@ -203,8 +206,9 @@ class ReviewLabelsStage:
                 },
                 "issues": {
                     "type": "array",
-                    # 허용값이 8종뿐인데 상한이 없으면 문법상 같은 값을 무한히 반복해도
-                    # 되므로, 아래 qwenDetections와 같은 이유로 원소 수를 묶는다.
+                    # 허용값이 8종뿐인데 상한이 없으면 guided decoding 문법상 같은 값을
+                    # 무한히 반복할 수 있고, 그러면 모델이 멈추지 못해 잘린 JSON이
+                    # 나온다(2026-08-26 실제 발생). 원소 수를 묶어 구조적으로 막는다.
                     "maxItems": 8,
                     "items": {
                         "type": "string",
@@ -225,51 +229,12 @@ class ReviewLabelsStage:
                     "minimum": 0,
                     "maximum": 1,
                 },
-                "qwenDetections": {
-                    "type": "array",
-                    # 상한이 없으면 guided decoding 문법이 배열 원소를 무한히
-                    # 허용해서, 모델이 멈추지 못하고 max_model_len까지 생성하다
-                    # 잘린 JSON을 내놓는 문제가 실제로 발생했다(2026-08-26). 그때는
-                    # maxResponseTokens로 짧게 끊어 대응했지만, 그 상한이 객체 2개
-                    # 이상인 정상 응답까지 잘라버려 Qwen 결과가 통째로 버려지는
-                    # 부작용이 확인됐다(2026-08-28). 토큰 상한 대신 여기서 구조적으로
-                    # 묶어야 정상 응답을 희생하지 않고 폭주만 막을 수 있다.
-                    "maxItems": maxDetections,
-                    "description": (
-                        "Qwen이 원본 이미지에서 실제로 존재한다고 판단하는 쓰레기 "
-                        "객체 목록(픽셀 좌표) — YOLO 결과와 무관하게 직접 다시 "
-                        f"판단한다. 쓰레기가 없으면 빈 배열이며 최대 {maxDetections}개."
-                    ),
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "class": {"type": "string", "enum": classes},
-                            "xyxy": {
-                                "type": "array",
-                                "description": (
-                                    "이미지 폭/높이 대비 0~1 정규화 좌표 "
-                                    "[x1, y1, x2, y2] — 절대 픽셀 좌표 아님."
-                                ),
-                                "items": {
-                                    "type": "number",
-                                    "minimum": 0,
-                                    "maximum": 1,
-                                },
-                                "minItems": 4,
-                                "maxItems": 4,
-                            },
-                        },
-                        "required": ["class", "xyxy"],
-                        "additionalProperties": False,
-                    },
-                },
             },
             "required": [
                 "decision",
                 "predictedClass",
                 "issues",
                 "confidence",
-                "qwenDetections",
             ],
             "additionalProperties": False,
         }
@@ -296,24 +261,6 @@ class ReviewLabelsStage:
         if not 0 <= confidence <= 1:
             raise ValueError("confidence는 0과 1 사이여야 합니다.")
         review["confidence"] = confidence
-
-        classes = self.config["dataset"]["classes"]
-        qwenDetections = review.get("qwenDetections")
-        if not isinstance(qwenDetections, list):
-            raise ValueError("qwenDetections는 배열이어야 합니다.")
-        maxDetections = schema["properties"]["qwenDetections"]["maxItems"]
-        if len(qwenDetections) > maxDetections:
-            raise ValueError(f"qwenDetections는 최대 {maxDetections}개여야 합니다.")
-        for detection in qwenDetections:
-            if detection.get("class") not in classes:
-                raise ValueError("qwenDetections에 허용되지 않는 class가 있습니다.")
-            xyxy = detection.get("xyxy")
-            if not isinstance(xyxy, list) or len(xyxy) != 4:
-                raise ValueError("qwenDetections의 xyxy는 값 4개여야 합니다.")
-            normalizedXyxy = [float(value) for value in xyxy]
-            if not all(0.0 <= value <= 1.0 for value in normalizedXyxy):
-                raise ValueError("qwenDetections의 xyxy는 0~1 정규화 좌표여야 합니다.")
-            detection["xyxy"] = normalizedXyxy
         return review
 
     def _reviewOne(
@@ -331,23 +278,23 @@ class ReviewLabelsStage:
             }
             for item in row["detections"]
         ]
+        # 좌표를 요구하지 않는다 — 박스를 내놓으라고 압박했을 때 없는 물체를 높은
+        # confidence로 만들어내는 환각이 실측으로 확인됐다(2026-08-28). 판단을 YOLO
+        # 결과에 대한 검증으로 한정하고, 확신이 없으면 manualReview로 넘기도록 명시한다.
         prompt = (
             "첫 번째 이미지는 원본 CCTV 프레임이고 두 번째 이미지는 "
             "YOLO bbox 표시 이미지다. 다음 두 가지를 모두 확인하라. "
             "(1) YOLO가 이미 찾은 각 객체의 클래스와 bbox가 실제로 맞는지 "
             "검증하라 — 틀렸으면 issues에 wrongClass/badBbox 등으로 표시하라. "
-            "(2) YOLO 결과와 무관하게 원본 이미지를 직접 보고, YOLO가 놓친 "
-            "쓰레기(허용 클래스 중 하나)가 있는지 적극적으로 확인하라 — YOLO "
-            "결과가 비어 있어도 원본에 실제로 쓰레기가 있으면 그건 미탐지이므로 "
-            "issues에 missingObject를 반드시 표시하고 predictedClass에 실제로 "
-            "보이는 클래스를 적어라. "
-            "qwenDetections에는 원본 이미지 기준으로 네가 실제로 존재한다고 "
-            "판단하는 쓰레기 객체만 다시 나열하라(YOLO가 맞았어도, 놓쳤어도, "
-            "틀렸어도 상관없이 네가 옳다고 보는 최종 목록) — 좌표는 절대 픽셀 "
-            "값이 아니라 이미지 폭/높이에 대한 0~1 비율로 [x1,y1,x2,y2](왼쪽 "
-            "위가 0,0, 오른쪽 아래가 1,1)를 적어라. 아래 YOLO 결과의 xyxy는 "
-            "참고용 실제 픽셀 좌표이니 그대로 베끼지 말고 반드시 비율로 변환해서 "
-            "적어라. 쓰레기가 없다고 판단하면 빈 배열로 둬라. "
+            "(2) 원본 이미지를 직접 보고, YOLO가 놓친 쓰레기(허용 클래스 중 하나)가 "
+            "있는지 확인하라 — YOLO 결과가 비어 있어도 원본에 실제로 쓰레기가 "
+            "명확히 보이면 issues에 missingObject를 표시하고 predictedClass에 그 "
+            "클래스를 적어라. "
+            "매우 중요: 확실히 보이는 것만 보고하라. 있을 법하다고 추측해서 "
+            "없는 물체를 만들어내지 마라. 쓰레기가 안 보이면 predictedClass를 "
+            "none으로 두고, 판단이 애매하면 decision을 manualReview로 하고 "
+            "confidence를 낮게 매겨라 — 억지로 결론을 내는 것보다 사람에게 "
+            "넘기는 편이 낫다. 위치나 좌표는 보고하지 않는다(박스 작성은 사람이 한다). "
             "쓰레기통 자체는 검수 대상이 아니다. 반드시 제공된 JSON schema만 "
             "출력하고 중국어와 자연어 설명은 출력하지 마라. "
             f"허용 클래스: {classes}. YOLO 결과: "
@@ -380,36 +327,6 @@ class ReviewLabelsStage:
         }
         response = self._requestQwenVl("POST", "/v1/chat/completions", payload)
         return self._validateReview(response["choices"][0]["message"]["content"])
-
-    def _saveQwenAnnotatedImage(self, row: dict[str, Any], review: dict[str, Any]) -> Path:
-        """Qwen이 직접 판단한 qwenDetections를 원본 위에 그려 사람이 눈으로
-        비교할 수 있게 한다 — YOLO가 틀리게 잡은 박스는 여기서 사라지고,
-        놓친 쓰레기는 여기서 새로 나타나는 식으로 확인할 수 있다."""
-        classes = self.config["dataset"]["classes"]
-        rawImage = cv2.imread(row["imagePath"])
-        imageHeight, imageWidth = rawImage.shape[:2]
-        detections = [
-            {
-                "classId": classes.index(detection["class"]),
-                "confidence": review["confidence"],
-                # Qwen은 0~1 정규화 좌표로 반환한다(모델이 내부적으로 리사이즈한
-                # 크기를 알 수 없어 절대 픽셀 좌표는 신뢰할 수 없었음) — 실제
-                # 이미지 크기로 환산해야 bbox가 맞는 위치에 그려진다.
-                "xyxy": [
-                    detection["xyxy"][0] * imageWidth,
-                    detection["xyxy"][1] * imageHeight,
-                    detection["xyxy"][2] * imageWidth,
-                    detection["xyxy"][3] * imageHeight,
-                ],
-            }
-            for detection in review["qwenDetections"]
-        ]
-        annotatedImage = drawDetections(rawImage, detections, classes)
-        qwenAnnotatedPath = self.qwenAnnotatedRoot / row["video"] / f"{row['id']}.jpg"
-        qwenAnnotatedPath.parent.mkdir(parents=True, exist_ok=True)
-        if not cv2.imwrite(str(qwenAnnotatedPath), annotatedImage):
-            raise OSError(f"Qwen 검수 이미지 저장 실패: {qwenAnnotatedPath}")
-        return qwenAnnotatedPath
 
     @staticmethod
     def _appendJsonLine(path: Path, row: dict[str, Any]) -> None:
@@ -479,7 +396,6 @@ class ReviewLabelsStage:
                     "predictedClass": "none",
                     "issues": ["badBbox"],
                     "confidence": 0.0,
-                    "qwenDetections": [],
                 }
             riskyIssues = {
                 "wrongClass",
@@ -497,14 +413,11 @@ class ReviewLabelsStage:
             ):
                 review["decision"] = "manualReview"
 
-            qwenAnnotatedPath = self._saveQwenAnnotatedImage(row, review)
-
             output = dict(row)
             output.update({
                 "review": review,
                 "reviewErrors": errors,
                 "qwenVlModel": qwenVlModel,
-                "qwenAnnotatedPath": str(qwenAnnotatedPath.resolve()),
             })
             self._appendJsonLine(self.reviewsManifest, output)
 
@@ -523,8 +436,7 @@ class ReviewLabelsStage:
                 f"[REVIEW] {row['id']} -> {review['decision']} "
                 f"class={review['predictedClass']} "
                 f"issues={review['issues']} "
-                f"confidence={review['confidence']:.2f} "
-                f"qwenBoxes={len(review['qwenDetections'])}"
+                f"confidence={review['confidence']:.2f}"
             )
 
             queueRoot = {
@@ -541,10 +453,6 @@ class ReviewLabelsStage:
             shutil.copy2(
                 row["annotatedPath"],
                 queueDirectory / f"{row['id']}__annotated.jpg",
-            )
-            shutil.copy2(
-                qwenAnnotatedPath,
-                queueDirectory / f"{row['id']}__qwen.jpg",
             )
             shutil.copy2(
                 row["labelPath"],

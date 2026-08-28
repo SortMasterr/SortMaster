@@ -26,15 +26,14 @@ button{padding:10px 16px;border:0;border-radius:6px;cursor:pointer}.approve{back
 .classBtn{background:#374151;color:#fff;padding:7px 12px;margin:0 6px 6px 0;font-size:.9rem}.classBtn.active{background:#22d3ee;color:#0f172a;font-weight:700}
 .tool{background:#4b5563;color:#fff;padding:7px 12px;margin:0 6px 6px 0;font-size:.9rem}
 .meta{white-space:pre-wrap;background:#1f2937;padding:10px;max-height:200px;overflow:auto;font-size:.85rem}.saved{color:#86efac}
-.hint{color:#9ca3af;font-size:.82rem;margin:2px 0 8px}.warn{color:#fca5a5;font-size:.82rem}
+.hint{color:#9ca3af;font-size:.82rem;margin:2px 0 8px}
 @media(max-width:1100px){.panel{display:block}.images{grid-template-columns:1fr}.form{min-width:0}}
 </style></head><body><main>
 <header><h2>SortMaster 사람 라벨 검수</h2><span id="progress"></span><span id="saved" class="saved"></span></header>
 <div class="controls"><button class="nav" onclick="move(-1)">이전</button><button class="nav" onclick="move(1)">다음</button><button class="nav" onclick="goUndecided()">미검수로 이동</button></div>
 <div class="panel"><div class="images">
 <figure><figcaption>원본 — 드래그해서 박스 그리기</figcaption><canvas id="canvas"></canvas></figure>
-<figure><figcaption>YOLO bbox</figcaption><img id="annotated"></figure>
-<figure><figcaption>Qwen 라벨링 <span class="warn">(위치 부정확 — 참고만)</span></figcaption><img id="qwen"></figure></div>
+<figure><figcaption>YOLO bbox</figcaption><img id="annotated"></figure></div>
 <section class="form">
 <div id="meta" class="meta"></div>
 <label>클래스 선택 (숫자키 1~9)</label>
@@ -189,7 +188,6 @@ async function load(i){
     current=await (await fetch('/api/item?index='+index)).json();
     document.getElementById('progress').textContent=`${index+1} / ${total}`;
     document.getElementById('annotated').src=`/media?id=${encodeURIComponent(current.id)}&kind=annotated&t=${Date.now()}`;
-    document.getElementById('qwen').src=`/media?id=${encodeURIComponent(current.id)}&kind=qwen&t=${Date.now()}`;
     document.getElementById('label').value=current.labelText;
     document.getElementById('reviewer').value=current.decision?.reviewer||'';
     document.getElementById('notes').value=current.decision?.notes||'';
@@ -324,8 +322,8 @@ class HumanReviewUiStage:
                     self._json({"id":itemId,"video":row.get("video"),"review":row.get("review"),"classes":stage.config["dataset"]["classes"],"decision":decision,"labelText":labelPath.read_text(encoding="utf-8")}); return
                 if parsed.path == "/media":
                     itemId=query.get("id",[""])[0]; kind=query.get("kind",[""])[0]; row=queueById.get(itemId)
-                    if row is None or kind not in {"original","annotated","qwen"}: self.send_error(HTTPStatus.NOT_FOUND); return
-                    mediaKey={"original":"imagePath","annotated":"annotatedPath","qwen":"qwenAnnotatedPath"}[kind]
+                    if row is None or kind not in {"original","annotated"}: self.send_error(HTTPStatus.NOT_FOUND); return
+                    mediaKey={"original":"imagePath","annotated":"annotatedPath"}[kind]
                     mediaPath=Path(row[mediaKey])
                     if not mediaPath.is_file(): self.send_error(HTTPStatus.NOT_FOUND); return
                     payload=mediaPath.read_bytes(); self.send_response(HTTPStatus.OK); self.send_header("Content-Type","image/jpeg"); self.send_header("Content-Length",str(len(payload))); self.end_headers(); self.wfile.write(payload); return
