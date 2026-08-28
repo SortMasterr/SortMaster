@@ -726,9 +726,40 @@ td.time {
 }
 
 @media (max-width: 768px) {
+    thead th,
+    tbody td {
+        padding-right: 4px;
+        padding-left: 4px;
+    }
+
+    thead th {
+        font-size: 0.78rem;
+    }
+
+    tbody td {
+        font-size: 0.8rem;
+    }
+
     .areaCell,
     .binIdCell {
         white-space: nowrap;
+    }
+
+    .tag {
+        gap: 4px;
+        padding-right: 6px;
+        padding-left: 6px;
+        font-size: 0.74rem;
+    }
+
+    .tagDot {
+        width: 5px;
+        height: 5px;
+    }
+
+    .status {
+        gap: 4px;
+        font-size: 0.78rem;
     }
 
     .desktopValue {
