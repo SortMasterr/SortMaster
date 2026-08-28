@@ -310,8 +310,9 @@ Qwen3-VL-8B는 실시간 탐지 경로엔 없음(위 "탐지 파이프라인" �
    백엔드와 같은 세그먼트인지 확인 필요(아래 TBD 참고)**
 3. 로컬 백엔드로부터 RPA 트리거 신호 수신 → **GPIO(릴레이 경유 전구 점등)** + **스피커
    (USB 또는 3.5mm 오디오잭, Python에서 `aplay` 서브프로세스 등으로 경고음 재생)** 출력.
-   `RPAs/alertController.py`는 현재 중앙에서 Mock 처리 중, 라즈베리파이 쪽으로 이전 예정.
-   신호 전달 방식(MQTT/HTTP/WS) TBD — **아직 미착수**
+   스피커 검증용 리스너는 `debug/hardware/alertListener.py`에 구현되어 기존
+   `/ws/events`의 `MISCLASSIFICATION_DETECTED` 수신 시 `aplay`로 경고음을 재생한다.
+   실제 설치 환경 상시 서비스화와 GPIO 전구 연동은 아직 미착수.
 
 라즈베리파이(Raspberry Pi OS)는 표준 최신 Python(3.11+)을 쓸 수 있어 `WebApps/backend`와
 문법 호환성 문제 없음 — 과거 Jetson Nano 4GB의 Python 3.6 제약 이슈는 애초에 해당 없음.
