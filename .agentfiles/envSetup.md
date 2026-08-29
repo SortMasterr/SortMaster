@@ -1,6 +1,12 @@
 # envSetup.md
 
-전체 가이드(트러블슈팅 포함): `Docs/skills/envSetup/README.md` (원본, 아직 저장소에 없음 — 작성 전까지 이 문서가 유일한 기준)
+**이 문서가 환경 세팅의 기준입니다.** 설치·실행 절차 자체는 `README.md`의 "개발 환경"/
+"실행 방법"에 있고 여기서 반복하지 않습니다 — 이 문서는 그 위에 얹는 규칙(버전 고정 정책,
+포트, `.env` 접속 대상)만 답니다.
+
+별도 `Docs/skills/envSetup/README.md`는 **만들지 않은 상태**입니다. 나중에 만든다면 `README.md`와
+겹치지 않게 **트러블슈팅 전용**으로 범위를 좁히세요(Docker Desktop/WSL2, ffmpeg PATH, Mongo
+접속 실패 등) — 절차를 통째로 옮겨 적으면 README와 갈라집니다.
 
 ## 핵심
 

@@ -34,8 +34,9 @@
 * MongoDB(motor) 연동 — 이벤트 저장소가 In-memory Mock에서 완전히 전환됨
 * `overflow` 이벤트(스키마·저장·별도 통계·WS `BIN_OVERFLOW_DETECTED` 포함) 구현
 * 이벤트 트리거 녹화 → GIF 인코딩 → GridFS 업로드 파이프라인(`recordingService`/
-  `mediaService`/`mediaRepository`) — 실제 탐지 서비스가 아직 없어 `debug/detection/
-  simulateEventPipeline.py`로 시작/종료 신호를 흉내내 검증
+  `mediaService`/`mediaRepository`) — TOP 운영 경로에서는 `presenceGateService`(앱 startup에
+  기동)가 사람 존재 감지로 이 파이프라인을 직접 구동한다. `debug/detection/
+  simulateEventPipeline.py`는 EP-08/EP-09를 수동으로 흉내내는 검증 경로로 계속 남아 있다
 * 오분류 판정 직전 약 5초 GIF 저장 및 이벤트 미디어 조회 API
   (`GET /api/events/{id}/media`)
 * `BIN_STATES` 스키마·저장소·상태 갱신/조회 API(EP-10/EP-11) — `binId`당 최신 상태 1행을
@@ -43,20 +44,20 @@
   (`schemas/binState.py`, `repositories/binStateRepository.py`, `services/binStateService.py`)
 * AI 탐지 모델 연동 — GPU 서버의 `models/trashdetect/tracking2.py`가 투척 완료를 자체
   판정해 `POST /api/events/aiDisposal`(EP-12)로 결과를 푸시하는 방식으로 구현 완료
-  (데모 영상 기준 end-to-end 검증 성공). `bestTop.pt`가 쓰레기 `plastic`/`can`을
-  `recyclables` 하나로 합친 4클래스(쓰레기만, 통은 미포함)인 건 재학습 대신 API 계약을
+  (데모 영상 기준 + 실제 TOP MJPEG 스트림 기준 둘 다 end-to-end 검증 성공, 2026-08-25).
+  `bestTop.pt`가 쓰레기 `plastic`/`can`을 `recyclables` 하나로 합친 4클래스(쓰레기만, 통은 미포함)인 건 재학습 대신 API 계약을
   4종(plastic/can 통합)으로 바꾸는 쪽으로 CTO 승인받아 해소(`decisionLog.md` 참고) —
   아래 `DetectedClass` 정의도 이에 맞춰 갱신됨. 통 위치는 모델이 아니라 룰 베이스(고정
   ROI)로 판정(SIDE의 `roi.json`과 같은 패턴, `tracking2.py`의 `RULE_BASED_BIN_ROIS`).
-  `tracking2.py` 자체는 아직 데모 영상 대상 로컬 스크립트 상태라 실제 TOP RTSP 연결+상시
-  서비스화는 TBD(EP-12/AI-01 참고).
+  `tracking2.py`의 영상 소스는 데모 영상이 아니라 로컬 백엔드가 서빙하는 MJPEG 스트림
+  (`GET /api/stream/ELEV-TOP`, SSH 역터널 경유)으로 확정·검증됐고(2026-08-25), 남은 건 GPU
+  서버 상시 서비스화(`gpu` profile 컨테이너 재기동 최종 재검증)뿐이다(EP-12/AI-01 참고).
 
 ### 현재 Mock 또는 미구현
 
 * 서버 재시작 시 모드 상태 초기화(이벤트는 이제 MongoDB에 영속화되어 재시작에도 유지됨)
 * 실제 RPA 전구·경고음 장치 연동 미구현
 * 카메라 연결 해제 및 시스템 오류 WebSocket 이벤트 미구현
-* 이벤트 상세 페이지 미구현
 * 인증 및 권한 미구현
 * EP-02/EP-09로 직접 만드는 overflow 이벤트는 여전히 `BIN_STATES` 전환 검증을 거치지 않는다
   (호출자가 유효한 스키마+새 `detectionId`만 보내면 바로 저장). GPU 서버의 SIDE
@@ -769,10 +770,11 @@ GET /api/statistics?from=2026-08-11T00:00:00Z&to=2026-08-11T23:59:59Z
 ## EP-08. `POST /api/detection/start`
 
 라이브뷰/DB 클립용 녹화를 시작한다. TOP은 `presenceGateService.py`(사람 존재 감지 게이팅)가
-내부적으로 호출하고, SIDE는 GPU 서버의 MobileNet_V3_Small 로직이 호출한다. **GPU 서버의
-`tracking2.py`는 이 엔드포인트를 호출하지 않는다** — 오분류 판정 결과는 별도로 EP-12
-(`POST /api/events/aiDisposal`)로만 들어온다(즉 이 녹화는 GPU 판정과 독립적). 수동
-검증 시엔 `debug/detection/`의 스크립트가 직접 호출하기도 한다.
+같은 `detectionService.startDetection`을 내부적으로 재사용한다. **GPU 서버의 두 스크립트는
+이 엔드포인트를 호출하지 않는다** — `tracking2.py`는 EP-12(`POST /api/events/aiDisposal`),
+`sideOverflow.py`는 EP-11(`POST /api/binStates`)만 호출한다(즉 이 녹화는 GPU 판정과
+독립적이고, SIDE에는 녹화를 시작하는 주체가 아예 없다). HTTP로 이 엔드포인트를 직접 부르는
+건 `debug/detection/`의 수동 검증 스크립트뿐이다.
 
 ### Request Body
 
@@ -1054,9 +1056,10 @@ EP-10 응답 항목과 동일한 단일 객체.
 GPU 서버의 `models/trashdetect/tracking2.py`가 TOP 카메라 투척을 자체 판정(감지+추적+분류+
 정상/오분류 판정 전부 GPU 쪽에서 완결)한 뒤 결과를 로컬 백엔드로 **직접 푸시**하는 전용
 엔드포인트다. 로컬 백엔드가 GPU를 호출하는 방향이 아니라 **GPU가 로컬 백엔드를 호출**하는
-방향이며(`decisionLog.md` 참고), `presenceGateService.py`가 관리하는 EP-08/EP-09 녹화
-흐름과는 완전히 독립적이다. `tracking2.py`의 `create_disposal_event()` 출력 형태를 그대로
-받아 내부 `EventCreate`로 매핑한 뒤 EP-02와 동일한 `eventService.createEventWithStatus`
+방향이며(`decisionLog.md` 참고), `presenceGateService.py`가 관리하는 녹화 흐름(시작은
+EP-08과 같은 `detectionService.startDetection`, 종료는 EP-09가 아니라
+`recordingService.stop()` 직접 호출)과는 완전히 독립적이다. `tracking2.py`의
+`create_disposal_event()` 출력 형태를 그대로 받아 내부 `EventCreate`로 매핑한 뒤 EP-02와 동일한 `eventService.createEventWithStatus`
 (쿨다운·멱등성 포함)를 재사용한다(`services/eventService.py`의 `createEventFromAiDisposal`).
 
 ### Request Body — `AiDisposalEvent`
@@ -1513,12 +1516,17 @@ camelCase를 유지한다.
   * `limit`/`offset`
   * `page`/`pageSize`
   * Cursor 방식
-* 카메라 상태 조회 API 추가 여부
 * 모드 조회용 `GET /api/mode` 추가 여부
 * 실제 RPA 통신 방식
 * 인증 및 권한
-* 이벤트 상세 페이지 구현 여부
 * AI 탐지 신뢰도 Threshold
+
+해결됨(TBD에서 제외):
+
+* **카메라 상태 조회 API** → EP-19(`GET /api/gpuHeartbeats`)가 `CameraStatus`
+  (ONLINE/OFFLINE)를 계산해 반환하고 PG-03이 20초 주기로 폴링한다
+* **이벤트 상세 페이지** → 별도 라우트를 만들지 않기로 확정된 설계다(`GET /events/{id}`
+  없음). `/events`의 모달이 EP-04/EP-04-M을 호출해 표시한다 — "미구현"이 아니다
 
 ---
 
@@ -1538,7 +1546,7 @@ camelCase를 유지한다.
 | EP-09   | 탐지 종료·GIF·이벤트 저장     | 구현됨(misclassification/overflow) |
 | EP-10   | BIN_STATES 조회           | 구현됨             |
 | EP-11   | BIN_STATES 갱신(전환 시 overflow 이벤트 생성) | 구현됨 |
-| EP-12   | GPU 서버(`tracking2.py`) 투척 판정 결과 수신 | 구현됨(`tracking2.py`의 RTSP 연결·상시 서비스화는 TBD) |
+| EP-12   | GPU 서버(`tracking2.py`) 투척 판정 결과 수신 | 구현됨(영상 소스는 백엔드 MJPEG 스트림으로 확정·검증됨, 상시 서비스화 재검증만 TBD) |
 | EP-13   | 자동 통계 보고서 수신 이메일 설정 | 구현됨(대시보드에서 1개 주소 저장, 별도 스케줄러가 일일·주간 자동 발송) |
 | EP-14   | FULL 감지 수거 작업 및 자동 알림 | 구현됨(배포 전 CTO 검토 필요) |
 | EP-15   | GPU 트랙 시작 신호 수신           | 구현됨(GPU 서버 실기기 도달 검증은 TBD) |
@@ -1551,7 +1559,7 @@ camelCase를 유지한다.
 | PG-03   | 통계 대시보드               | 구현됨             |
 | DB-01   | MongoDB 이벤트 저장 및 중복 방지 | 구현됨          |
 | DB-02   | 카메라별 GridFS 영상 저장     | 구현됨             |
-| AI-01   | YOLO 탐지 연동(EP-12 `aiDisposal` 수신) | 구현됨(`tracking2.py` 상시 서비스화는 TBD) |
+| AI-01   | YOLO 탐지 연동(EP-12 `aiDisposal` 수신) | 구현됨(`tracking2.py` 상시 서비스화 재검증은 TBD) |
 | EVT-01  | Overflow 이벤트 저장·통계    | 구현됨             |
 | BIN-01  | BIN_STATES 상태 관리       | 구현됨             |
 | RPA-01  | 실제 전구·경고음 연동          | 미구현             |

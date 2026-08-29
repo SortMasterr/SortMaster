@@ -59,7 +59,9 @@ Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory
 - misclassification: isMisclassified=false 또는 5초 Cooldown 중이면 null 반환
 - overflow: 현재 백엔드는 시간 Cooldown이나 `BIN_STATES` 전환 검증 없이, 스키마가 유효하고
   `detectionId`가 새 값이면 저장한다. `NORMAL`→`FULL` 전환 시점에만 호출하는 것은 확정 설계이자
-  호출자 책임이며 `BIN_STATES`는 아직 코드 미반영(`Docs/ERD.md` 참고)
+  호출자 책임이다. `BIN_STATES` 자체는 이미 구현돼 있고(EP-10/EP-11,
+  `repositories/binStateRepository.py`), 상태 전환 기준으로 overflow를 만들려면 EP-02가
+  아니라 EP-11을 쓰는 쪽이 확정 설계다(`Docs/ERD.md` 참고)
 - 동일 `detectionId`: 새 문서를 만들지 않고 기존 Event를 200으로 반환한다. 내부 생성 결과의
   `created` 상태를 구분하므로, 기존 이벤트를 반환하는 재전송에서는 WS 알림도 다시 보내지 않는다.
 - `detectionId`는 비어 있지 않은 문자열, `binId`도 비어 있지 않은 문자열만 검증한다. UUID 형식,
@@ -71,9 +73,13 @@ Response(Event, 200): eventId(uuid), timestamp(ISO8601), cameraId, eventCategory
 
 `services/detectionService.py`: `recordingService`(녹화)→`mediaService`(GIF 인코딩+GridFS
 업로드)→`eventService.createEvent`(EP-02와 동일 로직, Cooldown 포함)를 그대로 호출하는 HTTP
-연결부. TOP은 `presenceGateService.py`(사람 존재 감지 게이팅)가 EP-08/EP-09를 내부적으로
-  호출해 라이브뷰/DB 클립용 녹화를 시작·종료한다. 오분류 판정 자체는 EP-12로 별도 수신하며,
-  EP-12의 직전 5초 GIF는 방문 종료 후 GridFS에 저장된 전체 GIF에서 파생한다. 수동
+연결부. TOP은 `presenceGateService.py`(사람 존재 감지 게이팅)가 라이브뷰/DB 클립용 녹화를
+  시작·종료하는데, **시작만 EP-08과 같은 `detectionService.startDetection`을 재사용하고
+  종료는 EP-09를 타지 않는다** — EP-09(`stopDetectionWithStatus`)는 GPU 판정 결과를
+  요구하는데 presence 게이팅은 그 결과를 모르므로, `recordingService.stop()`을 직접 호출하고
+  GIF 저장·`visitClip` 생성까지 자체 처리한다(모듈 docstring에도 명시돼 있음). 오분류 판정
+  자체는 EP-12로 별도 수신하며, EP-12의 직전 5초 GIF는 방문 종료 후 GridFS에 저장된 전체
+  GIF에서 파생한다. 수동
 검증(`debug/detection/simulateEventPipeline.py`)도 이 두 엔드포인트를 직접 호출한다.
 EP-09는 `eventCategory`에 따라 misclassification/overflow를 모두 처리하며, 기존 호출과의
 호환성을 위해 `eventCategory`를 생략하면 misclassification으로 처리한다. misclassification은

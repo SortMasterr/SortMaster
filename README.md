@@ -62,7 +62,7 @@ API 상세 스펙은 `.agentfiles/apiSpec.md` 참고.
 
 ```bat
 cd WebApps/backend
-venv\Scriptsctivate
+venv\Scripts\activate
 python -m pytest
 ```
 
@@ -80,8 +80,9 @@ RPA·debug 테스트는 저장소 루트에서 실행한다(루트 `pytest.ini`�
 python -m pytest
 ```
 
-`tzdata` 미설치 상태면 보고서 RPA 테스트가 `ModuleNotFoundError: No module named 'tzdata'`로
-무더기 실패한다 — `python infra/checkEnv.py`를 먼저 돌릴 것.
+`tzdata` 미설치 상태면 `ModuleNotFoundError: No module named 'tzdata'`로 무더기 실패한다 —
+루트의 보고서 RPA 테스트뿐 아니라 `WebApps/backend`의 `testReportEmailService.py`도 같은
+이유로 실패하므로, 어느 쪽을 돌리든 `python infra/checkEnv.py`를 먼저 돌릴 것.
 
 ### Docker Compose
 
@@ -127,7 +128,7 @@ docker compose --profile local up --build
 | 기능 | 상태 | 주요 코드 | 상세 |
 |---|---|---|---|
 | 영상 소스(MJPEG 스트리밍) | 구현됨 | `streaming/cameraManager.py` | ARCHITECTURE "웹캠 시뮬레이션". 입고 후 `.env`의 `CAMERA_SOURCE_<CameraId>`만 RTSP URL로 교체(코드 불변) |
-| 탐지 — TOP(오분류) | GPU→백엔드 end-to-end 검증 완료(2026-08-25). **상시 서비스화·실제 통 위치 ROI 재보정 TBD** | `models/trashdetect/tracking2.py` | ARCHITECTURE "탐지 파이프라인" |
+| 탐지 — TOP(오분류) | GPU→백엔드 end-to-end 검증 완료(2026-08-25). **상시 서비스화·실제 통 위치 ROI 재보정 TBD** | `models/trashdetect/tracking2.py` | ARCHITECTURE "탐지 파이프라인". 가중치 `bestTop.pt`는 `.gitignore`(`*.pt`) 대상이라 레포에 없음 — 팀원에게 받아 GPU 서버의 `models/trashdetect/`에 둬야 추론 테스트 가능 |
 | 탐지 — SIDE(넘침) | 위와 동일 구조·동일 검증 상태 | `models/trashoverflow/sideOverflow.py` | 〃. 가중치 `bestSide.pt`는 `.gitignore` 대상이라 레포에 없음 — 팀원에게 받아 GPU 서버의 `models/trashoverflow/`에 둬야 추론 테스트 가능 |
 | 이벤트 트리거 녹화 | 구현됨 | `services/recordingService.py` | 상시 녹화 아님. 시작/종료 신호 사이 실제 구간(최대 30초 안전 캡) |
 | GIF 인코딩·GridFS 업로드 | 구현됨 | `services/mediaService.py`, `repositories/mediaRepository.py` | 결과 ID가 `Event.imageFileId` |
@@ -139,6 +140,7 @@ docker compose --profile local up --build
 | 자동 통계 보고서 | 구현됨 | `RPAs/reportAutomation/` | 별도 `report-scheduler`가 일일 09:00·주간 월 09:10 발송 |
 | 수거 업무 자동화 RPA | 구현됨(기본 비활성). **배포 전 CTO 검토 필요** | `RPAs/collectionAutomation/`, `services/collectionTaskService.py` | `RPA_COLLECTION_ENABLED=true`일 때만 동작 |
 | **RPA(전구/경고음)** | **미착수** — `services/rpaService.py` 없음 | — | 모드 전환 API는 있으나 실제 트리거로 이어지는 코드가 없음 |
+| 자동 재학습 파이프라인 | 구현됨(단계별 CLI). **운영 DB 적용·전체 사이클 검증은 아직** | `autoTraining/trainingPipeline.py`, `autoTraining/stages/` | 단계별 실행 절차·설정은 `autoTraining/README.md` 참고 |
 | LLM 자동 라벨링 검증 | 사용 중(베이스 모델+프롬프트). **파인튜닝·통 모양 인식 데이터 생성 미착수** | `autoTraining/stages/reviewLabels.py` | `Docs/LLM.md`, ARCHITECTURE "LLM 활용" |
 | 이벤트 파이프라인 데모 스텁 | 남아 있음(수동 HTTP 경로 자체는 운영 아님) | `services/detectionService.py` | 수동 HTTP로 DB에 이벤트를 채우는 용도로 만들어졌으나, `startDetection` 함수는 `services/presenceGateService.py`가 TOP 카메라 운영 흐름에서도 그대로 재사용 중(모듈 docstring에도 이 재사용이 명시돼 있음). `recordingService.start`/`stop` → `mediaService.saveClipAsGif` → `eventService.createEvent` 체인을 그대로 호출한다. 검증은 `debug/detection/simulateEventPipeline.py` |
 | DB | 구현됨 | `repositories/mongoClient.py` | `events` 컬렉션 + GridFS 버킷 2개(`topMedia`/`sideMedia`). `Docs/ERD.md` |

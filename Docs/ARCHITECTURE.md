@@ -61,8 +61,8 @@ API 상세는 `Docs/API_SPEC.md`, DB 스키마는 `Docs/ERD.md` 참고.
 > 쓰이지만**, 이건 GPU 판정과는 **완전히 별개 경로**다 — 로컬 백엔드의 사람 존재 감지
 > 게이팅(`presenceGateService.py`)은 녹화 시작/종료 타이밍만 결정하고, GPU에 프레임을
 > 보내거나 GPU 응답을 기다리지 않는다. GPU 쪽(`tracking2.py`)은 별도로 TOP 카메라 영상을
-> 직접 열어서(현재는 RTSP 소스로 전환 필요, 아래 참고) 상시 감지+추적하다가 투입이
-> 확정되면 `POST /api/events/aiDisposal`로 로컬 백엔드에 결과를 전송한다(구현 완료,
+> 직접 열어서(로컬 백엔드가 서빙하는 MJPEG 스트림 구독으로 확정·검증 완료, 아래 참고)
+> 상시 감지+추적하다가 투입이 확정되면 `POST /api/events/aiDisposal`로 로컬 백엔드에 결과를 전송한다(구현 완료,
 > `services/eventService.py`의 `createEventFromAiDisposal`). LLM(Qwen3-VL-8B)은 여전히
 > 이 실시간 경로엔 없음(고도화 전용, 아래 "LLM 활용" 참고).
 
@@ -147,9 +147,11 @@ API 상세는 `Docs/API_SPEC.md`, DB 스키마는 `Docs/ERD.md` 참고.
     봄(과거 "SSH 역터널로 RTSP 직접 받기"/"로컬 백엔드가 프레임 샘플링해서 세션 API 호출"
     두 설계 모두 폐기, `decisionLog.md` 참고. SIDE는 한때 "GPU 서버 미사용, 로컬 백엔드
     CPU 추론"으로 갔다가 TOP과 아키텍처 통일 목적으로 재전환됨, `decisionLog.md` 참고)
-  - GPU 서버 컨테이너/프로세스는 `training`(전처리+자동 라벨링+학습)/`models/trashdetect/
-    tracking2.py`(YOLO26 TOP 모델, 위 설명대로 자체 실행+결과 푸시)/`llm`(Qwen3-VL-8B,
-    자동 라벨링 검증용으로 이미 사용 중 — 실시간 탐지 경로엔 여전히 없음) 3개
+  - GPU 서버 컨테이너/프로세스는 `training`(전처리+자동 라벨링+학습)/`inference`
+    (`models/trashdetect/tracking2.py`, YOLO26 TOP 모델 — 위 설명대로 자체 실행+결과 푸시)/
+    `side-overflow`(`models/trashoverflow/sideOverflow.py`, MobileNet_V3_Small SIDE 넘침
+    판정 — TOP과 같은 패턴)/`llm`(Qwen3-VL-8B, 자동 라벨링 검증용으로 이미 사용 중 —
+    실시간 탐지 경로엔 여전히 없음) 4개(아래 "추론 인프라" 참고)
 
 ## LLM 활용
 
@@ -223,7 +225,8 @@ GPU 1장(48GB) 내 진행. 파인튜닝 후 4/8bit 양자화해 추론 시 VRAM 
   `sideOverflow.py`는 모델이 가벼워서 VRAM 부담은 크지 않을 것으로 예상)
 - (과거 TBD였던) `training`에서 나온 `.pt` 가중치를 젯슨(엣지)에 배포하는 문제는 해소됨 —
   `training`/`tracking2.py` 둘 다 GPU 서버 안에 있어 로컬 파일/볼륨 공유로 충분(원격 배포
-  불필요, 실제로 학습 산출물을 `autoTraining/promotedModels/current.pt`로 옮겨서 검증함)
+  불필요, 실제로 학습 산출물을 활성 모델 레지스트리(`autoTraining/models/registry/model-*.pt`
+  +`autoTraining/models/current.json`, `pipelineConfig.yaml` 참고)로 승격시켜 검증함)
 - `training` 컨테이너는 JupyterLab을 띄워서 팀원이 브라우저로 같이 접속해 학습 코드 작성
   (`.env`의 `JUPYTER_PORT`/`JUPYTER_TOKEN`, 진짜 멀티유저 격리는 아니라 동시 실행 지양).
   GPU 서버 운영 실무(계정/rootless Docker/포트/SSH 터널 등)는 `gpuServerOps.md` 참고
@@ -279,8 +282,10 @@ GPU 1장(48GB) 내 진행. 파인튜닝 후 4/8bit 양자화해 추론 시 VRAM 
 - **배포**: `backend`+`mongo`+`report-scheduler`+`collection-scheduler`는 로컬 `<LOCAL_BACKEND_IP>`(확정, 실제 값은 Notion 참고)에서
   `docker compose --profile local up -d backend mongo report-scheduler collection-scheduler`로 실행. `training`/`llm`은 GPU 서버로 이전해서
   `docker compose --profile training up`/`--profile llm up`(둘 다 자동 라벨링 검증
-  파이프라인 돌 때만 같이 기동). `tracking2.py`/`sideOverflow.py` 둘 다 아직 Docker화 안
-  됨(TBD) — 지금은 GPU 서버에서 스크립트로 직접 실행
+  파이프라인 돌 때만 같이 기동). `tracking2.py`/`sideOverflow.py`는 `inference`/
+  `side-overflow` 서비스(`gpu` profile)로 Docker화까지 완료됐고, `network_mode: host`
+  수정(`06f3d0d`) 후 재기동 최종 재검증만 남아 있다 — 그때까지는 GPU 서버에서 venv+스크립트로
+  직접 실행 중(아래 "추론 인프라"/"TBD" 참고)
 - **GPU(`tracking2.py`/`sideOverflow.py`) → 로컬 백엔드 연결이 상시 필요(반대로 뒤집힌
   방향)** — 예전엔 "로컬 백엔드 → GPU API 호출"을 상시 유지해야 한다고 봤는데, 실제로는
   **GPU가 판정 완료 시마다 로컬 백엔드의 `POST /api/events/aiDisposal`(TOP)/`POST
@@ -297,8 +302,9 @@ GPU 1장(48GB) 내 진행. 파인튜닝 후 4/8bit 양자화해 추론 시 VRAM 
   로컬 GridFS에서 그대로 가져다 쓰기로 확정(위 "이벤트 적재" 참고)해서, 학습/라벨링 돌릴
   때마다 역방향 터널(위 라즈베리파이 RTSP 터널과 같은 SSH 세션에 포트만 추가)이 필요함
 - **GPU 연산 자체는 `training`/`tracking2.py`/`sideOverflow.py`/`llm`만 사용**(넷 다 실제로
-  씀 — `llm`은 자동 라벨링 검증용, `tracking2.py`/`sideOverflow.py`는 아직 Docker 컨테이너가
-  아니라 독립 스크립트) — DB/백엔드가 로컬로 빠지면서 이 구분은 자연히 유지됨
+  씀 — `llm`은 자동 라벨링 검증용, `tracking2.py`/`sideOverflow.py`는 `inference`/
+  `side-overflow` 컨테이너 정의는 있으나 재검증 전까지 스크립트로 직접 실행 중) —
+  DB/백엔드가 로컬로 빠지면서 이 구분은 자연히 유지됨
 - 서버 CPU/RAM이 팀별로 분리되는지(GPU만 분리되는지)는 서버 관리자 확인 필요(TBD)
 - GPU 패스스루: nvidia-docker 필요
 - **GPU 서버는 다인 공유 환경**(팀 5명뿐 아니라 다른 수강생들도 같은 호스트 공유) — 계정 격리,
@@ -444,9 +450,9 @@ Detect → Create Event → Save Event → Check mode
 > **2026-08-26 설계 확정** — LLM review 파이프라인 실제 검증 중(`autoTraining/README.md`
 > 참고) "지금 구조로는 YOLO가 못 잡은 실패 사례 영상이 재학습 데이터로 하나도 안 남는다"는
 > 문제가 발견돼서 나온 설계. 이유는 `decisionLog.md` 참고. **백엔드 쪽(`visitClips`
-> 스키마/저장소/서비스/API, `autoTraining` Collect 단계 확장)은 구현 완료** — 아래 "아직 안
-> 된 것" 참고, 남은 건 GPU(`tracking2.py`)에 `trackStarted`/`trackEnded` 신호를 추가하는
-> 것 하나뿐.
+> 스키마/저장소/서비스/API, `autoTraining` Collect 단계 확장)은 구현 완료**이고,
+> GPU(`tracking2.py`)의 `trackStarted`/`trackEnded` 전송도 구현 완료다 — 남은 건 실기기
+> 검증뿐이다(아래 "아직 안 된 것" 참고).
 
 **문제**: 사람 존재 감지(`presenceGateService.py`) 기반 녹화는 GPU 판정과 완전히 독립
 동작하고, GPU(`tracking2.py`)의 `POST /api/events/aiDisposal`은 투입이 **확정된 순간에만**

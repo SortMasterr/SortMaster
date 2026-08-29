@@ -33,6 +33,8 @@ LLM 모델 선택·서빙 런타임(vLLM)·설정 근거는 `Docs/LLM.md` 참고
 
 학습 데이터셋 클래스/구조는 `Docs/DATASET_DESCRIPTION.md` 참고 (라벨링/학습 관련 작업 시에만 열어볼 것, 자동 로드 안 함)
 
-모델팀 초기 데이터셋 준비 스크립트(`training/` 폴더)는 `training/README.md` 참고 — 자동 재학습 파이프라인(`autoTraining/`)과 별개 (해당 작업 시에만 열어볼 것, 자동 로드 안 함)
+자동 재학습 파이프라인(`autoTraining/`)의 단계별 실행 절차·설정은 `autoTraining/README.md` 참고 (해당 작업 시에만 열어볼 것, 자동 로드 안 함)
+
+모델팀 초기 데이터셋 준비 스크립트(`training/` 폴더)는 `training/README.md` 참고 — 위 자동 재학습 파이프라인과 별개 (해당 작업 시에만 열어볼 것, 자동 로드 안 함)
 
 라즈베리파이 실기기 셋업 절차/트러블슈팅은 `.agentfiles/piSetupOps.md` 참고 (라즈베리파이 관련 작업 시에만 열어볼 것, 자동 로드 안 함)
