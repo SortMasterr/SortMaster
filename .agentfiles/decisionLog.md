@@ -478,3 +478,12 @@
     처리해 VRAM을 아낄 수 있어서다
   - **재검토 조건**: `--gpu-memory-utilization 0.5`/`--max-model-len 8192`는 실측 없이 정한
     값이라 `training`과의 실제 경합을 측정한 뒤 조정해야 한다. 상세는 `Docs/LLM.md` 참고
+- **경고용 전구(LED)는 방향에서 완전히 제외, 스피커 경고음만 사용**(2026-08-30) → 애초
+  Jetson Nano 기준으로 GPIO에 릴레이 경유 전구를 연결하는 계획이었으나, 메인보드를
+  라즈베리파이로 전환한 뒤 확인해보니 **라즈베리파이는 GPIO로 LED를 직접 구동할 방법이
+  없다(USB 외의 방식으로는 LED 연결 불가)** — 릴레이 등 추가 하드웨어 없이는 불가능해서
+  전구 연동 자체를 방향에서 완전히 제외하기로 확정. 스피커 경고음 쪽은 영향 없음
+  (`debug/hardware/alertListener.py` 프로토타입이 실제 `/ws/events`의
+  `MISCLASSIFICATION_DETECTED` 이벤트로 이미 검증됨, 남은 건 상시 서비스화뿐). 상세는
+  `architecture.md`/`Docs/ARCHITECTURE.md`의 "RPA 정책"/"메인보드(라즈베리파이) 엣지 코드"
+  참고

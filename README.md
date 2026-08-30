@@ -139,7 +139,8 @@ docker compose --profile local up --build
 | API·저장소 | 구현됨(motor 기반, In-memory Mock 제거 완료) | `controllers/api.py`, `repositories/eventRepository.py` | `.agentfiles/apiSpec.md` |
 | 자동 통계 보고서 | 구현됨 | `RPAs/reportAutomation/` | 별도 `report-scheduler`가 일일 09:00·주간 월 09:10 발송 |
 | 수거 업무 자동화 RPA | 구현됨(기본 비활성). **배포 전 CTO 검토 필요** | `RPAs/collectionAutomation/`, `services/collectionTaskService.py` | `RPA_COLLECTION_ENABLED=true`일 때만 동작 |
-| **RPA(전구/경고음)** | **미착수** — `services/rpaService.py` 없음 | — | 모드 전환 API는 있으나 실제 트리거로 이어지는 코드가 없음 |
+| **RPA(스피커 경고음)** | 프로토타입 존재(수동 실행, `debug/hardware/alertListener.py`). 실이벤트 연동 확인됨. **상시 서비스화 미착수** | `debug/hardware/alertListener.py` | 모드 전환 API는 있으나 상시 서비스로 자동 트리거되는 경로는 아직 없음 |
+| **RPA(전구/LED)** | **방향에서 완전히 제외** | — | 라즈베리파이는 GPIO로 LED를 직접 구동할 수 없어(USB 외 연결 불가) 젯슨 나노 기준으로 세웠던 전구 계획 폐기(2026-08-30, `.agentfiles/decisionLog.md` 참고) |
 | 자동 재학습 파이프라인 | 구현됨(단계별 CLI). **운영 DB 적용·전체 사이클 검증은 아직** | `autoTraining/trainingPipeline.py`, `autoTraining/stages/` | 단계별 실행 절차·설정은 `autoTraining/README.md` 참고 |
 | LLM 자동 라벨링 검증 | 사용 중(베이스 모델+프롬프트). **파인튜닝·통 모양 인식 데이터 생성 미착수** | `autoTraining/stages/reviewLabels.py` | `Docs/LLM.md`, ARCHITECTURE "LLM 활용" |
 | 이벤트 파이프라인 데모 스텁 | 남아 있음(수동 HTTP 경로 자체는 운영 아님) | `services/detectionService.py` | 수동 HTTP로 DB에 이벤트를 채우는 용도로 만들어졌으나, `startDetection` 함수는 `services/presenceGateService.py`가 TOP 카메라 운영 흐름에서도 그대로 재사용 중(모듈 docstring에도 이 재사용이 명시돼 있음). `recordingService.start`/`stop` → `mediaService.saveClipAsGif` → `eventService.createEvent` 체인을 그대로 호출한다. 검증은 `debug/detection/simulateEventPipeline.py` |
@@ -171,12 +172,12 @@ profile 없이 `docker compose up`을 치면 **아무것도 안 뜬다** — 로
 ### 라즈베리파이(메인보드) 엣지 코드
 
 메인보드 입고 완료. **별도 저장소**로 진행 중(`webcamViewer.py` 등, 이 레포 아님).
-추론은 하지 않고 **캡처 + RTSP 송신 + GPIO/스피커**만 담당한다.
+추론은 하지 않고 **캡처 + RTSP 송신 + 스피커**만 담당한다(전구/LED는 라즈베리파이 GPIO 제약상 방향에서 제외 — 아래 표 참고).
 
 | 항목 | 상태 |
 |---|---|
 | 웹캠 캡처 → RTSP 송신 | 실기기 검증 완료(ffmpeg+MediaMTX, USB 웹캠). systemd 자동 기동까지 확인. **CSI 카메라 모듈은 미착수** |
-| 알림 수신 → GPIO/스피커 | 스피커 검증용 리스너만 있음(`debug/hardware/alertListener.py`). **상시 서비스화·GPIO 전구 연동 미착수** |
+| 알림 수신 → 스피커 | 스피커 검증용 리스너 있음(`debug/hardware/alertListener.py`), 실이벤트 연동 확인됨. **상시 서비스화만 남음**. 전구(LED)는 GPIO 제약(USB 외 연결 불가)으로 방향에서 완전히 제외 |
 | YOLO26 추론 | **여기 없음** — GPU 서버가 전담 |
 
 RTSP는 **로컬 백엔드로만** 보낸다(라즈베리파이는 GPU 서버와 직접 연결되지 않음). GPU는
@@ -195,7 +196,7 @@ RTSP는 **로컬 백엔드로만** 보낸다(라즈베리파이는 GPU 서버와
 - **오탐 confidence threshold** — `.env` 값이 아니라 GPU 스크립트 안의 상수다
   (`sideOverflow.py`의 `CONFIDENCE_THRESHOLD`, `tracking2.py`의
   `CONFIDENCE`/`NEW_TRASH_CONFIDENCE`)
-- **`services/rpaService.py` 미작성** — 실제 전구/경고음 GPIO 연동은 아직 없다(위 상태 표)
+- **`services/rpaService.py` 미작성** — 스피커 경고음의 상시 서비스화(자동 트리거)는 아직 없다(위 상태 표). 전구(LED)는 라즈베리파이 GPIO 제약으로 방향에서 완전히 제외되어 더 이상 TBD 아님
 
 MongoDB·Docker/Compose 버전은 **더 이상 TBD가 아니다** — 위 "개발 환경" 표에서 확정됐다
 (`mongo:7.0`, Compose V2).
