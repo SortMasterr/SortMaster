@@ -708,7 +708,13 @@
                             <div>
                                 <h5>최근 수거 작업</h5>
                                 <div class="collectionTableScroll">
-                                    <table class="collectionTable">
+                                    <table class="collectionTable collectionTaskTable">
+                                        <colgroup>
+                                            <col class="collectionTaskDetectedAtColumn">
+                                            <col class="collectionTaskStatusColumn">
+                                            <col class="collectionTaskAlertColumn">
+                                            <col class="collectionTaskActionColumn">
+                                        </colgroup>
                                         <thead><tr><th>감지 시각</th><th>상태</th><th>알림</th><th>처리</th></tr></thead>
                                         <tbody id="collectionTasksBody"><tr><td colspan="4">불러오는 중입니다.</td></tr></tbody>
                                     </table>
