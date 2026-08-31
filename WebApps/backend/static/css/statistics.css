@@ -404,6 +404,13 @@ body {
 .collectionTable td { padding: 9px 6px; border-bottom: 1px solid #f1f5f9; text-align: left; }
 .collectionTable th { color: #64748b; }
 .collectionTable td { color: #475569; }
+.collectionTaskTable { table-layout: fixed; min-width: 480px; }
+.collectionTaskDetectedAtColumn { width: 48%; }
+.collectionTaskStatusColumn { width: 24%; }
+.collectionTaskAlertColumn { width: 12%; }
+.collectionTaskActionColumn { width: 16%; }
+.collectionTaskTable th:last-child,
+.collectionTaskTable td:last-child { white-space: nowrap; }
 .collectionActionButton {
     margin-right: 4px;
     padding: 5px 7px;
