@@ -16,8 +16,9 @@
 
 ## 데모
 
-> 🎬 데모 영상 추가 예정 — 발표 PPT에 쓰인 최종 데모 영상을 이 자리에 GIF 또는 임베드
-> 링크로 넣을 예정입니다.
+[![SortMaster 데모 영상](https://img.youtube.com/vi/l4DscsTy0AU/hqdefault.jpg)](https://www.youtube.com/watch?v=l4DscsTy0AU)
+
+*(이미지를 클릭하면 유튜브에서 데모 영상이 재생됩니다)*
 
 ## 무엇을 만들었나
 
@@ -115,13 +116,31 @@ flowchart LR
 5명이 함께 만들었습니다. 영상 파이프라인·탐지 모델·백엔드·데이터 라벨링을 각자 맡아
 GPU 서버 실기기 통합과 자동 재학습까지 이어지는 end-to-end 시스템으로 완성했습니다.
 
-| 이름 | 역할 | 주요 기여 |
-|---|---|---|
-| 김동수 | PM | 프로젝트 일정 관리, 팀 커뮤니케이션 및 발표 총괄 |
-| 윤혜진 | CTO · 시스템 아키텍처 · 인프라 전반 | 시스템 아키텍처 설계, 영상 스트리밍·GPU 인프라 구축, 백엔드-GPU 연동, LLM 자동 라벨링 검증|
-| 백욱진 | 통 넘침 판정 로직 | SIDE 카메라 MobileNet_V3_Small 기반 통 포화(넘침) 판정 모델 구현 |
-| 서동찬 | 백엔드 API · 실시간 동기화 | FastAPI API 설계, MongoDB 연동, WebSocket 기반 실시간 알림 구현 |
-| 이원지희 | 데이터 · 라벨링 파이프라인 | 학습 데이터셋 구축, 라벨링·증강·분할 파이프라인 구현 |
+| <img src="https://github.com/eluci114.png" width="120px"> | <img src="https://github.com/lold2424.png" width="120px"> | <img src="https://github.com/ukjinSPACE.png" width="120px"> | <img src="https://github.com/solim596.png" width="120px"> | <img src="https://github.com/EverJoyyyL20.png" width="120px"> |
+| :---: | :---: | :---: | :---: | :---: |
+| [**김동수**](https://github.com/eluci114) | [**윤혜진**](https://github.com/lold2424) | [**백욱진**](https://github.com/ukjinSPACE) | [**서동찬**](https://github.com/solim596) | [**이원지희**](https://github.com/EverJoyyyL20) |
+| **PM · 트래킹 개발** | **CTO · 시스템 아키텍처 · 인프라** | **통 넘침 판정 · 학습 파이프라인** | **백엔드 · 이벤트/통계 페이지** | **데이터 라벨링 · 모델 학습** |
+
+<details>
+<summary>팀원별 상세 기여 보기</summary>
+
+- **김동수 (PM)** — 프로젝트 일정 관리, 팀 커뮤니케이션 및 문서 작업 총괄, TOP 카메라
+  트래킹(BoT-SORT) 코드 개발
+- **윤혜진 (CTO)** — 시스템 전체 아키텍처·인프라 설계, 영상 스트리밍 파이프라인 구현,
+  GPU 서버 구축·운영 전반(SSH 역터널, Docker Compose profile 구성 등)을 포함한 GPU 서버
+  작업 전체 담당, GPU와 로컬 백엔드 간 API 연동(`POST /api/events/aiDisposal`,
+  `POST /api/binStates`) 구현, LLM(vLLM Qwen3-VL-8B) 관련 역할 전체 수행, AI 기반 개발
+  (바이브 코딩)을 위한 컨텍스트 파일(`.agentfiles/`) 제작
+- **백욱진** — SIDE 카메라 MobileNet_V3_Small 기반 통 포화(넘침) 판정 모델 구현,
+  모델 학습 파이프라인 개발
+- **서동찬** — 이전 기록(`/events`)·통계 대시보드(`/statistics`) 페이지 개발, 오분류·통 넘침
+  이벤트 조회 및 실시간 알림(WebSocket) 구현, 이벤트 목록 필터링·페이지네이션·상세 모달,
+  수거 업무 자동화 RPA 개발 및 대시보드 연동(작업 확인·완료 처리, 실행 상태·이력 표시),
+  통계 보고서 이메일 발송·수신자 설정 기능, 모바일·반응형 UI 개선, 관련 API·MongoDB
+  저장 로직 및 단위 테스트 작성
+- **이원지희** — 영상데이터 전처리 및 라벨링, 데이터 증강, YOLO26n 모델 학습·평가 및 고도화
+
+</details>
 
 ## 더 알아보기
 
@@ -133,16 +152,3 @@ GPU 서버 실기기 통합과 자동 재학습까지 이어지는 end-to-end �
 | [`Docs/ERD.md`](Docs/ERD.md) | MongoDB 컬렉션·필드 구조 |
 | [`Docs/DATASET_DESCRIPTION.md`](Docs/DATASET_DESCRIPTION.md) | 학습 데이터셋 설명 |
 | [`Docs/LLM.md`](Docs/LLM.md) | Qwen3-VL 자동 라벨링 검증 활용 방식 |
-
-## 팀원 GitHub
-
-각자 프로필 링크를 채워 넣어 주세요.
-
-| 이름 | 역할 | GitHub |
-|---|---|---|
-| 김동수 | PM | _(프로필 링크 추가)_ |
-| 윤혜진 | CTO | _(프로필 링크 추가)_ |
-| 백욱진 | 통 넘침 판정 로직 | _(프로필 링크 추가)_ |
-| 서동찬 | 백엔드 API · 실시간 동기화 | _(프로필 링크 추가)_ |
-| 이원지희 | 데이터 · 라벨링 파이프라인 | _(프로필 링크 추가)_ |
-
