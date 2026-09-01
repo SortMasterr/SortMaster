@@ -1,0 +1,63 @@
+# 환경변수 (절대 커밋 금지, Notion으로 공유)
+.env
+.env.*
+!.env.example
+
+# CCTV 영상/이미지 데이터 (절대 커밋 금지)
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.gif
+/data/cctv/
+/videos/
+/data/raw/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.venv-inference/
+venv/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# IDE / OS
+.vscode/settings.json
+.DS_Store
+Thumbs.db
+
+# 모델 가중치 (Git LFS/별도 스토리지 방식 TBD)
+*.pt
+*.pth
+
+# JupyterLab(training 컨테이너)에서 생성되는 산출물 — 학습 데이터셋/체크포인트/캐시
+.ipynb_checkpoints/
+training/runs/
+training/datasets/
+training/wandb/
+
+# 라즈베리파이 RTSP 시뮬레이션 실행 중 생성되는 파일(debug/streaming/startRtspSim.py)
+debug/streaming/logs/
+debug/streaming/auto.crt
+debug/streaming/auto.key
+
+# Auto-training inputs and generated artifacts
+autoTraining/inputVideos/
+autoTraining/workspace/
+autoTraining/datasets/
+autoTraining/baseDataset/
+autoTraining/models/
+autoTraining/promotedModels/
+autoTraining/modelArchive/
+autoTraining/reports/
+
+# Generated RPA reports, delivery state, lock, and logs
+RPAs/reportAutomation/output/
+RPAs/reportAutomation/state/
+
+# debug/db/downloadVisitClipMedia.py 결과물 — 실제 CCTV 영상이라 커밋 대상 아님
+debug/db/downloads/

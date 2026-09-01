@@ -1,0 +1,64 @@
+<aside class="sidebar">
+    <div class="sidebarHeader">
+        <h2>스마트 수거 관리</h2>
+    </div>
+
+    <div class="sidebarBody">
+        <span class="menuLabel">내용들</span>
+
+        <ul class="navMenu">
+            <li>
+                <a href="/">
+                    <i class="fa-solid fa-chart-line"></i>
+                    <span>모니터링 현황</span>
+                </a>
+            </li>
+
+            <li>
+                <a href="/events">
+                    <i class="fa-solid fa-list-check"></i>
+                    <span>이전기록</span>
+                    <span
+                        id="misclassificationAlertBadge"
+                        class="navAlertBadge"
+                        aria-label="미확인 오분류 0건"
+                        hidden
+                    >0</span>
+                </a>
+            </li>
+
+            <li>
+                <a href="/statistics">
+                    <i class="fa-solid fa-gear"></i>
+                    <span>대시보드</span>
+                </a>
+            </li>
+        </ul>
+    </div>
+
+    <!-- 평상시에는 hidden 상태 -->
+    <div class="sidebarAlertArea">
+        <div
+            id="binFullAlert"
+            class="binFullAlert"
+            role="alert"
+            aria-live="assertive"
+            aria-hidden="true"
+            hidden
+        >
+            <i class="fa-solid fa-trash-can"></i>
+            <span>쓰레기통 가득참</span>
+        </div>
+    </div>
+
+    <div class="sidebarFooter">
+        <button
+            id="modeToggleBtn"
+            class="toggleBtn modeCollect"
+            type="button"
+        >
+            <i class="fa-solid fa-power-off"></i>
+            <span id="modeText">수거모드</span>
+        </button>
+    </div>
+</aside>

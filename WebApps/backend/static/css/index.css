@@ -1,0 +1,802 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: "Noto Sans KR", sans-serif;
+    background-color: #f8fafc;
+    color: #333;
+}
+
+.appContainer {
+    display: flex;
+    min-height: 100vh;
+}
+
+
+/* 사이드바 영역 */
+
+#sidebarContainer {
+    position: sticky;
+    top: 0;
+
+    height: 100vh;
+
+    display: flex;
+    flex-shrink: 0;
+}
+
+
+/* 사이드바 */
+
+.sidebar {
+    width: 250px;
+    height: 100%;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+
+    padding: 20px 0;
+
+    color: #fff;
+    background-color: #1e293b;
+}
+
+.sidebarHeader {
+    padding: 0 20px 20px;
+    border-bottom: 1px solid #334155;
+}
+
+.sidebarHeader h2 {
+    color: #38bdf8;
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+
+.sidebarBody {
+    flex: 1;
+    padding: 20px;
+}
+
+.menuLabel {
+    display: block;
+
+    margin-bottom: 12px;
+
+    color: #94a3b8;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.navMenu {
+    list-style: none;
+}
+
+.navMenu li {
+    margin-bottom: 8px;
+}
+
+.navMenu a {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+
+    padding: 12px 16px;
+
+    color: #cbd5e1;
+    text-decoration: none;
+    font-weight: 500;
+
+    border-radius: 8px;
+
+    transition:
+        color 0.2s ease,
+        background-color 0.2s ease;
+}
+
+.navMenu a:hover,
+.navMenu li.active a {
+    color: #38bdf8;
+    background-color: #0f172a;
+}
+
+
+/* 모드 토글 버튼 */
+
+.sidebarFooter {
+    padding: 20px;
+    border-top: 1px solid #334155;
+}
+
+.toggleBtn {
+    width: 100%;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+
+    padding: 12px;
+
+    border: none;
+    border-radius: 8px;
+
+    font-size: 0.95rem;
+    font-weight: 600;
+
+    cursor: pointer;
+
+    transition:
+        background-color 0.2s ease,
+        transform 0.2s ease;
+}
+
+.toggleBtn:hover {
+    transform: translateY(-1px);
+}
+
+.modeCollect {
+    color: #fff;
+    background-color: #10b981;
+}
+
+.modeCollect:hover {
+    background-color: #059669;
+}
+
+.modeAdmin {
+    color: #fff;
+    background-color: #f97316;
+}
+
+.modeAdmin:hover {
+    background-color: #ea580c;
+}
+
+
+/* 우측 본문 */
+
+.mainContent {
+    min-width: 0;
+    flex: 1;
+
+    display: flex;
+    flex-direction: column;
+}
+
+.contentHeader {
+    min-height: 70px;
+
+    padding: 0 30px;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+
+    background-color: #fff;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.contentHeader h1 {
+    color: #0f172a;
+    font-size: 1.3rem;
+}
+
+.badge {
+    flex-shrink: 0;
+
+    padding: 6px 14px;
+
+    border-radius: 20px;
+
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.badgeCollect {
+    color: #065f46;
+    background-color: #d1fae5;
+}
+
+.badgeAdmin {
+    color: #9a3412;
+    background-color: #ffedd5;
+}
+
+.contentBody {
+    flex: 1;
+    padding: 30px;
+    overflow-y: auto;
+}
+
+
+/* 비디오 모니터링 */
+
+.monitoringLayout {
+    width: 100%;
+    max-width: 1584px;
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns:
+        minmax(0, 1200px)
+        minmax(320px, 360px);
+    align-items: stretch;
+    gap: 24px;
+}
+
+.videoContainer {
+    position: relative;
+    isolation: isolate;
+
+    width: 100%;
+    max-width: 1200px;
+    aspect-ratio: 16 / 9;
+
+    overflow: hidden;
+
+    background-color: #0f172a;
+    border: 4px solid transparent;
+    border-radius: 12px;
+
+    transition:
+        border-color 0.3s ease,
+        box-shadow 0.3s ease;
+}
+
+.videoSplit {
+    position: relative;
+    z-index: 1;
+
+    width: 100%;
+    height: 100%;
+
+    display: grid;
+    grid-template-columns:
+        minmax(0, 1fr)
+        minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: 2px;
+
+    background-color: #0f172a;
+}
+
+.videoPane {
+    position: relative;
+
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+
+    overflow: hidden;
+
+    background-color: #0f172a;
+
+    cursor: zoom-in;
+}
+
+.videoPane:focus-visible {
+    outline: 3px solid #38bdf8;
+    outline-offset: -3px;
+}
+
+.videoPane img {
+    width: 100%;
+    height: 100%;
+
+    display: block;
+
+    object-fit: cover;
+    object-position: center;
+}
+
+.videoPaneLabel {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 20;
+
+    padding: 4px 10px;
+
+    color: #f8fafc;
+    background-color: rgba(0, 0, 0, 0.65);
+
+    border-radius: 6px;
+
+    font-size: 0.85rem;
+
+    pointer-events: none;
+}
+
+.statusText {
+    color: #38bdf8;
+    font-size: 0.95rem;
+}
+
+
+/* 두 화면 전체화면 버튼 */
+
+.fullscreenBtn {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 1000;
+
+    width: 42px;
+    height: 42px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 0;
+
+    color: #fff;
+    background-color: rgba(15, 23, 42, 0.88);
+
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+
+    font-size: 18px;
+
+    cursor: pointer;
+
+    transition:
+        background-color 0.2s ease,
+        transform 0.2s ease;
+}
+
+.fullscreenBtn:hover {
+    background-color: rgba(2, 132, 199, 0.95);
+    transform: scale(1.05);
+}
+
+.fullscreenBtn:focus-visible {
+    outline: 3px solid #38bdf8;
+    outline-offset: 2px;
+}
+
+
+/* 두 카메라 함께 전체화면 */
+
+.videoContainer:fullscreen {
+    width: 100vw;
+    height: 100vh;
+    max-width: none;
+    max-height: none;
+    aspect-ratio: auto;
+
+    margin: 0;
+    padding: 0;
+
+    overflow: hidden;
+
+    background-color: #000;
+
+    border: 0;
+    border-radius: 0;
+}
+
+.videoContainer:fullscreen .videoSplit {
+    position: absolute;
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    grid-template-columns:
+        minmax(0, 1fr)
+        minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+
+    background-color: #000;
+}
+
+.videoContainer:fullscreen .videoPane {
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+
+    background-color: #000;
+}
+
+.videoContainer:fullscreen .videoPane img {
+    width: 100%;
+    height: 100%;
+
+    /*
+     * 영상 비율은 유지하면서 각 영역을 채웁니다.
+     * 모니터 비율에 따라 가장자리 일부가 잘릴 수 있습니다.
+     */
+    object-fit: cover;
+    object-position: center;
+}
+
+.videoContainer:fullscreen .fullscreenBtn {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 2147483647;
+}
+
+
+/* 두 화면 전체화면에서 하나만 확대 */
+
+.videoContainer:fullscreen.singlePaneMode
+.videoSplit {
+    display: block;
+}
+
+.videoContainer:fullscreen.singlePaneMode
+.videoPane {
+    display: none;
+}
+
+.videoContainer:fullscreen.singlePaneMode
+.videoPane.paneFocused {
+    width: 100%;
+    height: 100%;
+
+    display: block;
+}
+
+.videoContainer:fullscreen.singlePaneMode
+.videoPane.paneFocused img {
+    width: 100%;
+    height: 100%;
+
+    object-fit: cover;
+    object-position: center;
+
+    cursor: zoom-out;
+}
+
+
+/* 일반 상태에서 개별 카메라 전체화면 */
+
+.videoPane:fullscreen {
+    width: 100vw;
+    height: 100vh;
+    min-width: 100vw;
+    min-height: 100vh;
+
+    overflow: hidden;
+
+    background-color: #000;
+
+    cursor: zoom-out;
+}
+
+.videoPane:fullscreen img {
+    position: absolute;
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    object-fit: cover;
+    object-position: center;
+}
+
+.videoPane:fullscreen .videoPaneLabel {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+
+    padding: 8px 14px;
+
+    font-size: 1rem;
+}
+
+
+/* 미확인 오분류 알림 */
+
+.eventAlertPanelSlot {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+}
+
+.eventAlertPanel {
+    position: absolute;
+    inset: 0;
+    min-width: 0;
+    min-height: 0;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background-color: #ffffff;
+    border: 1px solid #dbe3ec;
+    border-radius: 8px;
+}
+
+.eventAlertHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.eventAlertHeading {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.eventAlertIcon {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #b91c1c;
+    background-color: #fee2e2;
+    border-radius: 6px;
+}
+
+.eventAlertHeading h3 {
+    color: #0f172a;
+    font-size: 1rem;
+    line-height: 1.3;
+}
+
+.eventAlertHeading p {
+    margin-top: 2px;
+    color: #64748b;
+    font-size: 0.78rem;
+}
+
+.eventAlertCount {
+    min-width: 30px;
+    height: 30px;
+    padding: 0 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    background-color: #dc2626;
+    border-radius: 15px;
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.eventAlertCount.isEmpty {
+    color: #475569;
+    background-color: #e2e8f0;
+}
+
+.acknowledgeAllAlertsBtn {
+    align-self: flex-end;
+    margin-top: 12px;
+    padding: 5px 0;
+    color: #475569;
+    background: none;
+    border: 0;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.acknowledgeAllAlertsBtn:hover {
+    color: #0f172a;
+}
+
+.acknowledgeAllAlertsBtn:focus-visible,
+.alertAcknowledgeBtn:focus-visible,
+.alertRecordLink:focus-visible {
+    outline: 3px solid #38bdf8;
+    outline-offset: 2px;
+}
+
+.eventAlertList {
+    flex: 1;
+    min-height: 0;
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+}
+
+.eventAlertItem {
+    padding: 13px;
+    background-color: #fff7f7;
+    border: 1px solid #fecaca;
+    border-left: 4px solid #dc2626;
+    border-radius: 6px;
+}
+
+.eventAlertItemTop {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.eventAlertItemTitle {
+    color: #991b1b;
+    font-size: 0.88rem;
+    font-weight: 700;
+}
+
+.eventAlertTime {
+    flex-shrink: 0;
+    color: #64748b;
+    font-size: 0.73rem;
+}
+
+.eventAlertCamera {
+    margin-top: 7px;
+    color: #334155;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.eventAlertDetail {
+    margin-top: 4px;
+    color: #64748b;
+    font-size: 0.77rem;
+    line-height: 1.45;
+}
+
+.eventAlertActions {
+    margin-top: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.alertRecordLink,
+.alertAcknowledgeBtn {
+    min-height: 30px;
+    padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.alertRecordLink {
+    color: #334155;
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+}
+
+.alertAcknowledgeBtn {
+    color: #ffffff;
+    background-color: #b91c1c;
+    border: 1px solid #b91c1c;
+}
+
+.alertRecordLink:hover {
+    background-color: #f8fafc;
+}
+
+.alertAcknowledgeBtn:hover {
+    background-color: #991b1b;
+}
+
+.eventAlertEmpty {
+    min-height: 220px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    color: #94a3b8;
+    text-align: center;
+}
+
+.eventAlertEmpty i {
+    margin-bottom: 5px;
+    color: #16a34a;
+    font-size: 1.8rem;
+}
+
+.eventAlertEmpty strong {
+    color: #475569;
+    font-size: 0.88rem;
+}
+
+.eventAlertEmpty span {
+    max-width: 230px;
+    font-size: 0.76rem;
+    line-height: 1.5;
+}
+
+.eventAlertEmpty[hidden],
+.acknowledgeAllAlertsBtn[hidden] {
+    display: none;
+}
+
+
+/* 오배출 탐지 빨간색 테두리 점멸 */
+
+.videoContainer.warningActive {
+    animation: warningBlink 1s infinite alternate;
+}
+
+@keyframes warningBlink {
+    0% {
+        border-color: #ef4444;
+        box-shadow:
+            inset 0 0 20px #ef4444,
+            0 0 20px #ef4444;
+    }
+
+    100% {
+        border-color: transparent;
+        box-shadow: none;
+    }
+}
+
+
+/* 작은 화면 대응 */
+
+@media (max-width: 900px) {
+    .sidebar {
+        width: 210px;
+    }
+
+    .contentHeader {
+        padding: 0 20px;
+    }
+
+    .contentBody {
+        padding: 20px;
+    }
+
+    .videoContainer {
+        aspect-ratio: auto;
+    }
+
+    .videoSplit {
+        grid-template-columns: 1fr;
+    }
+
+    .videoPane {
+        min-height: 280px;
+    }
+
+    /*
+     * 브라우저 전체화면에서는 화면 너비와 관계없이
+     * 항상 카메라 두 대를 좌우로 표시합니다.
+     */
+    .videoContainer:fullscreen .videoSplit {
+        grid-template-columns:
+            minmax(0, 1fr)
+            minmax(0, 1fr);
+    }
+
+    .videoContainer:fullscreen .videoPane {
+        min-height: 0;
+    }
+}
+
+@media (max-width: 1500px) {
+    .monitoringLayout {
+        max-width: 1200px;
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .eventAlertPanelSlot {
+        height: 380px;
+    }
+}

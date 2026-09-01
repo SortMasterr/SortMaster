@@ -1,0 +1,112 @@
+# CCTV 프레임 추출부터 Qwen-VL 검수, YOLO 재학습과 모델 승격까지의 설정입니다.
+paths:
+  videos: autoTraining/inputVideos
+  workspace: autoTraining/workspace
+  # Build가 만든 배치별 학습 데이터셋의 영속 저장소입니다.
+  datasetStore: autoTraining/datasets
+  # 사람 검수로 고정한 평가셋이며 일일 학습 데이터와 자동 병합하지 않습니다.
+  goldenTest: autoTraining/goldenTest
+  bootstrapModel: autoTraining/models/bootstrap/best.pt
+  modelRegistry: autoTraining/models/registry
+  candidateModels: autoTraining/models/candidates
+  activeModelPointer: autoTraining/models/current.json
+
+trainingDatasetStore:
+  # 이벤트 영상과 분리한 학습 데이터 원본 저장소입니다.
+  samplesCollection: trainingSamples
+  imagesBucket: trainingImages
+
+eventStore:
+  # 운영은 gridFs, 로컬 영상으로 개발할 때만 localDirectory를 사용합니다.
+  source: gridFs
+  # batchId 날짜 경계를 한국 시간 기준으로 계산합니다.
+  utcOffsetHours: 9
+  serverSelectionTimeoutMs: 5000
+frames:
+  # 1이면 모든 프레임을 저장하며 값이 커질수록 디스크 사용량과 처리량이 감소합니다.
+  saveEveryN: 1
+  jpegQuality: 95
+  # 아래 기준은 원본 삭제가 아니라 자동 라벨링 후보 선별에만 사용합니다.
+  candidateEveryN: 3
+  minLaplacianVariance: 20.0
+  minBrightness: 20.0
+  maxBrightness: 235.0
+
+inference:
+  # rgb는 현재 프레임, causal은 t-2/t-1/t를 B/G/R 채널로 결합합니다.
+  # 이 값은 학습 데이터 계약이기도 해서(Publish가 이 모드로 학습 이미지를 만들고
+  # Sync가 같은 모드의 샘플만 가져옵니다) 임의로 바꾸면 안 됩니다.
+  inputMode: causal
+  imgsz: 416
+  confidence: 0.20
+  device: 0
+  # Label 단계에서 causal 합성과 단일 BGR 원본을 둘 다 추론해 박스를 합칠지 여부.
+  # 실측(2026-08-27, 후보 60프레임, 같은 임계값 0.20)에서 두 입력은 상보적이었습니다 —
+  # causal만 탐지 14개, 원본만 탐지 7개, 둘 다 탐지 8개. 어느 한쪽만 쓰면 놓치는
+  # 프레임이 많아 사람 검수 부담이 커집니다. teacher 모델에 넣는 입력만 바꾸는
+  # 설정이라 위 inputMode(학습 데이터 계약)에는 영향을 주지 않습니다.
+  labelEnsembleInputModes: true
+  # 같은 물체를 두 입력이 각각 잡았을 때 하나로 합치는 IoU 기준.
+  labelEnsembleIouThreshold: 0.5
+
+qwenVl:
+  # 포트는 .env의 LLM_PORT를 사용하며 여기에는 호스트만 기록합니다.
+  apiHost: http://127.0.0.1
+  # auto이면 설치 모델 중 이름에 qwen과 vl이 포함된 첫 모델을 선택합니다.
+  model: auto
+  timeoutSeconds: 180
+  # review 단계 시작 시 llm 서비스가 응답하지 않으면 자동으로 띄우고 이 시간(초) 안에
+  # 준비되길 기다립니다. 가중치가 이미 캐시돼 있으면 보통 수십 초 내로 뜨지만, 최초
+  # 기동(모델 다운로드)은 이보다 오래 걸릴 수 있어 그 경우엔 타임아웃 후 GPU 서버에서
+  # `docker compose logs -f llm`으로 직접 진행 상황을 확인해야 합니다.
+  startupTimeoutSeconds: 180
+  retries: 2
+  minimumReviewConfidence: 0.70
+  # 검수 응답은 좌표 없이 boxVerdicts/hasMissedTrash/confidence 세 필드뿐입니다
+  # (좌표를 뺀 이유와 issues/decision을 모델에게 묻지 않는 이유는 reviewLabels.py의
+  # _reviewSchema 주석 참고 — 그 둘은 review()가 YOLO 라벨과 대조해 직접 도출합니다).
+  # 응답 길이는 boxVerdicts 배열이 좌우하며 그 길이는 프레임당 YOLO 탐지 개수에 고정되므로,
+  # 박스가 많은 프레임일수록 길어집니다. 항목 하나가 대략 15토큰이라 300이면 박스 15개
+  # 안팎까지 여유가 있고, 스키마가 배열 길이를 minItems==maxItems로 못박아 두므로 모델이
+  # 멈추지 못하고 max_model_len까지 생성하는 폭주는 구조적으로 막힙니다. 탐지 개수가 이보다
+  # 훨씬 많은 프레임에서 JSON이 잘리면(_validateReview가 badBbox로 떨굼) 이 값을 올릴 것.
+  maxResponseTokens: 300
+
+dataset:
+  trainRatio: 0.80
+  valRatio: 0.10
+  testRatio: 0.10
+  # Label/Train이 사이클에 고정해 쓰는 기준 모델(registry 활성 모델, 없을 때만
+  # bootstrap/best.pt로 폴백)이 실제로 내놓는 클래스명 그대로입니다.
+  # 2026-08-28에 운영 bestTop.pt / registry 활성 모델 / bootstrap best.pt 셋의
+  # model.names를 직접 대조해 전부 아래 표기를 내놓는 것을 확인했습니다
+  # (세 파일의 관계는 .agentfiles/naming.md의 표 참고).
+  # 코드 일관성을 이유로 임의로 고치지 말고 실제 체크포인트의 model.names와 정확히
+  # 일치시켜야 합니다. tracking2.py의 EXPECTED_CLASS_NAMES/TRASH_CLASSES/TRASH_TYPE_MAP 키도
+  # 같은 값이며, TRASH_TYPE_MAP의 출력만 기존 lowercase API 계약을 유지합니다.
+  classes:
+    - TrashNormal
+    - TrashPaper
+    - TrashRecyclables
+    - TrashCoffeecup
+
+training:
+  epochs: 100
+  imgsz: 640
+  batch: -1
+  workers: 4
+  device: 0
+  amp: true
+  patience: 30
+
+promotion:
+  # 고정 Golden Test에서 기존 모델보다 실제로 좋아져야 승격합니다.
+  minimumMap50Gain: 0.001
+  minimumRecallGain: 0.0
+
+deployment:
+  # tracking2.py가 기본으로 읽는 운영 파일명. Promote와 Deploy는 의도적으로 분리합니다.
+  targetModel: WebApps/backend/models/trashdetect/bestTop.pt
+  # 카메라 없이 모델 로드·클래스 계약·더미 프레임 추론을 검증합니다.
+  smokeImageSize: 416
+  smokeDevice: cpu

@@ -1,0 +1,230 @@
+# gpuServerOps.md
+
+**이 문서가 원본(source of truth)입니다** — `architecture.md`/`apiSpec.md`와 달리 색인이
+아니라 여기에 전체 절차와 트러블슈팅이 다 들어 있습니다. 다른 곳에 원본을 찾으러 가지 말고,
+내용을 고칠 땐 이 파일을 고치세요.
+
+GPU 서버(`e8000`, 학교 공용, 다른 팀·수강생과 공유) 운영 실전 절차. `architecture.md`가 "뭘
+하기로 했는지"라면 이 문서는 "실제로 어떻게 하는지".
+
+## 서버 특성
+
+- `ssh -p 2222 <계정>@<GPU_SERVER_IP>`(실제 IP는 Notion 참고) — 포트포워딩은 2222만 열려있음(관리자 권한 없어 추가 불가).
+  다른 서비스는 SSH 터널로 우회
+- Docker는 기본 **rootful 데몬을 전원이 공유**(`docker ps -a`에 남 컨테이너까지 보임) — 이름/포트
+  충돌 방지 위해 계정별로 **rootless Docker** 사용
+- GPU는 L40S 4장, 팀당 1장(`nvidia-smi` 인덱스 확인)
+
+## 팀 공용 계정(`soma`)
+
+개인 계정 대신 팀 전용 Linux 계정 하나를 만들어 팀원 전원이 SSH 키로 공유.
+
+```bash
+sudo adduser soma                        # sudo/docker 그룹엔 넣지 않음(권한 최소화)
+cat /etc/subuid | grep soma              # rootless Docker 전제조건, adduser가 보통 자동 할당
+cat /etc/subgid | grep soma
+sudo mkdir -p /home/soma/.ssh
+sudo nano /home/soma/.ssh/authorized_keys   # 팀원 공개키 한 줄씩 추가
+sudo chown -R soma:soma /home/soma/.ssh && sudo chmod 700 /home/soma/.ssh
+sudo chmod 600 /home/soma/.ssh/authorized_keys
+```
+등록 안 된 팀원은 비밀번호 없이 접속 불가 — 각자 본인 공개키를 추가해야 함. **주의**: root(`sudo -i`)
+상태로 `/home/soma`에서 `git clone` 등을 하면 소유자가 root로 생겨 나중에 `soma` 세션에서 권한
+문제가 남 — 반드시 `soma`로 직접 로그인해서 작업할 것.
+
+## rootless Docker 설치 (계정마다 개별 필요)
+
+```bash
+sudo apt-get install -y uidmap dbus-user-session   # 시스템 패키지, 한 번만
+dockerd-rootless-setuptool.sh install --force      # 기존 rootful과 공존, --force로 경고 무시
+export PATH=/usr/bin:$PATH
+export DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock
+echo 'export PATH=/usr/bin:$PATH' >> ~/.bashrc
+echo 'export DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock' >> ~/.bashrc
+sudo loginctl enable-linger soma    # 로그아웃해도 데몬 유지(대상 계정 지정은 sudo 있는 쪽에서)
+systemctl --user enable docker && systemctl --user start docker
+docker info | grep -i rootless      # 값 나오면 성공
+```
+`No cpuset/io.weight support` 경고는 rootless cgroup 제약이라 무시 가능(이 프로젝트는 미사용).
+
+## Python venv (sudo 없이, `models/trashdetect/tracking2.py`/`models/trashoverflow/
+sideOverflow.py` 등 호스트 직접 실행용)
+
+`soma` 계정은 sudo가 없어서 `apt install python3-venv`(ensurepip 의존)가 안 됨 —
+`python3 -m venv`가 "ensurepip is not available"로 실패한다. `pip`로 설치 가능한
+`virtualenv` 패키지로 우회(ensurepip 불필요):
+
+```bash
+cd ~/SortMaster
+python3 -m pip install --user --break-system-packages virtualenv
+python3 -m virtualenv .venv-inference
+source .venv-inference/bin/activate
+pip install opencv-python-headless ultralytics requests torch torchvision numpy
+```
+
+`torch`/`torchvision`은 `sideOverflow.py`(SIDE, MobileNet_V3_Small)용 — TOP과 아키텍처를
+통일하며 로컬 백엔드의 `infra/checkEnv.py`에서 제거되고 이쪽으로 옮겨옴(`decisionLog.md`
+참고). `--break-system-packages`는 `--user`라 홈 디렉터리 안에만 설치되는 거라 시스템
+자체엔 영향 없음(PEP 668 externally-managed-environment 보호를 사용자 레벨 설치에서만
+우회). `.venv-inference`라는 이름은 `.gitignore`에 이미 예약돼 있던 패턴 — `tracking2.py`/
+`sideOverflow.py`는 **Docker화(`inference`/`side-overflow` 서비스, `gpu` profile)로
+방향 확정**됐으므로(`architecture.md`/`decisionLog.md` 참고) 이 venv는 결국 버려도 되지만,
+컨테이너 기동(`network_mode: host`로 수정 완료, 2026-08-25 커밋 `06f3d0d`)의 재기동 최종
+재검증이 끝나기 전까지는 이 venv로 직접 실행해서 계속 테스트할 것.
+
+## GPU 카드 격리 & 포트
+
+- `.env`의 `GPU_DEVICE_ID=<nvidia-smi 인덱스>` → `training`/`inference`/`llm` 서비스가
+  `device_ids`로 그 카드만 사용(`count: all`은 타 팀 카드까지 잡으므로 금지). `inference`는
+  상시 기동이라 `training`/`llm`을 돌리는 시간대엔 같은 카드를 나눠 써야 함 —
+  `gpu-memory-utilization` 류 제한 필요(실측 후 조정, `architecture.md`의 "추론 인프라" 참고)
+- 컨테이너 **내부** 포트는 겹쳐도 무관, **호스트** 포트만 충돌 주의: `sudo ss -tlnp | grep <포트>`로 사전 확인
+- `docker compose ps`의 `PORTS` 칸이 비면(컨테이너 `Up`인데 매핑 안 보임) 이전 실패로 이상 상태 남은 것 —
+  지우고 재생성:
+  ```bash
+  docker compose down && docker compose --profile training down
+  docker compose up -d --build && docker compose --profile training up -d --build training
+  ```
+
+## vLLM(`llm` 서비스) 기동 (자동 라벨링 검증용, GPU 서버에서만)
+
+실시간 탐지 경로엔 LLM을 안 씀(`architecture.md`) — `autoTraining/stages/reviewLabels.py`가
+학습 준비 단계 자동 라벨링 검증에서만 이 서비스의 vLLM OpenAI 호환 API를 호출한다. **로컬 PC
+(Windows)엔 GPU가 없어 `llm` 컨테이너는 반드시 GPU 서버에서 띄운다.**
+
+> **평소엔 아래 명령을 직접 칠 필요 없음** — `review` 단계가 시작할 때 `llm`이 응답하지 않으면
+> `reviewLabels.py`가 `docker compose --profile llm up -d llm`을 자동 실행하고 준비될 때까지
+> 기다린다(`qwenVl.startupTimeoutSeconds`, 기본 180초). 끝나면 **자기가 띄운 경우에만** 자동으로
+> 내린다 — 원래 떠 있던 컨테이너는 건드리지 않으므로, 누가 쓰는 중이면 그대로 유지된다.
+> 아래 절차는 (1) 최초 기동이라 가중치 다운로드가 자동 기동 타임아웃보다 오래 걸릴 때
+> (2) 문제를 직접 진단할 때 필요하다.
+
+### 기동 전 확인
+
+1. 카드 배정: `.env`의 `GPU_DEVICE_ID`가 우리 팀에 할당된 인덱스인지 `nvidia-smi`로 재확인(다른
+   팀 카드를 잡으면 안 됨, 위 "GPU 카드 격리 & 포트" 참고)
+2. 호스트 포트: `sudo ss -tlnp | grep ${LLM_PORT:-8099}` — 비어있어야 함(다른 수강생이 이미 쓰고
+   있을 수 있음)
+3. 동시 기동 여부: `docker compose --profile training ps`로 `training`이 같은 시간대에 돌고
+   있는지 확인 — 같은 카드를 나눠 쓰므로(`architecture.md`) 겹치면 vLLM이 VRAM 부족으로 기동
+   실패할 수 있음. 가능하면 트래픽 적은 시간대에 기동
+4. 게이트 모델 여부: `${LLM_MODEL_NAME:-Qwen/Qwen3-VL-8B-Instruct-FP8}`이 Hugging Face 게이트
+   모델이면 `.env`의 `HF_TOKEN`을 채워야 함(비어있으면 다운로드 401)
+
+### 기동
+
+```bash
+docker compose --profile llm up -d llm
+docker compose logs -f llm
+```
+
+첫 기동은 모델 가중치 다운로드(수 GB~수십 GB, `llm-model-cache` 볼륨에 캐시돼 재기동부터는
+생략됨)로 수 분~수십 분 걸릴 수 있음 — vLLM의 서버 기동 완료 로그가 뜰 때까지 대기.
+**캐시가 없는 상태에서 `review`를 바로 돌리면 자동 기동이 타임아웃으로 실패할 수 있으므로,
+최초 1회는 이렇게 수동으로 띄워 다운로드를 끝내두는 게 안전하다.**
+
+### 연결 검증 (GPU 서버 안에서)
+
+```bash
+curl -s http://localhost:${LLM_PORT:-8099}/v1/models | python3 -m json.tool
+```
+
+`data` 배열에 모델 id가 나오고 그 id에 `qwen`/`vl`이 둘 다 포함돼 있으면 정상(`reviewLabels.py`의
+`_resolveQwenVlModel()`이 이 두 단어로 자동 선택함).
+
+### 파이프라인(`autoTraining`)에서 연결 검증
+
+- `.env`(또는 `WebApps/backend/.env`)의 `LLM_PORT`가 GPU 서버와 같은 값인지 확인
+- `autoTraining/pipelineConfig.yaml`의 `qwenVl.apiHost`가 기본값(`http://127.0.0.1`, GPU 서버
+  로컬 실행 전용)인지, 아니면 GPU 서버 밖에서 부를지 확인 — GPU 서버 밖에서 부른다면 실제 주소를
+  문서에 적지 말고 Notion 참고, 아래 "외부 접속 — SSH 터널"의 `-L 8099:localhost:8099` 터널이
+  먼저 연결돼 있어야 함(2222 외 포트포워딩 불가)
+- `review` 단계로 최소 연결 확인(이미 `label`까지 끝난 배치 필요):
+  ```bash
+  python autoTraining/trainingPipeline.py review --batchId <batchId>
+  ```
+  `Qwen-VL API 연결 실패` `RuntimeError` 없이 `[REVIEW] {...}` 카운트가 출력되면 연결 성공
+
+### 종료
+
+```bash
+docker compose --profile llm down
+```
+
+`training`과 마찬가지로 상시 기동 서비스가 아니라 자동 라벨링 검증 돌릴 때만 띄우는 온디맨드
+서비스 — 다 쓰면 바로 내려서 VRAM을 다른 팀/워크로드에 돌려줄 것. `review`가 자동으로 띄운
+경우엔 끝날 때 스스로 내리므로 이 명령이 필요 없고, **위 "기동"으로 직접 띄웠거나 자동 종료가
+실패했을 때만** 수동으로 내리면 된다(`docker compose --profile llm ps`로 확인).
+
+## 외부 접속 — SSH 터널 (2222 외 포트포워딩 불가)
+
+> **GPU→로컬 백엔드는 `-R`(반대 방향으로 최종 확정)** — 처음엔 "로컬 백엔드가 GPU
+> 추론 API를 호출"(`-L` 필요)로 예상했지만, 실제 모델팀 코드(`models/trashdetect/
+> tracking2.py`)를 확인한 뒤 **"GPU가 판정 완료 시마다 로컬 백엔드로 직접 POST"**하는
+> 방향으로 뒤집힘(`decisionLog.md` 참고) — MongoDB용 `-R 27020`과 같은 방향, 같은 SSH
+> 세션에 포트만 추가하면 됨. `llm` 포트(`-L 8099`)는 여전히 실시간 경로용으로는 불필요
+> (학습 준비 단계의 자동 라벨링 검증은 `training`↔`llm`이 둘 다 GPU 서버 안에 있어서
+> 컨테이너 간 통신으로 충분).
+> **`-R`(로컬→GPU서버 보내기)의 Mongo 포트는 상시 필요** — `training`이 학습용 원본
+> 이미지를 로컬 GridFS에서 직접 가져오기로 확정(`architecture.md`)했기 때문.
+> **RTSP 포트(8554) 역터널은 더 이상 불필요** — 과거엔 TOP 카메라 RTSP를 GPU 서버가
+> SSH 역터널로 직접 당겨받는 방식이었으나, GPU가 로컬 백엔드의 MJPEG 스트림
+> (`GET /api/stream/ELEV-TOP`)을 `-R 8299` 터널로 구독해서 판정 결과만 로컬 백엔드로 보내는
+> 방식으로 바뀌면서 이 역터널이 갖고 있던 "끊기면 탐지 전체가 멈추는 단일 장애점" 리스크가
+> 해소됨. GPU →
+> 로컬 백엔드 연결(`-R 8299`)은 여전히 끊기면 그 동안 오분류(TOP)/넘침(SIDE) 이벤트가 둘 다
+> 유실되므로, 재연결 전략(`autossh` 등)은 검토 필요.
+
+```bash
+# GPU 서버 서비스를 노트북/로컬 백엔드에서 보기(-L). 8099(llm)은 실시간 경로에 안 쓰는 한 불필요
+ssh -p 2222 -L 8899:localhost:8899 -L 8099:localhost:8099 soma@<GPU_SERVER_IP>
+# 노트북/로컬 리소스를 GPU 서버로 보내기(-R, 반대 방향). 27020은 로컬 MongoDB(학습용
+# 원본 이미지 조회, training이 사용), 8299는 로컬 백엔드(포트는 도커 PC 자기 자신의
+# 실제 백엔드 포트, 예: 8047 — GPU 서버 쪽 문(-R 앞 숫자)만 팀 공유 규칙상 99로 끝나야
+# 해서 8299 사용. tracking2.py(TOP)가 오분류 판정 시 POST /api/events/aiDisposal,
+# sideOverflow.py(SIDE)가 넘침 판정 시 POST /api/binStates로 이 포트를 같이 씀)
+ssh -p 2222 -R 27020:localhost:27020 -R 8299:localhost:8047 soma@<GPU_SERVER_IP>
+```
+`-R`로 받은 포트는 컨테이너 안에서 호스트의 `localhost`에 직접 못 닿으므로, `training`
+서비스에 `extra_hosts: ["host.docker.internal:host-gateway"]`를 적용하고 MongoDB 접속
+주소를 `host.docker.internal:27020`처럼 지정(과거엔 `inference`의 RTSP 카메라 소스에도
+이 방식이 필요했으나, 프레임 샘플링 API 호출 방식으로 바뀌면서 `inference`는 더 이상
+해당 없음 — RTSP 자체를 안 받으므로).
+
+## 팀 공유 MongoDB 계정 (GPU 서버로 이전 시) — 현재 보류
+
+> ⚠️ **DB를 GPU 서버로 이전하는 것 자체가 "백엔드+DB는 로컬" 재조정으로 보류됨**
+> (`architecture.md` 참고). 이미 만들어둔 계정/데이터는 남겨뒀지만 지금은 안 씀 — 나중에
+> 다시 GPU 서버로 옮기게 되면 아래 절차 재사용.
+
+`.30`과 물리적으로 다른 인스턴스라 계정을 새로 만들어야 함. **순서 중요**(계정 없이 `--auth`부터
+켜면 아무도 로그인 못 함):
+1. `docker-compose.yml`의 mongo `command: ["mongod", "--auth"]` 주석 처리 후 `docker compose up -d mongo`
+2. `docker exec -it sortmaster-mongo mongosh`에서 root+`user01~05` 계정 생성(`db.createUser`,
+   비밀번호는 문서에 적지 말고 팀원에게 직접 전달)
+3. `--auth` 주석 해제 후 `docker compose up -d mongo`(볼륨 유지)
+4. `.env`: backend도 같은 서버면 `MONGO_HOST=mongo`/`DB_PORT=27017`(내부망), 외부 접속이면
+   `MONGO_HOST=<서버IP>`/`DB_PORT=27020`
+
+## 메인보드(라즈베리파이) 참고
+
+Jetson Orin Nano Super(icbanq 무료 렌탈) 발주 건은 **완전히 취소** — 라즈베리파이로 확정
+대체. 이유: 애초 Orin을 쓰려던 목적(YOLO26 엣지 상시 추론)을 GPU 서버(`inference`)로
+이관하기로 하면서 메인보드에 고성능 NPU/GPU가 더 이상 필요 없어짐(`architecture.md`의
+"탐지 파이프라인"/"배포 전략" 참고). 라즈베리파이는 표준 Raspberry Pi OS(Python 3.11+)라
+`WebApps/backend`와 문법 호환성 문제 없음 — 과거 Jetson Nano 4GB의 Python 3.6 제약 이슈는
+애초에 해당 없음.
+
+**라즈베리파이는 추론을 하지 않음** — 캡처+RTSP 송신+GPIO(전구 릴레이)+스피커(경고음)만
+담당. **TOP/SIDE 둘 다 로컬 백엔드로만** RTSP를 보내면 됨(GPU 서버와 직접 연결되는
+라즈베리파이는 없음 — 과거 "TOP만 8554 역터널로 GPU까지 도달" 방식 폐기, `decisionLog.md`
+참고). TOP 카메라의 YOLO26 추론(감지+추적+분류)은 GPU 서버의 `models/trashdetect/
+tracking2.py`가, 로컬 백엔드가 상시 서빙 중인 MJPEG 스트림(`GET /api/stream/ELEV-TOP`)을
+기존 SSH 역터널(`-R 8299:localhost:8047`)로 직접 구독해서 자체 판단(위 "외부 접속 — SSH
+터널" 참고) — 과거 "로컬 백엔드가 프레임 샘플링해서 GPU API 호출" 방식은 폐기됨
+(`decisionLog.md` 참고). **SIDE 카메라의 MobileNet_V3_Small 추론도 완전히 동일한 패턴** —
+GPU 서버의 `models/trashoverflow/sideOverflow.py`가 같은 터널로 `GET
+/api/stream/ELEV-SIDE`를 구독(한때 "로컬 백엔드 CPU 추론, GPU 미사용"으로 갔다가 TOP과
+아키텍처 통일 목적으로 재전환됨, `decisionLog.md` 참고). 학습 가중치(`.pt`)는 `training`/
+`tracking2.py`/`sideOverflow.py` 전부 GPU 서버 안에 있으므로 원격 배포 없이 로컬 파일/볼륨
+공유로 충분(과거 "젯슨에 SCP로 배포" 문제 자체가 사라짐).

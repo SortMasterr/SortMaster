@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>스마트 수거 / 관리 시스템</title>
+
+    <!-- Font Awesome 아이콘 -->
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    >
+
+    <!-- 메인 페이지 CSS -->
+    <link
+        rel="stylesheet"
+        href="/static/css/index.css?v=12"
+    >
+
+    <!-- 공통 사이드바 CSS -->
+    <link
+        rel="stylesheet"
+        href="/static/css/sidebar.css?v=11"
+    >
+</head>
+
+<body>
+    <div class="appContainer">
+        <!-- 사이드바 -->
+        <div id="sidebarContainer">
+            {% include "sidebar.html" %}
+        </div>
+
+        <!-- 우측 메인 콘텐츠 -->
+        <main class="mainContent">
+            <div class="contentHeader">
+                <h1 id="contentTitle">
+                    현재 상태: 수거 모드
+                </h1>
+
+                <span
+                    id="modeBadge"
+                    class="badge badgeCollect"
+                >
+                    수거 가동 중
+                </span>
+            </div>
+
+            <div
+                class="contentBody"
+                id="contentBody"
+            >
+                <h2>실시간 모니터링</h2>
+
+                <div class="monitoringLayout">
+                    <div
+                        class="videoContainer"
+                        id="videoContainer"
+                    >
+                        <!-- 두 카메라 전체 확대 버튼 -->
+                        <button
+                            id="fullscreenBtn"
+                            class="fullscreenBtn"
+                            title="두 카메라 전체화면 보기"
+                            aria-label="두 카메라 전체화면 보기"
+                            type="button"
+                        >
+                            <i class="fa-solid fa-expand"></i>
+                        </button>
+
+                        <div class="videoSplit">
+                            {% for id in cameraIds %}
+                            <div
+                                class="videoPane"
+                                data-camera-id="{{ id }}"
+                                tabindex="0"
+                                role="button"
+                                title="{{ id }} 카메라 전체화면 보기"
+                                aria-label="{{ id }} 카메라 전체화면 보기"
+                            >
+                                <span class="videoPaneLabel">
+                                    {{ id }}
+                                </span>
+
+                                <img
+                                    src="/api/stream/{{ id }}"
+                                    alt="{{ id }} 카메라 실시간 화면"
+                                >
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="eventAlertPanelSlot">
+                        <aside
+                            class="eventAlertPanel"
+                            aria-labelledby="eventAlertTitle"
+                        >
+                            <div class="eventAlertHeader">
+                                <div class="eventAlertHeading">
+                                    <span class="eventAlertIcon">
+                                        <i class="fa-solid fa-bell"></i>
+                                    </span>
+                                    <div>
+                                        <h3 id="eventAlertTitle">
+                                            미확인 알림
+                                        </h3>
+                                        <p>오늘 발생한 오분류</p>
+                                    </div>
+                                </div>
+
+                                <span
+                                    id="eventAlertCount"
+                                    class="eventAlertCount"
+                                    aria-live="polite"
+                                >
+                                    0
+                                </span>
+                            </div>
+
+                            <button
+                                id="acknowledgeAllAlertsBtn"
+                                class="acknowledgeAllAlertsBtn"
+                                type="button"
+                                hidden
+                            >
+                                모두 확인
+                            </button>
+
+                            <div
+                                id="eventAlertList"
+                                class="eventAlertList"
+                                role="list"
+                            ></div>
+
+                            <div
+                                id="eventAlertEmpty"
+                                class="eventAlertEmpty"
+                            >
+                                <i class="fa-regular fa-circle-check"></i>
+                                <strong>미확인 알림이 없습니다</strong>
+                                <span>새 오분류가 감지되면 여기에 표시됩니다.</span>
+                            </div>
+                        </aside>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- 공통 JS를 먼저 불러옵니다. -->
+    <script src="/static/js/sidebar.js?v=15"></script>
+    <script src="/static/js/index.js?v=13"></script>
+</body>
+
+</html>

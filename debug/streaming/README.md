@@ -1,0 +1,81 @@
+# 라즈베리파이 RTSP 시뮬레이션 (로컬 테스트용)
+
+이 PC의 웹캠 여러 대를 각각 다른 지점(`CameraId`)에 할당해서, 지점마다 독립된 라즈베리파이가
+하는 역할(캡처+RTSP 송신)을 흉내내는 도구. 카메라 1대 = 지점 1개 = `CameraId` 1개 구성
+(architecture.md 참고). 라즈베리파이 실기기는 이미 셋업 완료(`.agentfiles/piSetupOps.md`
+참고)했지만, 실기기 없이 백엔드 쪽만 빠르게 테스트하고 싶을 때 여전히 이 시뮬레이터가 유용함.
+
+**주의**: 여기서 쓰는 FFmpeg/MediaMTX는 "카메라를 든 쪽"(현재는 이 PC, 나중엔 라즈베리파이) 역할이라
+`WebApps/backend`나 `docker-compose.yml`에는 포함되지 않음. 백엔드는 원래 설계대로 RTSP URL만
+받아서 열면 됨(`cv2.VideoCapture`가 RTSP 문자열도 그대로 처리 — 백엔드 코드 수정 불필요).
+
+## 사용법
+
+```bash
+python startRtspSim.py
+```
+
+`infra/checkEnv.py`처럼 필요한 것들을 자동으로 확인·설치한다:
+
+1. **FFmpeg** — 없으면 `winget install --id Gyan.FFmpeg -e`로 자동 설치
+2. **MediaMTX** — 없으면 GitHub 최신 릴리스를 자동 다운로드(`%LOCALAPPDATA%\mediamtx\`)
+3. **카메라 장치** — `ffmpeg -f dshow -list_devices`로 자동 감지해서 목록 출력. 감지된
+   카메라마다 어느 지점(`ELEV-TOP`/`ELEV-SIDE`/`REST-4F-01`)인지 번호로 선택(카메라가 1대뿐이면
+   1개만 할당해도 됨, Enter만 누르면 할당 종료)
+4. MediaMTX + 할당한 카메라 수만큼 FFmpeg 송신 자동 실행
+
+완료되면 `.env`에 추가할 줄을 화면에 출력해준다(할당한 지점 수만큼):
+
+```
+CAMERA_SOURCE_ELEVTOP=rtsp://localhost:8554/ELEV-TOP
+CAMERA_SOURCE_ELEVSIDE=rtsp://localhost:8554/ELEV-SIDE
+```
+
+종료는 스크립트를 실행한 창에서 `Ctrl+C`(MediaMTX/FFmpeg 프로세스까지 같이 종료됨).
+
+## 주의사항
+
+- **FFmpeg를 방금 처음 설치했다면 터미널을 재시작하고 다시 실행**해야 함(winget이 PATH를
+  갱신해도 이미 열려있는 터미널엔 반영 안 됨)
+- 카메라 모델이 같으면 장치 이름이 똑같이 나올 수 있음(예: 같은 제품 2대) — 내부적으로는
+  장치 고유 경로로 구분해서 열기 때문에 문제없지만, 어느 번호가 어느 물리 카메라인지는
+  화면 가리기 등으로 직접 구분해야 함
+- 카메라가 1개뿐이면(예: 노트북 내장캠만 있는 경우) 지점 1개만 할당하고 테스트 가능
+- Windows 전용(DirectShow 기반)
+- 문제 생기면 `logs/` 폴더의 `mediamtx.log`, `ffmpeg_<cameraId>.log` 확인(자동 생성, git에는 안 올라감)
+
+## 확인 후 백엔드 실행
+
+```bash
+cd WebApps/backend
+uvicorn main:app --reload --port 8047
+```
+
+`http://localhost:8047/`에서 할당한 지점들의 화면이 RTSP 경유로 정상 표시되면 성공.
+
+## 프레임 전달 상태 점검 — `testRtspDelay.py`
+
+RTSP 카메라(`streaming/cameraManager.py`의 ffmpeg 서브프로세스 방식)가 프레임을 실제로
+얼마나 자주 갱신하는지, 연결이 얼마나 빨리 열리는지 확인한다. 프로젝트 루트에서
+backend venv를 활성화하고 실행한다.
+
+```bash
+python debug/streaming/testRtspDelay.py --camera-id ELEV-TOP
+```
+
+`.env`의 `CAMERA_SOURCE_<CameraId>`가 설정돼 있어야 한다(위 시뮬레이터로 띄운 RTSP도 가능).
+
+ffmpeg 서브프로세스가 항상 최신 프레임만 덮어써서 유지하므로(아무도 안 읽어도 버퍼가 안
+쌓임) 예전처럼 "방치 시 지연이 누적되는지"를 재는 게 아니라, `readFrame()`을 반복 호출해
+**프레임 내용이 바뀌는 빈도(체감 전달 fps)** 를 본다.
+
+## 참고
+
+- MediaMTX 기본 RTSP 포트는 8554(변경 가능하나 바꿀 이유 없음)
+- 실제 배포 시엔 라즈베리파이가 자체 RTSP 서버(ffmpeg+MediaMTX, `.agentfiles/piSetupOps.md`
+  참고 — Jetson 대신 라즈베리파이로 전환되면서 GStreamer/JetPack 대신 이 조합으로 확정됨)를
+  띄우므로 이 절차 전체가 불필요해짐 — `.env`의 `CAMERA_SOURCE_<CameraId>`만 해당
+  라즈베리파이 호스트이름 또는 IP로 교체(Docker로 배포하면 호스트이름 대신 고정 IP 필요,
+  `piSetupOps.md`의 "Docker 컨테이너 안에서는 mDNS가 안 통함" 참고)
+- FFmpeg 인코딩 옵션(`ultrafast`/`zerolatency`/GOP 40 등)은 팀원이 실측으로 찾은 안정화 설정
+  (H264 corrupted macroblock, frame duplication 문제 해결 이력 있음)

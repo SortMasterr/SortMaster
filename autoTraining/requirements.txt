@@ -1,0 +1,14 @@
+# env_py311에서 2026-08-25 실제 검증한 재현 버전입니다.
+# +cu118 PyTorch/torchvision 휠을 찾기 위한 공식 추가 인덱스입니다.
+--extra-index-url https://download.pytorch.org/whl/cu118
+
+ultralytics==8.4.117
+numpy==2.4.4
+opencv-python==4.14.0.94
+PyYAML==6.0.3
+Pillow==11.1.0
+motor==3.7.1
+pymongo==4.17.0
+python-dotenv==1.2.2
+torch==2.7.1+cu118
+torchvision==0.22.1+cu118

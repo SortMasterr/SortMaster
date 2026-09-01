@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>스마트 수거 / 관리 시스템 - 이전기록</title>
+
+    <!-- Font Awesome 아이콘 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+
+    <!-- 이전기록 페이지 CSS -->
+    <link rel="stylesheet" href="/static/css/eventsList.css?v=14">
+
+    <!-- 공통 사이드바 CSS -->
+    <link rel="stylesheet" href="/static/css/sidebar.css?v=11">
+</head>
+
+<body>
+    <div class="appContainer">
+        <!-- 공통 사이드바 -->
+        <div id="sidebarContainer">
+            {% include "sidebar.html" %}
+        </div>
+
+        <!-- 우측 메인 콘텐츠 -->
+        <main class="mainContent">
+            <div class="contentHeader">
+                <h1 id="contentTitle">
+                    현재 상태: 수거 모드
+                </h1>
+
+                <span id="modeBadge" class="badge badgeCollect">
+                    수거 가동 중
+                </span>
+            </div>
+
+            <div class="contentBody" id="contentBody">
+                <div class="pageHead">
+                    <div>
+                        <h1>감지 이벤트 이전기록</h1>
+
+                        <p>
+                            오분류 및 쓰레기통 넘침 판정 시점에 저장된
+                            이벤트 기록입니다.
+                        </p>
+                    </div>
+
+                </div>
+
+                <!-- 카드 현황판 -->
+                <div class="stats">
+                    <div class="statCard">
+                        <div class="statLabel">
+                            총 저장 이벤트
+                        </div>
+
+                        <div class="statValue" id="statTotal">
+                            0<span>건</span>
+                        </div>
+                    </div>
+
+                    <div class="statCard">
+                        <div class="statLabel">
+                            오늘 이벤트
+                        </div>
+
+                        <div class="statValue" id="statToday">
+                            0<span>건</span>
+                        </div>
+                    </div>
+
+                    <div class="statCard cRed">
+                        <div class="statLabel">
+                            오분류
+                        </div>
+
+                        <div class="statValue" id="statMisclassification">
+                            0<span>건</span>
+                        </div>
+                    </div>
+
+                    <div class="statCard cAmber">
+                        <div class="statLabel">
+                            넘침 감지
+                        </div>
+
+                        <div class="statValue" id="statOverflow">
+                            0<span>건</span>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- 검색 및 필터 -->
+                <div class="filters">
+                    <div class="field">
+                        <label for="fFrom">시작일</label>
+
+                        <input type="date" id="fFrom">
+                    </div>
+
+                    <div class="field">
+                        <label for="fTo">종료일</label>
+
+                        <input type="date" id="fTo">
+                    </div>
+
+                    <div class="field">
+                        <label for="fType">
+                            분류타입
+                        </label>
+
+                        <select id="fType">
+                            <option value="">전체</option>
+
+                            <option value="일반쓰레기">
+                                일반쓰레기
+                            </option>
+
+                            <option value="종이">
+                                종이
+                            </option>
+
+                            <option value="플라스틱·캔">플라스틱·캔</option>
+                            <option value="커피 컵">커피 컵</option>
+                            <option value="쓰레기통 넘침">쓰레기통 넘침</option>
+                        </select>
+                    </div>
+
+                    <div class="field">
+                        <label for="fResult">결과</label>
+
+                        <select id="fResult">
+                            <option value="">전체</option>
+                            <option value="오분류">오분류</option>
+                            <option value="넘침 감지">넘침 감지</option>
+                        </select>
+                    </div>
+
+                    <button class="btnReset" id="btnReset" type="button">
+                        필터 초기화
+                    </button>
+
+                    <div class="countBadge">
+                        <b id="countShown">0</b>
+                        /
+                        <span id="countAll">0</span>건 표시
+                    </div>
+                </div>
+
+                <!-- 데이터 테이블 -->
+                <div class="tableWrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th data-key="time">
+                                    시간
+                                    <i class="fa-solid fa-sort"></i>
+                                </th>
+
+                                <th data-key="area">
+                                    위치
+                                    <i class="fa-solid fa-sort"></i>
+                                </th>
+
+                                <th data-key="type">
+                                    분류타입
+                                    <i class="fa-solid fa-sort"></i>
+                                </th>
+
+                                <th data-key="binId">
+                                    배출위치
+                                    <i class="fa-solid fa-sort"></i>
+                                </th>
+
+                                <th data-key="result">
+                                    결과
+                                    <i class="fa-solid fa-sort"></i>
+                                </th>
+
+                            </tr>
+                        </thead>
+
+                        <tbody id="tbody"></tbody>
+                    </table>
+                </div>
+
+                <!-- 페이지네이션 -->
+                <div class="pagination" id="pagination"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 상세 모달 -->
+    <div class="modalBackdrop" id="modalBackdrop">
+        <div class="modal">
+            <div class="modalHead">
+                <h3 id="modalTitle">
+                    RECORD #0000
+                </h3>
+
+                <button id="modalClose" type="button" aria-label="상세 창 닫기">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="modalBody">
+                <div class="mItem">
+                    <div class="mLabel">시간</div>
+                    <div class="mValue" id="mTime">-</div>
+                </div>
+
+                <div class="mItem">
+                    <div class="mLabel">위치</div>
+                    <div class="mValue" id="mArea">-</div>
+                </div>
+
+                <div class="mItem">
+                    <div class="mLabel">분류타입</div>
+                    <div class="mValue" id="mType">-</div>
+                </div>
+
+                <div class="mItem">
+                    <div class="mLabel">배출위치</div>
+                    <div class="mValue" id="mBinId">-</div>
+                </div>
+
+                <div class="mItem">
+                    <div class="mLabel">결과</div>
+                    <div class="mValue" id="mResult">-</div>
+                </div>
+
+                <div class="mItem mMediaItem">
+                    <div
+                        id="eventMediaLabel"
+                        class="mLabel"
+                    >
+                        이벤트 영상 · 직전 약 5초
+                    </div>
+
+                    <button
+                        id="eventMediaThumbnailBtn"
+                        class="eventMediaThumbnailBtn"
+                        type="button"
+                        aria-label="이벤트 GIF 확대 재생"
+                        hidden
+                    >
+                        <img
+                            id="eventMediaThumbnail"
+                            alt="오분류 직전 이벤트 영상"
+                        >
+                        <span class="eventMediaPlayIcon">
+                            <i class="fa-solid fa-expand"></i>
+                        </span>
+                    </button>
+
+                    <div
+                        id="eventMediaEmpty"
+                        class="eventMediaEmpty"
+                    >
+                        <i class="fa-regular fa-image"></i>
+                        <span>저장된 영상 없음</span>
+                    </div>
+
+                    <div
+                        id="eventMediaUnsupported"
+                        class="eventMediaUnsupported"
+                        hidden
+                    >
+                        <i class="fa-solid fa-video-slash"></i>
+                        <span>
+                            사이드 카메라는 미리보기를 지원하지 않습니다
+                        </span>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div
+            id="eventMediaViewer"
+            class="eventMediaViewer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="이벤트 GIF 확대 재생"
+            hidden
+        >
+            <button
+                id="eventMediaViewerClose"
+                class="eventMediaViewerClose"
+                type="button"
+                aria-label="영상 닫기"
+            >
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+
+            <img
+                id="eventMediaViewerImage"
+                alt="오분류 직전 5초 GIF"
+            >
+        </div>
+    </div>
+
+    <!-- 공통 JavaScript를 먼저 불러옵니다. -->
+    <script src="/static/js/sidebar.js?v=15"></script>
+    <script src="/static/js/eventsList.js?v=18"></script>
+</body>
+
+</html>

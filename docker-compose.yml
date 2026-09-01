@@ -1,0 +1,225 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: WebApps/backend/Dockerfile
+    container_name: sortmaster-backend
+    # 로컬 배포 서버 전용 — GPU 서버에서 이 파일을 쓸 때(inference/side-overflow) 이름
+    # 없이 `docker compose up`을 실수로 치면 로컬 서비스까지 같이 뜨려는 걸 막기 위해
+    # profile로 분리. `docker compose --profile local up -d`로 기동.
+    profiles: ["local"]
+    restart: unless-stopped
+    ports:
+      - "8047:8047"
+    env_file:
+      - .env
+    environment:
+      - RPA_STATE_DIRECTORY=/app/RPAs/reportAutomation/state
+    depends_on:
+      - mongo
+    volumes:
+      - report-state:/app/RPAs/reportAutomation/state
+    # 카메라가 GPU 서버와 다른 사설망(팀원 로컬 PC)에 있을 때, 노트북→GPU서버 역방향
+    # SSH 터널(-R)로 끌어온 RTSP를 컨테이너 안에서 host.docker.internal로 접근하기 위함.
+    # .env의 CAMERA_SOURCE_<CameraId>에서 host.docker.internal 사용 시에만 의미 있음.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # 통계 보고서 예약 실행 전용 프로세스. FastAPI와 분리해 개발용 reload나 다중 worker로
+  # 인한 중복 실행을 막고, 대시보드에서 저장한 수신 주소와 발송 이력을 공유한다.
+  report-scheduler:
+    build:
+      context: .
+      dockerfile: WebApps/backend/Dockerfile
+    container_name: sortmaster-report-scheduler
+    profiles: ["local"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - RPA_STATE_DIRECTORY=/app/RPAs/reportAutomation/state
+      - SORTMASTER_API_BASE_URL=http://backend:8047
+    depends_on:
+      - backend
+    volumes:
+      - report-state:/app/RPAs/reportAutomation/state
+    command:
+      - python
+      - -m
+      - RPAs.reportAutomation.reportScheduler
+
+  collection-scheduler:
+    build:
+      context: .
+      dockerfile: WebApps/backend/Dockerfile
+    container_name: sortmaster-collection-scheduler
+    profiles: ["local"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - backend
+    command:
+      - python
+      - -m
+      - RPAs.collectionAutomation.collectionScheduler
+
+  mongo:
+    image: mongo:7.0
+    container_name: sortmaster-mongo
+    # backend/report-scheduler와 같은 이유로 local profile — GPU 서버에서 잘못 같이 뜨는 것 방지
+    profiles: ["local"]
+    restart: unless-stopped
+    ports:
+      - "27020:27017"
+    volumes:
+      - mongo-data:/data/db
+    # 이 컨테이너는 로컬용 별도 인스턴스 — 팀 공유 서버(<LEGACY_SHARED_SERVER_IP>, 실제 값은
+    # Notion 참고)와는 다른 DB. 지금은 인증 없이 기동. 팀 공유 서버에 인증을 켜려면 mongosh로 root+팀원
+    # 계정을 먼저 만든 다음, 아래 주석을 해제하고 재시작할 것(architecture.md의
+    # "DB 접속" 절 참고 — 계정 없이 먼저 --auth부터 켜면 아무도 로그인 못 하니 순서 반드시 지킬 것):
+    # command: ["mongod", "--auth"]
+
+  # Qwen3-VL-8B 서빙(vLLM, OpenAI 호환 API) — MVP는 안 씀(YOLO26 단독으로 감지+분류+판정
+  # 완결, architecture.md의 "탐지 파이프라인" 참고). 고도화 단계에서 학습 보조용(불확실한
+  # 분류 안정화/환경별 통 모양 인식 데이터 생성)으로만 쓸 예정이라, training처럼 필요할 때만
+  # 기동하도록 profile로 뺌:
+  #   docker compose --profile llm up llm
+  llm:
+    image: vllm/vllm-openai:v0.27.1-cu129-ubuntu2404
+    container_name: sortmaster-llm
+    profiles: ["llm"]
+    restart: unless-stopped
+    ports:
+      - "${LLM_PORT:-8099}:8000"
+    env_file:
+      - .env
+    environment:
+      # training과 동일한 이유(베이스 이미지가 NVIDIA_VISIBLE_DEVICES=all을 박아둠) —
+      # 명시적으로 덮어써야 실제로 카드 격리됨.
+      - NVIDIA_VISIBLE_DEVICES=${GPU_DEVICE_ID:-0}
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+    volumes:
+      # 모델 가중치(수 GB~수십 GB) 재다운로드 방지용 캐시
+      - llm-model-cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              # training과 같은 카드 공유(architecture.md: "학습 작업과 실시간 서비스가
+              # 같은 카드를 쓰므로 트래픽 적은 시간대 학습 권장"). .env의 GPU_DEVICE_ID로
+              # 팀 배정 카드 지정.
+              device_ids: ["${GPU_DEVICE_ID:-0}"]
+              capabilities: [gpu]
+    command:
+      - --model
+      # FP8 사전양자화 버전 기본값 — L40S(Ada Lovelace)가 FP8 네이티브 지원이라 VRAM을
+      # 아낄 수 있음(architecture.md의 "4/8bit 양자화" 목표와 부합). 파인튜닝 어댑터
+      # 나오면 .env의 LLM_MODEL_NAME으로 교체
+      - ${LLM_MODEL_NAME:-Qwen/Qwen3-VL-8B-Instruct-FP8}
+      # training과 VRAM을 나눠 써야 해서 vLLM 기본값(0.9)보다 낮게 잡음 — 실측 후 조정 필요
+      - --gpu-memory-utilization
+      - "0.5"
+      - --max-model-len
+      - "8192"
+
+  # 라벨링/학습(YOLO26 재학습 + Qwen3-VL-8B LoRA·QLoRA) 때만 기동:
+  #   docker compose --profile training up training
+  # best.pt 등 산출물 나오면 내리기:
+  #   docker compose --profile training down
+  training:
+    build:
+      context: ./training
+    container_name: sortmaster-training
+    profiles: ["training"]
+    ports:
+      # 팀 공용 JupyterLab. 호스트 포트는 공유 GPU 서버에서 다른 사람과 겹칠 수 있으니
+      # 띄우기 전에 `sudo ss -tlnp | grep <포트>`로 비어있는지 꼭 확인할 것. .env의
+      # JUPYTER_PORT로 바꿀 수 있음(기본 8899).
+      - "${JUPYTER_PORT:-8899}:8888"
+    env_file:
+      - .env
+    environment:
+      # 베이스 이미지(pytorch/pytorch)가 자체적으로 NVIDIA_VISIBLE_DEVICES=all을 박아두고
+      # 있어서, 아래 deploy.devices.device_ids 예약만으로는 무시되고 카드 4장이 전부
+      # 컨테이너 안에 노출되는 문제가 있었음 — 여기서 명시적으로 덮어써야 실제로 격리됨.
+      - NVIDIA_VISIBLE_DEVICES=${GPU_DEVICE_ID:-0}
+    volumes:
+      - ./training:/workspace
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              # 팀당 GPU 1장만 할당(architecture.md 참고) — count: all로 두면 서버의
+              # 다른 4장을 전부 잡으려 들어서 다른 팀과 충돌남. .env의 GPU_DEVICE_ID로
+              # 할당받은 카드 번호(nvidia-smi 기준 인덱스, 예: 2)를 지정할 것.
+              device_ids: ["${GPU_DEVICE_ID:-0}"]
+              capabilities: [gpu]
+
+  # TOP(ELEV-TOP) YOLO26 상시 추론 — 로컬 백엔드 MJPEG를 SSH 역터널로 구독해서 자체
+  # 판정 후 POST /api/events/aiDisposal로 푸시하는 워커(요청을 받지 않으므로 ports 없음).
+  # training/llm처럼 온디맨드는 아니라서 매번 이름을 다시 지정할 필요는 없지만, 로컬
+  # backend/mongo와 같이 뜨는 걸 막기 위해 GPU 서버 전용 gpu profile로 분리 —
+  # `docker compose --profile gpu up -d`로 한 번에 기동. rootless Docker가 이미
+  # loginctl enable-linger로 재부팅 시 자동 기동되도록 설정돼 있어서(gpuServerOps.md),
+  # restart: unless-stopped와 합쳐지면 GPU 서버 재부팅 후 이 컨테이너도 자동 복구됨(단,
+  # 로컬 배포 서버 쪽 SSH 역터널이 살아있어야 실제로 연결됨 — 그건 별개 문제).
+  inference:
+    build:
+      context: ./WebApps/backend/models/trashdetect
+    container_name: sortmaster-inference
+    profiles: ["gpu"]
+    restart: unless-stopped
+    # host.docker.internal(브리지 네트워크 경유)로는 SSH -R 터널이 GPU 서버 루프백에만
+    # 열어둔 포트(8299)에 못 닿음("Connection refused") — sshd GatewayPorts를 켜려면
+    # root 권한이 필요해서(soma 계정엔 없음), 대신 컨테이너가 호스트 네트워크를 그대로
+    # 공유하게 함. 이러면 컨테이너 안 127.0.0.1이 GPU 서버 자신의 127.0.0.1과 동일해져서
+    # BACKEND_HOST 오버라이드도 불필요(tracking2.py 기본값 127.0.0.1 그대로 사용).
+    # ports:/외부 노출이 애초에 없는 서비스라 격리를 포기해도 손해가 없음.
+    network_mode: host
+    environment:
+      # training과 동일한 이유(베이스 이미지가 NVIDIA_VISIBLE_DEVICES=all을 박아둠) —
+      # 명시적으로 덮어써야 실제로 카드 격리됨.
+      - NVIDIA_VISIBLE_DEVICES=${GPU_DEVICE_ID:-0}
+    volumes:
+      # 소스+가중치(bestTop.pt, .gitignore 대상)+트래커 설정을 통째로 마운트 —
+      # 이미지에 안 구우므로 가중치 갱신 시 재빌드 불필요, 컨테이너 재시작만 하면 됨.
+      - ./WebApps/backend/models/trashdetect:/app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${GPU_DEVICE_ID:-0}"]
+              capabilities: [gpu]
+
+  # SIDE(ELEV-SIDE) MobileNet_V3_Small 상시 추론 — inference(TOP)와 완전히 동일한 패턴
+  # (기술적으로 GPU가 꼭 필요하진 않지만 TOP과 아키텍처를 통일하려고 재전환됨,
+  # decisionLog.md 참고). POST /api/binStates로 푸시.
+  side-overflow:
+    build:
+      context: ./WebApps/backend/models/trashoverflow
+    container_name: sortmaster-side-overflow
+    profiles: ["gpu"]
+    restart: unless-stopped
+    # inference와 같은 이유 — host.docker.internal 대신 호스트 네트워크 공유(위 참고)
+    network_mode: host
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${GPU_DEVICE_ID:-0}
+    volumes:
+      # 소스+가중치(bestSide.pt, .gitignore 대상)+roi.json을 통째로 마운트
+      - ./WebApps/backend/models/trashoverflow:/app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${GPU_DEVICE_ID:-0}"]
+              capabilities: [gpu]
+
+volumes:
+  mongo-data:
+  llm-model-cache:
+  report-state:

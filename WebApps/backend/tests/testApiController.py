@@ -1,0 +1,397 @@
+import unittest
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, patch
+
+from controllers import api
+from fastapi import HTTPException
+from schemas.detection import DetectionStop
+from schemas.detection import DetectionStart
+from schemas.event import (
+    ActionTaken,
+    BinType,
+    CameraId,
+    DetectedClass,
+    Event,
+    EventCategory,
+    EventCreate,
+)
+from schemas.report import (
+    ReportEmailSettingsRequest,
+    ReportEmailSettingsResponse,
+)
+from services.eventService import EventCreationResult
+from services.errors import (
+    CameraUnavailableError,
+    RecordingCameraMismatchError,
+    RecordingNotFoundError,
+    ReportEmailSettingsError,
+)
+
+
+def eventCreate():
+    return EventCreate(
+        cameraId=CameraId.ELEVTOP,
+        eventCategory=EventCategory.MISCLASSIFICATION,
+        detectionId="controller-detection",
+        trackingId=8,
+        detectedClass=DetectedClass.RECYCLABLES,
+        binId="BIN-PAPER",
+        binType=BinType.PAPER,
+        isMisclassified=True,
+        confidenceScore=0.92,
+        modelVersion="controller-test-v1",
+    )
+
+
+def savedEvent():
+    request = eventCreate()
+    return Event(
+        **request.model_dump(),
+        eventId="controller-event",
+        timestamp=datetime.now(timezone.utc),
+        actionTaken=ActionTaken.LIGHT_AND_SOUND,
+    )
+
+
+def detectionStop():
+    return DetectionStop(
+        recordingId="controller-recording",
+        **eventCreate().model_dump(
+            exclude={"imageFileId"}
+        ),
+    )
+
+
+class ApiControllerBroadcastTest(
+    unittest.IsolatedAsyncioTestCase
+):
+    async def testEventMediaReturnsStoredGif(self):
+        event = savedEvent().model_copy(
+            update={
+                "imageFileId": "507f1f77bcf86cd799439011",
+            }
+        )
+
+        with (
+            patch(
+                "controllers.api.eventService.getEventById",
+                AsyncMock(return_value=event),
+            ),
+            patch(
+                "controllers.api.mediaService.getClip",
+                AsyncMock(return_value=b"GIF89a"),
+            ) as getClip,
+        ):
+            response = await api.getEventMedia(
+                event.eventId
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("image/gif", response.media_type)
+        self.assertEqual(b"GIF89a", response.body)
+        getClip.assert_awaited_once_with(
+            event.imageFileId,
+            event.cameraId,
+        )
+
+    async def testEventMediaReturns404WithoutImage(self):
+        with patch(
+            "controllers.api.eventService.getEventById",
+            AsyncMock(return_value=savedEvent()),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await api.getEventMedia(
+                    "controller-event"
+                )
+
+        self.assertEqual(404, raised.exception.status_code)
+
+    async def testDuplicateResponseDoesNotBroadcastAgain(self):
+        event = savedEvent()
+
+        with (
+            patch(
+                "controllers.api.eventService.createEventWithStatus",
+                AsyncMock(
+                    return_value=EventCreationResult(
+                        event=event,
+                        created=False,
+                    )
+                ),
+            ),
+            patch(
+                "controllers.api._broadcastIfManageMode",
+                AsyncMock(),
+            ) as broadcast,
+        ):
+            response = await api.createEvent(eventCreate())
+
+        self.assertIs(response, event)
+        broadcast.assert_not_awaited()
+
+    async def testNewEventBroadcastsOnce(self):
+        event = savedEvent()
+
+        with (
+            patch(
+                "controllers.api.eventService.createEventWithStatus",
+                AsyncMock(
+                    return_value=EventCreationResult(
+                        event=event,
+                        created=True,
+                    )
+                ),
+            ),
+            patch(
+                "controllers.api._broadcastIfManageMode",
+                AsyncMock(),
+            ) as broadcast,
+        ):
+            response = await api.createEvent(eventCreate())
+
+        self.assertIs(response, event)
+        broadcast.assert_awaited_once_with(event)
+
+    async def testAcknowledgementBroadcastsToConnectedClients(self):
+        event = savedEvent().model_copy(
+            update={"acknowledgedAt": datetime.now(timezone.utc)}
+        )
+
+        with (
+            patch(
+                "controllers.api.eventService.acknowledgeEvent",
+                AsyncMock(return_value=event),
+            ),
+            patch(
+                "controllers.api._broadcastAcknowledgedEvents",
+                AsyncMock(),
+            ) as broadcast,
+        ):
+            response = await api.acknowledgeEvent(event.eventId)
+
+        self.assertIs(response, event)
+        broadcast.assert_awaited_once_with([event])
+
+    async def testMissingAcknowledgementReturnsHttp404(self):
+        with patch(
+            "controllers.api.eventService.acknowledgeEvent",
+            AsyncMock(return_value=None),
+        ):
+            with self.assertRaises(HTTPException) as context:
+                await api.acknowledgeEvent("missing-event")
+
+        self.assertEqual(404, context.exception.status_code)
+
+    async def testBulkAcknowledgementBroadcastsOnce(self):
+        event = savedEvent().model_copy(
+            update={"acknowledgedAt": datetime.now(timezone.utc)}
+        )
+        request = api.EventAcknowledgementBatch(
+            eventIds=[event.eventId]
+        )
+
+        with (
+            patch(
+                "controllers.api.eventService.acknowledgeEvents",
+                AsyncMock(return_value=[event]),
+            ),
+            patch(
+                "controllers.api._broadcastAcknowledgedEvents",
+                AsyncMock(),
+            ) as broadcast,
+        ):
+            response = await api.acknowledgeAllEvents(request)
+
+        self.assertEqual([event], response)
+        broadcast.assert_awaited_once_with([event])
+
+    async def testAcknowledgementPayloadContainsEventIds(self):
+        event = savedEvent().model_copy(
+            update={"acknowledgedAt": datetime.now(timezone.utc)}
+        )
+
+        with patch(
+            "controllers.api.webSocketManager.broadcast",
+            AsyncMock(),
+        ) as broadcast:
+            await api._broadcastAcknowledgedEvents([event])
+
+        payload = broadcast.await_args.args[0]
+        self.assertEqual(
+            "MISCLASSIFICATION_ACKNOWLEDGED",
+            payload["eventType"],
+        )
+        self.assertEqual([event.eventId], payload["eventIds"])
+        self.assertIn("timestamp", payload)
+
+    async def testDuplicateStopResponseDoesNotBroadcastAgain(self):
+        event = savedEvent()
+
+        with (
+            patch(
+                "controllers.api.detectionService.stopDetectionWithStatus",
+                AsyncMock(
+                    return_value=EventCreationResult(
+                        event=event,
+                        created=False,
+                    )
+                ),
+            ),
+            patch(
+                "controllers.api._broadcastIfManageMode",
+                AsyncMock(),
+            ) as broadcast,
+        ):
+            response = await api.stopDetection(detectionStop())
+
+        self.assertIs(response, event)
+        broadcast.assert_not_awaited()
+
+    async def testStopCameraMismatchReturnsHttp400(self):
+        with patch(
+            "controllers.api.detectionService.stopDetectionWithStatus",
+            AsyncMock(
+                side_effect=RecordingCameraMismatchError(
+                    "camera mismatch"
+                )
+            ),
+        ):
+            with self.assertRaises(HTTPException) as context:
+                await api.stopDetection(detectionStop())
+
+        self.assertEqual(400, context.exception.status_code)
+
+    async def testStopNotFoundReturnsHttp404(self):
+        with patch(
+            "controllers.api.detectionService.stopDetectionWithStatus",
+            AsyncMock(
+                side_effect=RecordingNotFoundError(
+                    "recording missing"
+                )
+            ),
+        ):
+            with self.assertRaises(HTTPException) as context:
+                await api.stopDetection(detectionStop())
+
+        self.assertEqual(404, context.exception.status_code)
+
+    async def testUnexpectedValueErrorIsNotMisreportedAsHttp400(self):
+        with patch(
+            "controllers.api.detectionService.stopDetectionWithStatus",
+            AsyncMock(
+                side_effect=ValueError("internal conversion bug")
+            ),
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "internal conversion bug",
+            ):
+                await api.stopDetection(detectionStop())
+
+    async def testExpectedCameraFailureReturnsHttp503(self):
+        request = DetectionStart(cameraId=CameraId.ELEVTOP)
+
+        with patch(
+            "controllers.api.detectionService.startDetection",
+            AsyncMock(
+                side_effect=CameraUnavailableError(
+                    "camera unavailable"
+                )
+            ),
+        ):
+            with self.assertRaises(HTTPException) as context:
+                await api.startDetection(request)
+
+        self.assertEqual(503, context.exception.status_code)
+
+    async def testUnexpectedRuntimeErrorIsNotMisreportedAsHttp503(self):
+        request = DetectionStart(cameraId=CameraId.ELEVTOP)
+
+        with patch(
+            "controllers.api.detectionService.startDetection",
+            AsyncMock(
+                side_effect=RuntimeError("internal start bug")
+            ),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "internal start bug",
+            ):
+                await api.startDetection(request)
+
+    async def testReportEmailSettingsSavesDashboardRecipient(self):
+        request = ReportEmailSettingsRequest(
+            recipient="Manager@Example.com",
+        )
+        expected = ReportEmailSettingsResponse(
+            configured=True,
+            recipient="manager@example.com",
+            message="자동 보고서 수신 이메일을 저장했습니다.",
+        )
+
+        with patch(
+            "controllers.api.reportEmailService.saveSettings",
+            return_value=expected,
+        ) as saveSettings:
+            response = api.saveReportEmailSettings(request)
+
+        self.assertEqual(expected, response)
+        saveSettings.assert_called_once_with(request)
+
+    async def testReportEmailSettingsAcceptsEmptyRecipientForUnsubscribe(self):
+        request = ReportEmailSettingsRequest(recipient="   ")
+        expected = ReportEmailSettingsResponse(
+            configured=False,
+            recipient=None,
+            message="자동 보고서 이메일 수신을 해제했습니다.",
+        )
+
+        with patch(
+            "controllers.api.reportEmailService.saveSettings",
+            return_value=expected,
+        ) as saveSettings:
+            response = api.saveReportEmailSettings(request)
+
+        self.assertIsNone(request.recipient)
+        self.assertEqual(expected, response)
+        saveSettings.assert_called_once_with(request)
+
+    async def testReportEmailSettingsFailureReturnsHttp500(self):
+        request = ReportEmailSettingsRequest(
+            recipient="manager@example.com",
+        )
+
+        with patch(
+            "controllers.api.reportEmailService.saveSettings",
+            side_effect=ReportEmailSettingsError(
+                "settings unavailable"
+            ),
+        ):
+            with self.assertRaises(HTTPException) as context:
+                api.saveReportEmailSettings(request)
+
+        self.assertEqual(500, context.exception.status_code)
+        self.assertEqual(
+            "자동 보고서 수신 이메일을 저장할 수 없습니다.",
+            context.exception.detail,
+        )
+
+    async def testReportEmailSettingsReturnsSavedRecipient(self):
+        expected = ReportEmailSettingsResponse(
+            configured=True,
+            recipient="manager@example.com",
+            message="자동 보고서 수신 이메일이 설정되어 있습니다.",
+        )
+
+        with patch(
+            "controllers.api.reportEmailService.getSettings",
+            return_value=expected,
+        ) as getSettings:
+            response = api.getReportEmailSettings()
+
+        self.assertEqual(expected, response)
+        getSettings.assert_called_once_with()
+
+
+if __name__ == "__main__":
+    unittest.main()

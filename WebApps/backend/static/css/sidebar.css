@@ -1,0 +1,342 @@
+/* 사이드바 컨테이너 */
+#sidebarContainer {
+    height: 100vh;
+    position: sticky;
+    top: 0;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 사이드바 */
+.sidebar {
+    position: relative;
+    width: 250px;
+    height: 100vh;
+    min-height: 100vh;
+    flex: 1;
+    padding: 20px 0;
+    background-color: #1e293b;
+    color: #ffffff;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+}
+
+/* 사이드바 제목 */
+.sidebarHeader {
+    padding: 0 20px 20px;
+    border-bottom: 1px solid #334155;
+}
+
+.sidebarHeader h2 {
+    margin: 0;
+    color: #38bdf8;
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+
+/* 사이드바 메뉴 영역 */
+.sidebarBody {
+    padding: 20px;
+    flex: 1;
+}
+
+.menuLabel {
+    display: block;
+    margin-bottom: 12px;
+    color: #94a3b8;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* 메뉴 목록 */
+.navMenu {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.navMenu li {
+    margin-bottom: 8px;
+}
+
+.navMenu a {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    color: #cbd5e1;
+    text-decoration: none;
+    border-radius: 8px;
+    font-weight: 500;
+    transition:
+        color 0.2s,
+        background-color 0.2s;
+}
+
+.navAlertBadge {
+    min-width: 22px;
+    height: 22px;
+    margin-left: auto;
+    padding: 0 7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    background-color: #dc2626;
+    border-radius: 11px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.navAlertBadge[hidden] {
+    display: none;
+}
+
+.navMenu a:hover,
+.navMenu li.active a {
+    color: #38bdf8;
+    background-color: #0f172a;
+}
+
+/* 쓰레기통 가득 참 알림 위치 */
+.sidebarAlertArea {
+    position: absolute;
+
+    /*
+     * 숫자가 커질수록 위로 올라가고
+     * 작아질수록 아래로 내려갑니다.
+     */
+    bottom: 15%;
+
+    left: 50%;
+    width: calc(100% - 32px);
+    margin: 0;
+    padding: 0;
+    transform: translateX(-50%);
+    z-index: 10;
+}
+
+/* 쓰레기통 가득 참 알림 */
+.binFullAlert {
+    width: 100%;
+    min-height: 54px;
+    padding: 12px 10px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+
+    color: #dc2626;
+    background-color: #fde047;
+    border: 4px solid #ff2020;
+    border-radius: 4px;
+
+    font-size: 1rem;
+    font-weight: 700;
+    text-align: center;
+
+    box-sizing: border-box;
+
+    box-shadow:
+        0 6px 18px rgba(239, 68, 68, 0.5),
+        inset 0 0 8px rgba(255, 255, 255, 0.5);
+
+    animation: binFullBlink 0.9s infinite alternate;
+}
+
+/* 쓰레기통 아이콘 */
+.binFullAlert i {
+    color: #dc2626;
+    font-size: 1.05rem;
+}
+
+/* hidden 상태에서는 알림 숨김 */
+.binFullAlert[hidden] {
+    display: none;
+}
+
+/* 알림 강조 애니메이션 */
+@keyframes binFullBlink {
+    from {
+        background-color: #fde047;
+        border-color: #ef4444;
+        box-shadow:
+            0 4px 12px rgba(239, 68, 68, 0.3),
+            inset 0 0 6px rgba(255, 255, 255, 0.35);
+    }
+
+    to {
+        background-color: #facc15;
+        border-color: #ff0000;
+        box-shadow:
+            0 7px 22px rgba(239, 68, 68, 0.7),
+            inset 0 0 10px rgba(255, 255, 255, 0.55);
+    }
+}
+
+/* 모드 토글 버튼 영역 */
+.sidebarFooter {
+    padding: 20px;
+    border-top: 1px solid #334155;
+}
+
+/* 모드 토글 버튼 */
+.toggleBtn {
+    width: 100%;
+    padding: 12px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+
+    border: none;
+    border-radius: 8px;
+
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+
+    transition: background-color 0.2s;
+}
+
+/* 수거 모드 버튼 */
+.modeCollect {
+    color: #ffffff;
+    background-color: #10b981;
+}
+
+.modeCollect:hover {
+    background-color: #059669;
+}
+
+/* 관리 모드 버튼 */
+.modeAdmin {
+    color: #ffffff;
+    background-color: #f97316;
+}
+
+.modeAdmin:hover {
+    background-color: #ea580c;
+}
+
+
+/* 모바일에서는 고정 사이드바를 상단 내비게이션으로 전환합니다. */
+@media (max-width: 768px) {
+    .appContainer {
+        flex-direction: column;
+    }
+
+    #sidebarContainer {
+        position: relative;
+        top: auto;
+        z-index: 20;
+
+        width: 100%;
+        height: auto;
+        min-height: 0;
+    }
+
+    .sidebar {
+        width: 100%;
+        height: auto;
+        min-height: 0;
+        flex: none;
+        padding: 0;
+    }
+
+    .sidebarHeader {
+        padding: 14px 16px 12px;
+    }
+
+    .sidebarHeader h2 {
+        font-size: 1.05rem;
+    }
+
+    .sidebarBody {
+        padding: 10px 12px;
+    }
+
+    .menuLabel {
+        display: none;
+    }
+
+    .navMenu {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+    }
+
+    .navMenu li {
+        min-width: 0;
+        margin-bottom: 0;
+    }
+
+    .navMenu a {
+        position: relative;
+
+        min-height: 64px;
+        padding: 8px 4px;
+
+        flex-direction: column;
+        justify-content: center;
+        gap: 4px;
+
+        font-size: 0.78rem;
+        text-align: center;
+    }
+
+    .navAlertBadge {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+
+        min-width: 20px;
+        height: 20px;
+        margin-left: 0;
+        padding: 0 6px;
+    }
+
+    .sidebarAlertArea {
+        position: static;
+
+        width: auto;
+        margin: 0 12px 10px;
+        transform: none;
+    }
+
+    .sidebarFooter {
+        padding: 0 12px 12px;
+        border-top: 0;
+    }
+
+    .toggleBtn {
+        min-height: 42px;
+        padding: 9px 12px;
+    }
+
+    .mainContent {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .contentHeader {
+        min-height: 64px;
+        padding: 12px 16px;
+        flex-wrap: wrap;
+        gap: 8px 12px;
+    }
+
+    .contentHeader h1 {
+        font-size: 1.05rem;
+    }
+
+    .contentBody {
+        padding: 16px;
+    }
+}

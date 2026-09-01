@@ -1,0 +1,324 @@
+"""
+TOP 카메라(ELEV-TOP) 사람 존재 감지 게이팅.
+
+architecture.md "탐지 파이프라인"의 사람 존재 감지 게이팅을 구현한다: 사람이 통 앞에
+있는 동안만 녹화를 켜고, 사람이 벗어나면(약 3초 유예 후) 녹화를 끈다. 모션(움직임) 감지는
+투척 시작 순간을 놓칠 수 있어 기각됐고(decisionLog.md), 대신 detection/presenceDetector.py의
+배경 차분 전경 비율을 임계값+디바운스로 게이팅한다.
+
+이 녹화는 실제 오분류 판정과 별개로 시작·종료된다. 방문 종료 후 전체 GIF를 GridFS에
+저장하고, 오분류 이벤트가 있으면 DB 원본에서 직전 5초 GIF를 파생한다. 오분류 판정 자체는
+GPU 서버의 models/trashdetect/tracking2.py가 TOP 카메라 RTSP를 직접 보면서 자체적으로
+투척 완료를 판단해 controllers/api.py의 POST /events/aiDisposal로 결과를 푸시하는 방식으로
+확정됐다(과거 "로컬 백엔드가 존재 감지 중 프레임을 샘플링해서 GPU 세션 API로 보내는" 설계는
+폐기 — decisionLog.md 참고). 따라서 여기서는 stopDetectionWithStatus(GPU 판정 결과 필요)를
+호출하지 않고 recordingService.stop()만 호출해 녹화를 종료한다.
+"""
+import asyncio
+import logging
+import os
+import time
+from datetime import datetime, timedelta, timezone
+from enum import Enum
+
+import cv2
+import numpy as np
+
+from detection.presenceDetector import PersonPresenceDetector
+from repositories.eventRepository import eventRepository
+from schemas.event import CameraId, EventCategory
+from services.detectionService import detectionService
+from services.errors import (
+    CameraUnavailableError,
+    EmptyRecordingError,
+    RecordingCameraMismatchError,
+    RecordingNotFoundError,
+)
+from services.mediaService import mediaService
+from services.eventMediaService import eventMediaService
+from services.recordingService import recordingService
+from services.visitClipService import (
+    visitClipService,
+    windowBufferSeconds,
+)
+from streaming.cameraManager import cameraManagers
+
+logger = logging.getLogger(__name__)
+
+pollIntervalSeconds = float(os.getenv("PRESENCE_POLL_INTERVAL_SECONDS", "0.2"))
+foregroundRatioThreshold = float(os.getenv("PRESENCE_FOREGROUND_RATIO_THRESHOLD", "0.05"))
+entryConfirmSeconds = float(os.getenv("PRESENCE_ENTRY_CONFIRM_SECONDS", "0.5"))
+exitGraceSeconds = float(os.getenv("PRESENCE_EXIT_GRACE_SECONDS", "3.0"))
+# 카메라 재오픈 재시도 간격 — 튜닝 노브가 아니라 구현 디테일이라 .env로 노출하지 않음
+cameraStartRetryIntervalSeconds = 5.0
+# MOG2 배경 모델이 "빈 화면"을 다시 학습하는 데 걸리는 대략적 시간 — cv2 기본값(history=500)은
+# 30fps 기준(약 16초)이라, 우리 폴링 주기(pollIntervalSeconds)로 환산하면 실제로는 훨씬 오래
+# 걸림(0.2초 간격이면 100초!). 백엔드가 재시작될 때마다 그만큼 오탐(사람이 없어도 PRESENT로
+# 잘못 판단하거나, 사람이 나가도 ABSENT로 안 돌아오는 문제)이 재현됐던 것 — 실기기 테스트로
+# 확인됨. 폴링 주기에 맞춰 history를 계산해서 항상 이 정도 시간 안에 수렴하게 한다.
+backgroundHistorySeconds = 20.0
+
+
+class PresenceState(str, Enum):
+    ABSENT = "ABSENT"
+    PRESENT = "PRESENT"
+
+
+class PresenceGateService:
+    def __init__(self, cameraId: CameraId, cameraManagers: dict):
+        self.cameraId = cameraId
+        self.cameraManagers = cameraManagers
+        self.presenceDetector = PersonPresenceDetector(
+            history=max(
+                1,
+                round(backgroundHistorySeconds / pollIntervalSeconds),
+            )
+        )
+        self.state = PresenceState.ABSENT
+        self.recordingId: str | None = None
+        self.aboveThresholdSince: float | None = None
+        self.belowThresholdSince: float | None = None
+        self.lastCameraStartAttemptAt: float | None = None
+        self.pollTask: asyncio.Task | None = None
+        self.stopped = asyncio.Event()
+
+    async def start(self) -> None:
+        if self.pollTask is not None:
+            return
+
+        # 카메라를 여기서 직접 열지 않음 — RTSP 소스가 아직 응답이 없으면
+        # cameraManager.start()의 재시도(최대 5회) x OpenCV RTSP 연결 타임아웃(기본
+        # 30초)이 겹쳐 앱 시작 자체가 몇 분씩 멈출 수 있음(실기기 테스트 중 실측 확인).
+        # 폴링 루프를 먼저 띄우고, 카메라 열기는 _handleNoFrame()이 백그라운드에서
+        # 재시도하게 해서 main.py의 lifespan을 절대 막지 않는다.
+        self.stopped.clear()
+        self.pollTask = asyncio.create_task(self._pollLoop())
+
+    async def shutdown(self) -> None:
+        self.stopped.set()
+
+        if self.pollTask is not None:
+            self.pollTask.cancel()
+
+            try:
+                await self.pollTask
+            except asyncio.CancelledError:
+                pass
+
+            self.pollTask = None
+
+        if self.recordingId is not None:
+            await self._stopRecording()
+
+    async def _pollLoop(self) -> None:
+        cameraManager = self.cameraManagers[self.cameraId.value]
+
+        try:
+            while not self.stopped.is_set():
+                frame = await cameraManager.readFrame()
+                now = time.monotonic()
+                decoded = (
+                    await asyncio.to_thread(self._decodeFrame, frame)
+                    if frame is not None
+                    else None
+                )
+
+                if decoded is not None:
+                    ratio = await asyncio.to_thread(
+                        self.presenceDetector.foregroundRatio,
+                        decoded,
+                    )
+                    await self._handleRatio(ratio, now)
+                else:
+                    await self._handleNoFrame(now)
+
+                try:
+                    await asyncio.wait_for(
+                        self.stopped.wait(),
+                        timeout=pollIntervalSeconds,
+                    )
+                except asyncio.TimeoutError:
+                    pass
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(
+                "[presenceGateService] '%s' 폴링 루프가 예기치 않게 종료됨",
+                self.cameraId.value,
+            )
+
+    @staticmethod
+    def _decodeFrame(frame: bytes):
+        # cameraManager.readFrame()은 항상 JPEG bytes를 반환함(RTSP/로컬 웹캠 공통) —
+        # 배경 차분(PersonPresenceDetector)은 numpy 배열을 기대하므로 다시 디코딩한다.
+        decoded = cv2.imdecode(
+            np.frombuffer(frame, dtype=np.uint8),
+            cv2.IMREAD_COLOR,
+        )
+        return decoded if decoded is not None else None
+
+    async def _handleNoFrame(self, now: float) -> None:
+        if (
+            self.lastCameraStartAttemptAt is not None
+            and now - self.lastCameraStartAttemptAt
+            < cameraStartRetryIntervalSeconds
+        ):
+            return
+
+        self.lastCameraStartAttemptAt = now
+        cameraManager = self.cameraManagers[self.cameraId.value]
+
+        try:
+            await cameraManager.start()
+        except RuntimeError:
+            pass
+
+    async def _handleRatio(self, ratio: float, now: float) -> None:
+        isAboveThreshold = ratio >= foregroundRatioThreshold
+
+        if self.state == PresenceState.ABSENT:
+            if isAboveThreshold:
+                if self.aboveThresholdSince is None:
+                    self.aboveThresholdSince = now
+
+                if now - self.aboveThresholdSince >= entryConfirmSeconds:
+                    await self._enterPresent()
+            else:
+                self.aboveThresholdSince = None
+        else:
+            if isAboveThreshold:
+                self.belowThresholdSince = None
+            else:
+                if self.belowThresholdSince is None:
+                    self.belowThresholdSince = now
+
+                if now - self.belowThresholdSince >= exitGraceSeconds:
+                    await self._exitToAbsent()
+
+    async def _enterPresent(self) -> None:
+        self.state = PresenceState.PRESENT
+        self.aboveThresholdSince = None
+
+        try:
+            self.recordingId = await detectionService.startDetection(
+                self.cameraId
+            )
+        except CameraUnavailableError as error:
+            logger.warning(
+                "[presenceGateService] '%s' 녹화 시작 실패, ABSENT로 되돌림: %s",
+                self.cameraId.value,
+                error,
+            )
+            self.state = PresenceState.ABSENT
+            return
+
+        logger.info(
+            "[presenceGateService] '%s' 사람 감지, 녹화 시작 (recordingId=%s)",
+            self.cameraId.value,
+            self.recordingId,
+        )
+
+    async def _exitToAbsent(self) -> None:
+        self.state = PresenceState.ABSENT
+        self.belowThresholdSince = None
+        await self._stopRecording()
+
+    async def _stopRecording(self) -> None:
+        recordingId = self.recordingId
+        self.recordingId = None
+
+        if recordingId is None:
+            return
+
+        try:
+            frames, durationSeconds = await recordingService.stop(
+                recordingId,
+                expectedCameraId=self.cameraId,
+            )
+        except (
+            RecordingNotFoundError,
+            RecordingCameraMismatchError,
+        ) as error:
+            logger.warning(
+                "[presenceGateService] '%s' 녹화 종료 중 이미 정리됨"
+                "(recordingId=%s): %s",
+                self.cameraId.value,
+                recordingId,
+                error,
+            )
+            return
+
+        logger.info(
+            "[presenceGateService] '%s' 사람 이탈, 녹화 종료 "
+            "(recordingId=%s, %.1fs, 오분류 판정은 GPU tracking2.py가 별도로 푸시)",
+            self.cameraId.value,
+            recordingId,
+            durationSeconds,
+        )
+
+        await self._saveVisitClip(frames, durationSeconds)
+
+    async def _saveVisitClip(
+        self,
+        frames: list,
+        durationSeconds: float,
+    ) -> None:
+        """오분류 판정(GPU)과 완전히 무관하게, 방문 자체를 무조건 GridFS+visitClips에 남긴다.
+
+        YOLO가 트랙조차 인지 못 한 실패 사례까지 재학습 후보로 잡으려면 판정 결과와
+        상관없이 저장해야 한다 — architecture.md의 "재학습용 미확정 방문 캡처" 참고.
+        """
+        endedAt = datetime.now(timezone.utc)
+        startedAt = endedAt - timedelta(seconds=durationSeconds)
+
+        try:
+            imageFileId = await mediaService.saveClipAsGif(
+                frames, self.cameraId, endedAt
+            )
+        except EmptyRecordingError:
+            logger.warning(
+                "[presenceGateService] '%s' 방문 구간에 캡처된 프레임이 없어 "
+                "visitClip 저장 생략",
+                self.cameraId.value,
+            )
+            return
+
+        candidateEvents = await eventRepository.findAll(
+            fromDate=startedAt,
+            toDate=endedAt + timedelta(
+                seconds=windowBufferSeconds
+            ),
+        )
+        matchedEvents = [
+            event
+            for event in candidateEvents
+            if event.cameraId == self.cameraId
+            and event.eventCategory == EventCategory.MISCLASSIFICATION
+            and event.isMisclassified is True
+        ]
+        visitClip = await visitClipService.createClipForVisit(
+            self.cameraId,
+            startedAt,
+            endedAt,
+            imageFileId,
+            [event.eventId for event in matchedEvents],
+        )
+        eventsById = {
+            event.eventId: event
+            for event in matchedEvents
+        }
+
+        for eventId in visitClip.matchedEventIds:
+            event = eventsById.get(eventId)
+
+            if event is None:
+                event = await eventRepository.findById(eventId)
+
+            if event is not None:
+                await eventMediaService.attachPreviewFromVisitClip(
+                    event,
+                    visitClip,
+                )
+
+
+presenceGateService = PresenceGateService(CameraId.ELEVTOP, cameraManagers)

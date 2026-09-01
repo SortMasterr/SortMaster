@@ -1,0 +1,85 @@
+### VSCode REST Client 확장(humao.rest-client) 필요 — 요청 위 "Send Request" 클릭
+### services/detectionService.py(임시 스텁) 검증용. .agentfiles/apiSpec.md의 EP-08/EP-09 참고
+
+@baseUrl = http://<LOCAL_BACKEND_IP>:8047
+
+### 1. 녹화 시작
+# @name start
+POST {{baseUrl}}/api/detection/start
+Content-Type: application/json
+
+{
+    "cameraId": "ELEV-TOP"
+}
+
+### 2. 녹화 종료 + GIF 업로드 + 이벤트 저장 (1번 실행 후 이어서 실행)
+POST {{baseUrl}}/api/detection/stop
+Content-Type: application/json
+
+{
+    "recordingId": "{{start.response.body.recordingId}}",
+    "cameraId": "ELEV-TOP",
+    "detectionId": "{{$guid}}",
+    "binId": "BIN-PLASTIC-CAN",
+    "binType": "recyclables",
+    "modelVersion": "yolo26-dev",
+    "detectedClass": "recyclables",
+    "isMisclassified": true,
+    "confidenceScore": 0.9
+}
+
+### 3. 저장된 이벤트 목록 확인
+GET {{baseUrl}}/api/events
+
+### 4. BIN_STATES 조회 (EP-10) — .agentfiles/apiSpec.md 참고
+GET {{baseUrl}}/api/binStates
+
+### 5. BIN_STATES 갱신: NORMAL→FULL 전환 → overflow 이벤트 자동 생성 (EP-11)
+# @name binFull
+POST {{baseUrl}}/api/binStates
+Content-Type: application/json
+
+{
+    "binId": "BIN-GENERAL",
+    "binType": "normal",
+    "sessionId": "{{$guid}}",
+    "currentState": "FULL",
+    "confidenceScore": 0.97,
+    "overflowDuration": 6.0,
+    "overflowThreshold": 5.0,
+    "detectionId": "{{$guid}}",
+    "modelVersion": "overflow-dev"
+}
+
+### 6. 같은 상태(FULL) 재전송 — 이벤트 재생성 안 됨, 값만 갱신 확인용
+POST {{baseUrl}}/api/binStates
+Content-Type: application/json
+
+{
+    "binId": "BIN-GENERAL",
+    "binType": "normal",
+    "sessionId": "{{$guid}}",
+    "currentState": "FULL",
+    "confidenceScore": 0.98,
+    "overflowDuration": 9.0,
+    "overflowThreshold": 5.0,
+    "detectionId": "{{$guid}}",
+    "modelVersion": "overflow-dev"
+}
+
+### 7. BIN_STATES 갱신: FULL→NORMAL 복귀 → activeOverflowEventId만 null로 리셋
+POST {{baseUrl}}/api/binStates
+Content-Type: application/json
+
+{
+    "binId": "BIN-GENERAL",
+    "binType": "normal",
+    "sessionId": "{{$guid}}",
+    "currentState": "NORMAL",
+    "confidenceScore": 0.95,
+    "overflowDuration": 0.0,
+    "overflowThreshold": 5.0,
+    "detectionId": "{{$guid}}",
+    "modelVersion": "overflow-dev"
+}
+
