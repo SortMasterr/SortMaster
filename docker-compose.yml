@@ -1,3 +1,4 @@
+
 services:
   backend:
     build:
@@ -57,6 +58,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - backend
     command:
