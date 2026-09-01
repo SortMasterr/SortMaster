@@ -33,41 +33,7 @@ Qwen3-VL-8B를 쓰는 자동 재학습 파이프라인도 갖췄습니다.
 세 종류의 물리적 위치(라즈베리파이 · 로컬 백엔드 · GPU 서버)로 역할이 겹치지 않게
 나뉘어 있습니다.
 
-```mermaid
-flowchart LR
-    subgraph PI["라즈베리파이 · 엣지"]
-        CAM[웹캠 캡처] --> PUSH["RTSP 송신<br/>MediaMTX + ffmpeg"]
-        SPK[스피커]
-    end
-
-    subgraph BE["로컬 백엔드 + MongoDB"]
-        FASTAPI[FastAPI] --> MJPEG["MJPEG 재서빙<br/>GET /api/stream/id"]
-        FASTAPI --> DB[(MongoDB)]
-        FASTAPI --> WEBUI["관리자 웹 UI<br/>/ · /events · /statistics"]
-        FASTAPI --> ALERT["경고 신호<br/>WebSocket"]
-    end
-
-    subgraph GPU["GPU 서버"]
-        SUB["MJPEG 구독<br/>SSH 역터널"] --> MODEL["YOLO26+BoT-SORT (TOP)<br/>MobileNet_V3_Small (SIDE)"]
-        MODEL --> RESULT[판정 결과 POST]
-        VLLM["vLLM Qwen3-VL<br/>라벨링 검증"]
-        RETRAIN[재학습 · autoTraining]
-    end
-
-    PUSH -->|RTSP| FASTAPI
-    MJPEG -->|구독| SUB
-    RESULT -->|"POST /api/events/aiDisposal<br/>POST /api/binStates"| FASTAPI
-    ALERT -.->|경고 신호| SPK
-    RETRAIN -.->|학습 데이터 조회| DB
-    VLLM -.-> RETRAIN
-
-    classDef pi fill:#F1F5EE,stroke:#2C5F2D,color:#16241C;
-    classDef be fill:#F1F5EE,stroke:#2C5F2D,color:#16241C;
-    classDef gpu fill:#F1F5EE,stroke:#C6453B,color:#16241C;
-    class CAM,PUSH,SPK pi;
-    class FASTAPI,MJPEG,DB,WEBUI,ALERT be;
-    class SUB,MODEL,RESULT,VLLM,RETRAIN gpu;
-```
+<img src="Docs/images/architecture.png" alt="SortMaster 시스템 아키텍처" width="900">
 
 라즈베리파이는 추론 없이 캡처·RTSP 송신·스피커만 담당하고, 로컬 백엔드가 스트림을
 재서빙하며 이벤트·통계·대시보드를 책임집니다. GPU 서버는 그 스트림을 SSH 역터널로 구독해
